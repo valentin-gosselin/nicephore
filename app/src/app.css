@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+@import '@immich/ui/theme/default.css';
+@source '../node_modules/@immich/ui';
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+body {
+  @apply bg-light text-dark;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

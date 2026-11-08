@@ -1,0 +1,10 @@
+{
+  "extends": "$app/tsconfig",
+  "include": ["src", "*"],
+  "exclude": ["src/service-worker", "src-tauri"],
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  }
+}

@@ -1,0 +1,125 @@
+use bytes::Bytes;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Ping {
+    pub res: String,
+}
+
+/// Error body returned by Immich (`message` may be a string or a list).
+#[derive(Debug, Deserialize)]
+pub(crate) struct MessageErreur {
+    #[serde(default)]
+    message: serde_json::Value,
+}
+
+impl MessageErreur {
+    pub fn message_lisible(&self) -> String {
+        match &self.message {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Array(liste) => liste
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(" ; "),
+            _ => String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VersionServeur {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl std::fmt::Display for VersionServeur {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Utilisateur {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+}
+
+/// One month of the timeline (`timeBucket` is `YYYY-MM-DD`, first day).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mois {
+    pub time_bucket: String,
+    pub count: u32,
+}
+
+/// Columnar description of the assets of one month: every vector has the
+/// same length, index `i` describes asset `i`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DetailMois {
+    pub id: Vec<String>,
+    pub ratio: Vec<f64>,
+    pub is_image: Vec<bool>,
+    #[serde(default)]
+    pub is_favorite: Vec<bool>,
+    #[serde(default)]
+    pub thumbhash: Vec<Option<String>>,
+    #[serde(default)]
+    pub duration: Vec<Option<serde_json::Value>>,
+    pub file_created_at: Vec<String>,
+    #[serde(default)]
+    pub local_offset_hours: Vec<f64>,
+    #[serde(default)]
+    pub live_photo_video_id: Vec<Option<String>>,
+    #[serde(default)]
+    pub stack: Option<Vec<Option<Vec<String>>>>,
+}
+
+/// Rendered sizes served by `/assets/{id}/thumbnail`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TailleImage {
+    /// About 250 px, for grids.
+    Vignette,
+    /// About 1440 px, for the viewer.
+    Apercu,
+    /// Full resolution rendering (when enabled on the server).
+    Pleine,
+}
+
+impl TailleImage {
+    pub fn parametre(self) -> &'static str {
+        match self {
+            TailleImage::Vignette => "thumbnail",
+            TailleImage::Apercu => "preview",
+            TailleImage::Pleine => "fullsize",
+        }
+    }
+
+    pub fn depuis_nom(nom: &str) -> Option<Self> {
+        match nom {
+            "vignette" | "thumbnail" => Some(TailleImage::Vignette),
+            "apercu" | "preview" => Some(TailleImage::Apercu),
+            "pleine" | "fullsize" => Some(TailleImage::Pleine),
+            _ => None,
+        }
+    }
+
+    pub fn nom(self) -> &'static str {
+        match self {
+            TailleImage::Vignette => "vignette",
+            TailleImage::Apercu => "apercu",
+            TailleImage::Pleine => "pleine",
+        }
+    }
+}
+
+/// Image bytes as served by the server.
+#[derive(Debug, Clone)]
+pub struct ImageBrute {
+    pub octets: Bytes,
+    pub type_mime: Option<String>,
+}
