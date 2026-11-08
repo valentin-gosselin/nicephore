@@ -305,3 +305,6 @@ export type CompteMemorise = {
 export const comptes = () => invoke<CompteMemorise[]>('comptes');
 /** Null when the account is sealed and waits for its passphrase. */
 export const changerCompte = (cle: string) => invoke<Connexion | null>('changer_compte', { cle });
+
+export type EstimationDossier = { fichiers: number; octets: number; illisibles: number };
+export const estimerDossier = (dossier: string) => invoke<EstimationDossier>('estimer_dossier', { dossier });

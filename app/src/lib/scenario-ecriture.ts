@@ -230,6 +230,8 @@ export async function lancerScenarioEcriture() {
     const dossier = await invoke<string | null>('dossier_photos_banc');
     await verifier('dossier de photos préparé', !!dossier, dossier ?? '');
     if (dossier) {
+      const estimation = await invoke<{ fichiers: number; octets: number }>('estimer_dossier', { dossier });
+      await verifier('estimation avant ajout (4 photos, texte exclu)', estimation.fichiers === 4 && estimation.octets > 0, `${estimation.fichiers} fichiers, ${estimation.octets} octets`);
       await invoke('ajouter_regle_envoi', { dossier, cible: { genre: 'albumParDossier' } });
       let envoyes = false;
       for (let i = 0; i < 60 && !envoyes; i++) {

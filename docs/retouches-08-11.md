@@ -46,3 +46,22 @@ désormais un second utilisateur avec ses 3 photos : ajout du second compte, ses
 retour au premier par sa phrase, déconnexion puis reprise par le compte restant, deux bases d'envoi
 distinctes. Non-régression : portable 8/8, écriture 43/43, lecture seule à 60 i/s. Le chemin du
 trousseau réel (hors portable) n'est pas testable dans la session virtuelle.
+
+## Envoi qui continuait après pause et retrait (09/11, 00 h 35)
+
+Valentin a ajouté `~/Images/2026` (108 Go) pour essayer, l'a mis en pause puis retiré : le passage
+en cours a continué (empreintes pendant un quart d'heure, puis 307 photos envoyées sur le vrai
+serveur entre 00:33:36 et 00:34:54, presque toutes après le retrait). Nicéphore a été fermé pour
+tout arrêter.
+
+- Cause : la pause et le retrait n'étaient regardés qu'entre deux dossiers, jamais pendant le
+  passage d'un dossier.
+- Correction : une pause ou tout changement de règles (ajout, retrait, suspension, changement de
+  compte) arrête le passage en cours aussitôt, entre deux empreintes, entre deux lots, avant chaque
+  envoi, et pendant un envoi (la requête est annulée, le serveur ne garde rien d'incomplet).
+- Garde-fou : avant d'ajouter un dossier, Nicéphore annonce combien de photos et de vidéos et quel
+  volume partiraient ; au-delà de 10 Go ou de 5 000 fichiers, un avertissement le dit clairement ;
+  le bouton porte le volume (« Envoyer 108 Go ») au lieu de « Ajouter ».
+- Tests contre le serveur jetable, 60 photos de 2 Mo : pause pendant l'envoi (3 parties, puis plus
+  rien pendant 3 s, puis la reprise envoie le reste) et retrait du dossier pendant l'envoi (3
+  parties, puis plus rien). Estimation vérifiée dans le scénario de l'appli (44/44).

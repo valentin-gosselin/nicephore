@@ -235,3 +235,103 @@ async fn attente_sur_batterie() {
     let ids: Vec<String> = moteur.base().journal(100).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
     c.mettre_a_la_corbeille(&ids).await.unwrap();
 }
+
+/// A bigger variant (about 2 MB) so uploads take a little time.
+fn grosse_variante(jpeg: &[u8], texte: &str) -> Vec<u8> {
+    let mut sortie = variante(jpeg, texte);
+    let remplissage = vec![b'x'; 65_000];
+    for _ in 0..30 {
+        let mut segment = vec![0xFF, 0xFE];
+        segment.extend_from_slice(&((remplissage.len() + 2) as u16).to_be_bytes());
+        segment.extend_from_slice(&remplissage);
+        sortie.splice(2..2, segment);
+    }
+    sortie
+}
+
+async fn dossier_de_60(nom: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join(nom);
+    let jpeg = photo_du_serveur();
+    for i in 0..60 {
+        ecrire(&racine.join(format!("p{i:02}.jpg")), &grosse_variante(&jpeg, &format!("{nom} {i} {jeton}")), 3_600);
+    }
+    patienter().await;
+    (temporaire, racine)
+}
+
+async fn attendre_un_envoi(moteur: &Moteur) {
+    for _ in 0..600 {
+        if journal(moteur, "envoye") > 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("aucun envoi");
+}
+
+async fn nettoyer(c: &ClientImmich, moteur: &Moteur) {
+    let ids: Vec<String> = moteur.base().journal(1_000).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
+    if !ids.is_empty() {
+        c.mettre_a_la_corbeille(&ids).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "serveur Immich jetable"]
+async fn la_pause_arrete_tout_de_suite() {
+    let c = client().await;
+    let (_temporaire, racine) = dossier_de_60("pause").await;
+    let moteur = moteur();
+    moteur.base().ajouter_regle(&racine, &Cible::Bibliotheque).unwrap();
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    let boucle = tokio::spawn(moteur.lancer());
+
+    attendre_un_envoi(&moteur).await;
+    moteur.mettre_en_pause(true);
+    let au_moment = journal(&moteur, "envoye");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let apres = journal(&moteur, "envoye");
+    println!("pause : {au_moment} envoyés au moment de la pause, {apres} trois secondes après");
+    assert_eq!(apres, au_moment, "plus rien ne part après la pause");
+    assert!(apres < 60, "la pause doit couper le passage en cours");
+
+    // Resuming sends the rest.
+    moteur.mettre_en_pause(false);
+    for _ in 0..300 {
+        if journal(&moteur, "envoye") >= 60 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(journal(&moteur, "envoye"), 60, "la reprise envoie le reste");
+    boucle.abort();
+    nettoyer(&c, &moteur).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "serveur Immich jetable"]
+async fn retirer_le_dossier_arrete_tout_de_suite() {
+    let c = client().await;
+    let (_temporaire, racine) = dossier_de_60("retrait").await;
+    let moteur = moteur();
+    let regle = moteur.base().ajouter_regle(&racine, &Cible::Bibliotheque).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    let boucle = tokio::spawn(moteur.lancer());
+
+    attendre_un_envoi(&moteur).await;
+    let ids_avant: Vec<String> = moteur.base().journal(1_000).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
+    moteur.base().supprimer_regle(regle).unwrap();
+    moteur.regles_changees();
+    let au_moment = journal(&moteur, "envoye");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let apres = journal(&moteur, "envoye");
+    println!("retrait : {au_moment} envoyés au moment du retrait, {apres} trois secondes après");
+    assert_eq!(apres, au_moment, "plus rien ne part après le retrait");
+    assert!(apres < 60);
+    boucle.abort();
+    let ids: Vec<String> = moteur.base().journal(1_000).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
+    assert!(ids.len() >= ids_avant.len());
+    nettoyer(&c, &moteur).await;
+}

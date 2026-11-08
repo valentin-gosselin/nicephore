@@ -863,6 +863,7 @@ pub fn lancer() {
             mise_a_jour::chercher_mise_a_jour,
             mise_a_jour::installer_mise_a_jour,
             commandes_envoi::regles_envoi,
+            commandes_envoi::estimer_dossier,
             commandes_envoi::reglages_app,
             commandes_envoi::definir_reglages_app,
             commandes_envoi::definir_demarrage_auto,

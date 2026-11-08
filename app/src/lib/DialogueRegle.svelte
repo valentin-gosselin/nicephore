@@ -3,7 +3,7 @@
   import { Button, LoadingSpinner, Text } from '@immich/ui';
   import { open } from '@tauri-apps/plugin-dialog';
   import { onMount } from 'svelte';
-  import { albums as chargerAlbums, type Album, type Cible } from './api';
+  import { albums as chargerAlbums, estimerDossier, type Album, type Cible, type EstimationDossier } from './api';
   import Dialogue from './Dialogue.svelte';
 
   let {
@@ -17,11 +17,35 @@
   let tous = $state<Album[] | null>(null);
   let filtre = $state('');
   let enCours = $state(false);
+  let estimation = $state<EstimationDossier | null>(null);
+  let estimationEnCours = $state(false);
+  let erreurEstimation = $state<string | null>(null);
+
+  /** Beyond this, the size is said plainly before anything starts. */
+  const GROS_OCTETS = 10 * 1024 ** 3;
+  const GROS_FICHIERS = 5000;
+  const gros = $derived(!!estimation && (estimation.octets > GROS_OCTETS || estimation.fichiers > GROS_FICHIERS));
+  const volume = (o: number) =>
+    o >= 1024 ** 3
+      ? `${(o / 1024 ** 3).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go`
+      : `${Math.max(1, Math.round(o / 1024 ** 2)).toLocaleString('fr-FR')} Mo`;
+
+  $effect(() => {
+    const choisi = dossier;
+    estimation = null;
+    erreurEstimation = null;
+    if (!choisi) return;
+    estimationEnCours = true;
+    estimerDossier(choisi)
+      .then((e) => choisi === dossier && (estimation = e))
+      .catch((e) => choisi === dossier && (erreurEstimation = String(e)))
+      .finally(() => choisi === dossier && (estimationEnCours = false));
+  });
 
   const proposes = $derived(
     (tous ?? []).filter((a) => a.possede && a.albumName.toLocaleLowerCase('fr').includes(filtre.trim().toLocaleLowerCase('fr'))),
   );
-  const pret = $derived(!!dossier && (genre !== 'album' || !!albumChoisi));
+  const pret = $derived(!!dossier && !!estimation && estimation.fichiers > 0 && (genre !== 'album' || !!albumChoisi));
   const nomDossier = $derived(dossier?.split(/[\\/]/).filter(Boolean).pop() ?? '');
 
   async function choisir() {
@@ -74,6 +98,28 @@
       </div>
     </div>
 
+    {#if estimationEnCours}
+      <div class="flex items-center gap-2 text-sm opacity-70"><LoadingSpinner size="small" /> Analyse du dossier…</div>
+    {:else if erreurEstimation}
+      <Text size="small" color="danger">{erreurEstimation}</Text>
+    {:else if estimation}
+      <div class="estimation rounded-xl p-3 text-sm" class:gros>
+        {#if estimation.fichiers === 0}
+          Aucune photo ni vidéo dans ce dossier.
+        {:else}
+          <strong>{estimation.fichiers.toLocaleString('fr-FR')} photo{estimation.fichiers > 1 ? 's et vidéos' : ''}, {volume(estimation.octets)}</strong>
+          à envoyer, sous-dossiers compris (moins celles déjà sur le serveur, reconnues avant l’envoi).
+          {#if gros}
+            <span class="mt-1 block">
+              C’est un gros envoi : il occupera ce volume sur le serveur et prendra du temps. La pause et le retrait du
+              dossier l’arrêtent aussitôt.
+            </span>
+          {/if}
+        {/if}
+        {#if estimation.illisibles}<span class="mt-1 block opacity-70">{estimation.illisibles} élément(s) illisible(s) ignoré(s).</span>{/if}
+      </div>
+    {/if}
+
     <fieldset class="space-y-2">
       <legend class="mb-1 text-sm opacity-60">Où vont les photos</legend>
       {#each options as o (o.genre)}
@@ -114,12 +160,24 @@
     </Text>
     <div class="flex justify-end gap-2">
       <Button type="button" variant="ghost" color="secondary" onclick={onfermer}>Annuler</Button>
-      <Button type="submit" disabled={!pret} loading={enCours}>Ajouter</Button>
+      <Button type="submit" disabled={!pret} loading={enCours}>
+        {estimation && estimation.fichiers > 0 ? `Envoyer ${volume(estimation.octets)}` : 'Ajouter'}
+      </Button>
     </div>
   </form>
 </Dialogue>
 
 <style>
+  .estimation {
+    background: color-mix(in oklab, currentColor 6%, transparent);
+  }
+  .estimation.gros {
+    color: #b45309;
+    background: color-mix(in oklab, #f59e0b 14%, transparent);
+  }
+  :global(.dark) .estimation.gros {
+    color: #fbbf24;
+  }
   .chemin {
     font-family: ui-monospace, monospace;
     font-size: 13px;

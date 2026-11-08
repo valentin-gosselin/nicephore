@@ -77,6 +77,9 @@ pub struct Moteur {
     surveillance: Mutex<Option<notify::RecommendedWatcher>>,
     condition: Mutex<Option<Condition>>,
     envoyes_passage: AtomicU64,
+    /// Bumped by a pause or any rule change: the running pass stops at once
+    /// (between two files, and during an upload, which is cancelled).
+    arret: watch::Sender<u64>,
 }
 
 /// Outcome of one file upload.
@@ -98,6 +101,7 @@ impl Moteur {
             surveillance: Mutex::new(None),
             condition: Mutex::new(None),
             envoyes_passage: AtomicU64::new(0),
+            arret: watch::Sender::new(0),
         })
     }
 
@@ -132,9 +136,21 @@ impl Moteur {
     pub fn mettre_en_pause(&self, pause: bool) {
         self.pause.store(pause, Ordering::SeqCst);
         self.etat.send_modify(|e| e.en_pause = pause);
-        if !pause {
+        if pause {
+            self.interrompre();
+        } else {
             self.reveiller();
         }
+    }
+
+    /// Stops the running pass right away.
+    fn interrompre(&self) {
+        self.arret.send_modify(|g| *g += 1);
+    }
+
+    /// The pass started at generation `generation` must stop.
+    fn interrompu(&self, generation: u64) -> bool {
+        self.pause.load(Ordering::SeqCst) || *self.arret.borrow() != generation
     }
 
     /// Switches to another database (another account): its rules are
@@ -163,8 +179,11 @@ impl Moteur {
         tokio::task::spawn_blocking(move || condition()).await.ok().flatten()
     }
 
-    /// Call after adding, removing or switching rules.
+    /// Call after adding, removing or switching rules: the running pass
+    /// stops (a removed or suspended folder sends nothing more) and a new
+    /// one starts with the rules as they are now.
     pub fn regles_changees(&self) {
+        self.interrompre();
         self.surveiller();
         self.reveiller();
     }
@@ -242,15 +261,17 @@ impl Moteur {
         let debut = std::time::Instant::now();
         self.envoyes_passage.store(0, Ordering::SeqCst);
         self.etat.send_modify(|e| e.attente = None);
+        let generation = *self.arret.borrow();
         let types = client.types_medias().await?;
         let regles: Vec<Regle> = self.base().regles()?.into_iter().filter(|r| r.actif).collect();
         let mut revoir: Option<Duration> = None;
         let mut erreurs = BTreeMap::new();
         for regle in &regles {
-            if self.pause.load(Ordering::SeqCst) {
+            if self.interrompu(generation) {
+                tracing::info!("passage d'envoi interrompu (pause ou règles changées)");
                 break;
             }
-            match self.passage_regle(&client, &types, regle).await {
+            match self.passage_regle(&client, &types, regle, generation).await {
                 Ok(Some(d)) => revoir = Some(revoir.map_or(d, |r: Duration| r.min(d))),
                 Ok(None) => {}
                 // Lost session or missing right: stop everything.
@@ -312,7 +333,13 @@ impl Moteur {
         });
     }
 
-    async fn passage_regle(&self, client: &ClientImmich, types: &TypesMedias, regle: &Regle) -> Resultat<Option<Duration>> {
+    async fn passage_regle(
+        &self,
+        client: &ClientImmich,
+        types: &TypesMedias,
+        regle: &Regle,
+        generation: u64,
+    ) -> Resultat<Option<Duration>> {
         let racine = PathBuf::from(&regle.dossier);
 
         // 1. Walk the folder. An unreadable root stops the rule: nothing is
@@ -323,6 +350,10 @@ impl Moteur {
             .await
             .map_err(|e| Erreur::Regle(e.to_string()))?
             .map_err(|e| Erreur::Regle(format!("dossier illisible ({e})")))?;
+
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
 
         // 2. New or changed files, once stable, get a fingerprint.
         let connus = self.base().fichiers_connus(regle.id)?;
@@ -344,6 +375,9 @@ impl Moteur {
             .collect();
         self.phase(regle.id, Phase::Empreintes, a_empreinter.len() as u64);
         for fichier in a_empreinter {
+            if self.interrompu(generation) {
+                return Ok(None);
+            }
             self.etat.send_modify(|e| e.fichier = Some(fichier.chemin.clone()));
             let chemin = analyse::absolu(&racine, &fichier.chemin);
             let resultat = tokio::task::spawn_blocking(move || {
@@ -369,6 +403,9 @@ impl Moteur {
         let a_verifier = self.base().a_verifier(regle.id)?;
         self.phase(regle.id, Phase::Verification, a_verifier.len() as u64);
         for lot in a_verifier.chunks(LOT_VERIFICATION) {
+            if self.interrompu(generation) {
+                return Ok(None);
+            }
             let elements: Vec<ElementVerification> = lot
                 .iter()
                 .enumerate()
@@ -398,6 +435,10 @@ impl Moteur {
             self.etat.send_modify(|e| e.faits += lot.len() as u64);
         }
 
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
+
         // 4. Send the unknown files, a few at a time, streamed from disk.
         let a_envoyer = self.base().a_envoyer(regle.id, maintenant_ms())?;
         self.phase(regle.id, Phase::Envoi, a_envoyer.len() as u64);
@@ -409,12 +450,16 @@ impl Moteur {
                 let octets = Arc::clone(&octets);
                 let racine = racine.clone();
                 async move {
-                    let issue = self.envoyer(client, regle, &racine, &fichier, &octets).await;
+                    let issue = self.envoyer(client, regle, &racine, &fichier, &octets, generation).await;
                     (fichier, issue)
                 }
             })
             .buffer_unordered(ENVOIS_PARALLELES);
         while let Some((fichier, issue)) = envois.next().await {
+            if self.interrompu(generation) {
+                // Dropping the stream cancels the uploads still running.
+                return Ok(None);
+            }
             match issue {
                 Ok(Issue::Envoye) | Ok(Issue::Saute) => {}
                 Err(e @ Erreur::Api(ErreurApi::CleRefusee | ErreurApi::PermissionManquante(_))) => return Err(e),
@@ -426,6 +471,9 @@ impl Moteur {
             });
         }
         drop(envois);
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
 
         // 5. Albums.
         self.associer_albums(client, regle).await?;
@@ -439,7 +487,11 @@ impl Moteur {
         racine: &Path,
         fichier: &AEnvoyer,
         octets: &Arc<AtomicU64>,
+        generation: u64,
     ) -> Resultat<Issue> {
+        if self.interrompu(generation) {
+            return Ok(Issue::Saute);
+        }
         // A condition appeared (unplugged, hotspot): the rest waits.
         if let Some(raison) = self.raison_d_attendre().await {
             self.etat.send_modify(|e| e.attente = Some(raison));
@@ -472,7 +524,18 @@ impl Moteur {
                     let faits = compteur.fetch_add(morceau.len() as u64, Ordering::Relaxed) + morceau.len() as u64;
                     etat.send_modify(|e| e.octets_faits = faits);
                 });
-                client.envoyer_asset(&meta_envoi, reqwest::Body::wrap_stream(flux)).await
+                // A pause or a removed folder cancels the upload under way.
+                let mut arret = self.arret.subscribe();
+                tokio::select! {
+                    resultat = client.envoyer_asset(&meta_envoi, reqwest::Body::wrap_stream(flux)) => resultat,
+                    _ = async {
+                        while !self.interrompu(generation) {
+                            if arret.changed().await.is_err() {
+                                std::future::pending::<()>().await;
+                            }
+                        }
+                    } => return Ok(Issue::Saute),
+                }
             }
             Err(e) => Err(ErreurApi::Configuration(format!("lecture impossible : {e}"))),
         };

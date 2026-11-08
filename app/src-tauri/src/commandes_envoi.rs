@@ -162,6 +162,31 @@ pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible)
     Ok(regle)
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Estimation {
+    fichiers: u64,
+    octets: u64,
+    illisibles: u64,
+}
+
+/// What a folder would send (photos and videos the server accepts, before
+/// knowing which are already there), shown before the folder is added.
+#[tauri::command]
+pub async fn estimer_dossier(etat: State<'_, Etat>, dossier: String) -> Result<Estimation, String> {
+    let client = etat.client()?;
+    let types = client.types_medias().await.map_err(|e| e.to_string())?;
+    let inventaire = tauri::async_runtime::spawn_blocking(move || envoi::analyse::inventorier(Path::new(&dossier), &types))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("dossier illisible : {e}"))?;
+    Ok(Estimation {
+        fichiers: inventaire.fichiers.len() as u64,
+        octets: inventaire.fichiers.iter().map(|f| f.taille).sum(),
+        illisibles: inventaire.illisibles.len() as u64,
+    })
+}
+
 #[tauri::command]
 pub fn activer_regle_envoi(etat: State<'_, Etat>, id: i64, actif: bool) -> Result<(), String> {
     etat.envoi.base().activer_regle(id, actif).map_err(erreur)?;
