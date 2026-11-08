@@ -7,7 +7,8 @@
 //! - The cache key includes a version derived from the asset thumbhash: when
 //!   an asset is edited on the server its thumbhash changes, so stale files
 //!   are never served.
-//! - `elaguer` removes the least recently used files above a size budget.
+//! - `elaguer` removes the least recently used files above a size budget,
+//!   per rendering size: large previews never evict grid thumbnails.
 
 use api_immich::{ClientImmich, Erreur, TailleImage};
 use bytes::Bytes;
@@ -126,10 +127,15 @@ impl CacheVignettes {
             .join(format!("{id}-{}.img", empreinte_version(version)))
     }
 
-    /// Total size and number of cached files.
-    pub fn occupation(&self) -> (u64, usize) {
+    /// True when this rendering is already on disk (cheap check, no download).
+    pub fn est_present(&self, id: &str, taille: TailleImage, version: &str) -> bool {
+        api_immich::valider_id(id).is_ok() && self.chemin(id, taille, version).is_file()
+    }
+
+    /// Total size and number of cached files of one rendering size.
+    pub fn occupation(&self, taille: TailleImage) -> (u64, usize) {
         let mut fichiers = Vec::new();
-        let _ = lister(&self.dossier, &mut fichiers);
+        let _ = lister(&self.dossier.join(taille.nom()), &mut fichiers);
         (fichiers.iter().map(|(_, taille, _)| taille).sum(), fichiers.len())
     }
 
@@ -141,11 +147,11 @@ impl CacheVignettes {
         }
     }
 
-    /// Removes the least recently used files until the cache fits in
-    /// `budget_octets`. Meant to run in a background task.
-    pub fn elaguer(&self, budget_octets: u64) -> std::io::Result<u64> {
+    /// Removes the least recently used files of one rendering size until
+    /// they fit in `budget_octets`. Meant to run in a background task.
+    pub fn elaguer(&self, taille: TailleImage, budget_octets: u64) -> std::io::Result<u64> {
         let mut fichiers = Vec::new();
-        lister(&self.dossier, &mut fichiers)?;
+        lister(&self.dossier.join(taille.nom()), &mut fichiers)?;
         let total: u64 = fichiers.iter().map(|(_, taille, _)| taille).sum();
         if total <= budget_octets {
             return Ok(0);
@@ -244,9 +250,12 @@ mod tests {
     fn elague_les_plus_anciens() {
         let dossier = std::env::temp_dir().join(format!("cache-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dossier);
-        std::fs::create_dir_all(dossier.join("a")).unwrap();
-        let vieux = dossier.join("a/vieux.img");
-        let neuf = dossier.join("a/neuf.img");
+        std::fs::create_dir_all(dossier.join("vignette/ab")).unwrap();
+        std::fs::create_dir_all(dossier.join("apercu/ab")).unwrap();
+        let vieux = dossier.join("vignette/ab/vieux.img");
+        let neuf = dossier.join("vignette/ab/neuf.img");
+        let apercu = dossier.join("apercu/ab/grand.img");
+        std::fs::write(&apercu, vec![0u8; 5000]).unwrap();
         std::fs::write(&vieux, vec![0u8; 600]).unwrap();
         std::fs::write(&neuf, vec![0u8; 600]).unwrap();
         std::fs::File::options()
@@ -256,9 +265,12 @@ mod tests {
             .set_modified(SystemTime::now() - Duration::from_secs(3600))
             .unwrap();
         let cache = CacheVignettes::nouveau(dossier.clone());
-        assert_eq!(cache.elaguer(1000).unwrap(), 600);
+        assert_eq!(cache.elaguer(TailleImage::Vignette, 1000).unwrap(), 600);
         assert!(!vieux.exists());
         assert!(neuf.exists());
+        // Previews have their own budget and are left alone.
+        assert!(apercu.exists());
+        assert_eq!(cache.occupation(TailleImage::Vignette), (600, 1));
         std::fs::remove_dir_all(&dossier).unwrap();
     }
 }

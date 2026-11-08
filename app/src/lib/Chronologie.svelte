@@ -1,9 +1,10 @@
 <script lang="ts">
   import { Heading, LoadingSpinner, Text } from '@immich/ui';
   import { mdiCheckCircle, mdiCheckboxBlankCircleOutline } from '@mdi/js';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, type Snippet } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { listeMois } from './api';
+  import { etatPrechargement, signalerDefilement, type EtatPrechargement } from './api';
+  import { listen } from '@tauri-apps/api/event';
   import { lancerBanc } from './banc';
   import BarreSelection from './BarreSelection.svelte';
   import {
@@ -16,17 +17,21 @@
   } from './modele-chronologie.svelte';
   import { defilement as etatDefilement } from './defilement.svelte';
   import Frise from './Frise.svelte';
+  import { ChronologieListe } from './modele-liste.svelte';
   import { Selection } from './selection.svelte';
   import Tuile from './Tuile.svelte';
   import Visionneuse from './Visionneuse.svelte';
   import type { Vue } from './vues';
 
-  let { vue }: { vue: Vue } = $props();
+  let { vue, modele, entete }: { vue: Vue; modele?: Chronologie; entete?: Snippet } = $props();
 
   const MARGE = 16;
-  const chrono = new Chronologie();
+  // A ready-made model (search results...) or the timeline of the view.
   // svelte-ignore state_referenced_locally
-  chrono.filtre = vue.filtre;
+  const chrono = modele ?? new Chronologie();
+  // svelte-ignore state_referenced_locally
+  if (!modele) chrono.filtre = vue.filtre;
+  const liste = chrono instanceof ChronologieListe ? chrono : null;
   const selection = new Selection();
 
   let conteneur: HTMLDivElement;
@@ -68,9 +73,11 @@
     });
   };
 
-  // Load the months around the viewport, unless the user is flinging.
+  // Load the months around the viewport. Month descriptions are small and the
+  // queue only keeps the current window, so this also runs while flinging
+  // (thumbnails are the ones held back, unless they are all on disk).
   $effect(() => {
-    if (!pret || etatDefilement.rapide) return;
+    if (!pret) return;
     chrono.demander(defilement - hauteurVue, defilement + hauteurVue * 2, defilement + hauteurVue / 2);
   });
 
@@ -78,10 +85,16 @@
   // at least 50 ms (scroll events often come in bursts a few ms apart).
   let reference = { y: 0, t: 0 };
   let minuteurArret: ReturnType<typeof setTimeout> | undefined;
+  let dernierSignal = 0;
   function surDefilement() {
     const y = conteneur.scrollTop;
     const t = performance.now();
     defilement = y;
+    // Background thumbnail preloading pauses while the user scrolls.
+    if (t - dernierSignal > 500) {
+      dernierSignal = t;
+      void signalerDefilement().catch(() => {});
+    }
     const ecoule = t - reference.t;
     if (ecoule >= 50) {
       const ecransParSeconde = (Math.abs(y - reference.y) / ecoule) * (1000 / hauteurVue);
@@ -181,13 +194,20 @@
     });
     observateur.observe(conteneur);
 
+    // All thumbnails on disk: no need to hold them back while flinging.
+    const suivre = (e: EtatPrechargement) => {
+      etatDefilement.vignettesLocales = e.actif && e.complet;
+    };
+    void etatPrechargement().then(suivre).catch(() => {});
+    const arretPrechargement = listen<EtatPrechargement>('prechargement', ({ payload }) => suivre(payload));
+
     const debutChargement = performance.now();
-    listeMois(vue.filtre)
-      .then(async (mois) => {
-        largeurVue = conteneur.clientWidth;
-        chrono.largeur = largeurVue - MARGE * 2;
-        chrono.hauteurCible = hauteurCible;
-        chrono.initialiser(mois);
+    largeurVue = conteneur.clientWidth;
+    chrono.largeur = largeurVue - MARGE * 2;
+    chrono.hauteurCible = hauteurCible;
+    chrono
+      .demarrer()
+      .then(async () => {
         pret = true;
         await tick();
         if (vue.id === 'photos' && (await invoke<boolean>('mode_banc'))) {
@@ -210,6 +230,12 @@
               basculerInfos: () => touche('i'),
               fermer: () => touche('Escape'),
               nombreSelectionnes: () => selection.taille,
+              etatMois: () => {
+                const compte: Record<string, number> = {};
+                for (const m of chrono.sections) compte[m.etat] = (compte[m.etat] ?? 0) + 1;
+                const visible = chrono.sections[chrono.sectionA(defilement)];
+                return `${JSON.stringify(compte)} ; à l'écran ${visible?.cle} (${visible?.etat}), local ${etatDefilement.vignettesLocales}, rapide ${etatDefilement.rapide}`;
+              },
             },
             debutChargement,
           );
@@ -217,7 +243,10 @@
       })
       .catch((e) => (erreur = String(e)));
 
-    return () => observateur.disconnect();
+    return () => {
+      observateur.disconnect();
+      void arretPrechargement.then((f) => f());
+    };
   });
 </script>
 
@@ -232,9 +261,11 @@
         <Heading size="small">{vue.titre}</Heading>
         {#if pret}
           <Text size="small" color="muted">
-            {chrono.nombreTotal.toLocaleString('fr-FR')} élément{chrono.nombreTotal > 1 ? 's' : ''}
+            {chrono.nombreTotal.toLocaleString('fr-FR')}{liste?.plusDeResultats ? '+' : ''}
+            {liste ? 'résultat' : 'élément'}{chrono.nombreTotal > 1 ? 's' : ''}
           </Text>
         {/if}
+        {#if entete}{@render entete()}{/if}
       </div>
     {/if}
   </div>
@@ -303,7 +334,7 @@
       </div>
     </div>
 
-    {#if pret && chrono.nombreTotal > 0}
+    {#if pret && chrono.nombreTotal > 0 && chrono.afficherFrise}
       <Frise {chrono} {defilement} {hauteurVue} onaller={allerA} />
     {/if}
   </div>

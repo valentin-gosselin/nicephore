@@ -17,7 +17,37 @@ export type Connexion = {
 export type ModesConnexion = { passwordLogin: boolean; oauth: boolean; urlServeur: string };
 
 /** Which assets a timeline shows. */
-export type Filtre = { visibilite?: 'timeline' | 'archive'; favori?: boolean; corbeille?: boolean };
+export type Filtre = { visibilite?: 'timeline' | 'archive'; favori?: boolean; corbeille?: boolean; personne?: string };
+
+/** Asset of a search result, reduced to what the grid needs. */
+export type AssetResume = {
+  id: string;
+  ratio: number;
+  isImage: boolean;
+  isFavorite: boolean;
+  thumbhash: string | null;
+  duration: number | null;
+  fileCreatedAt: string;
+  localDateTime: string;
+};
+export type PageResultats = { assets: AssetResume[]; pageSuivante: number | null; total: number };
+
+/** contenu: smart search on what the image shows; the others match text fields. */
+export type ModeRecherche = 'contenu' | 'fichierNom' | 'description' | 'texte';
+export type CriteresRecherche = {
+  texte?: string;
+  mode?: ModeRecherche;
+  typeMedia?: 'image' | 'video';
+  personnes?: string[];
+  ville?: string;
+  pays?: string;
+  du?: string;
+  au?: string;
+  favoris?: boolean;
+  archive?: boolean;
+};
+export type Lieu = { ville: string; asset: AssetResume };
+export type Personne = { id: string; name: string; isFavorite: boolean; updatedAt: string | null };
 export type Mois = { timeBucket: string; count: number };
 
 /** Columnar month description: index `i` of every array describes asset `i`. */
@@ -51,13 +81,35 @@ export const restaurerCorbeille = (ids: string[]) => invoke<void>('restaurer_cor
 export type Bilan = { reussis: number; echecs: string[]; dossier: string };
 export const telecharger = (ids: string[], dossier: string) => invoke<Bilan>('telecharger', { ids, dossier });
 
-export type InfosCache = { octets: number; fichiers: number; budget: number; dossier: string };
+export type OccupationCache = { octets: number; fichiers: number; budget: number };
+export type InfosCache = { vignettes: OccupationCache; apercus: OccupationCache; dossier: string };
 export const infosCache = () => invoke<InfosCache>('infos_cache');
 export const viderCache = () => invoke<void>('vider_cache');
+
+/** Background download of every grid thumbnail. */
+export type EtatPrechargement = {
+  actif: boolean;
+  enCours: boolean;
+  termine: boolean;
+  total: number;
+  presentes: number;
+  erreurs: number;
+  /** The last finished pass had every thumbnail on disk. */
+  complet: boolean;
+};
+export const etatPrechargement = () => invoke<EtatPrechargement>('etat_prechargement');
+export const definirPrechargement = (actif: boolean) => invoke<void>('definir_prechargement', { actif });
+export const signalerDefilement = () => invoke<void>('signaler_defilement');
+export const rechercher = (criteres: CriteresRecherche, page: number) =>
+  invoke<PageResultats>('rechercher', { criteres, page });
+export const lieux = () => invoke<Lieu[]>('lieux');
+export const personnes = () => invoke<Personne[]>('personnes');
+export const nombresPersonnes = (ids: string[]) => invoke<Record<string, number>>('nombres_personnes', { ids });
+export const nombresVilles = (villes: string[]) => invoke<Record<string, number>>('nombres_villes', { villes });
 export const infosAsset = (id: string) => invoke<Record<string, any>>('infos_asset', { id });
 export const urlVideo = (id: string) => invoke<string>('url_video', { id });
 
-export type TailleImage = 'vignette' | 'apercu' | 'pleine';
+export type TailleImage = 'vignette' | 'apercu' | 'pleine' | 'personne';
 
 // Custom protocols are exposed as `http://<scheme>.localhost` on Windows.
 const baseImages = navigator.userAgent.includes('Windows')

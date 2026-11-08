@@ -3,22 +3,27 @@
 
 mod banc;
 mod compte;
+mod prechargement;
 mod proxy_video;
 mod telechargement;
 
 use api_immich::{
-    Authentification, ClientImmich, DetailMois, FiltreChronologie, ModesConnexion, ModificationAssets, Mois,
-    TailleImage, Utilisateur,
+    Authentification, ClientImmich, CriteresRecherche, DetailMois, FiltreChronologie, Lieu, ModesConnexion,
+    ModificationAssets, Mois, PageResultats, Personne, TailleImage, Utilisateur,
 };
 use cache_vignettes::{CacheVignettes, ErreurCache};
 use serde::Serialize;
+use futures_util::StreamExt;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tauri::http::{self, StatusCode};
 use tauri::{Manager, State};
 
-/// Size budget of the on-disk image cache.
-const BUDGET_CACHE: u64 = 4 * 1024 * 1024 * 1024;
+/// Disk budgets of the image cache, per rendering size: grid thumbnails
+/// (about 15 KB each, all of them are preloaded) and viewer previews.
+const BUDGET_VIGNETTES: u64 = 2 * 1024 * 1024 * 1024;
+const BUDGET_APERCUS: u64 = 4 * 1024 * 1024 * 1024;
 
 /// Client shared by the commands, the image protocol and the video proxy.
 pub type ClientPartage = Arc<RwLock<Option<Arc<ClientImmich>>>>;
@@ -45,6 +50,7 @@ pub struct Etat {
     dossier_config: PathBuf,
     cache: Arc<CacheVignettes>,
     proxy: proxy_video::Proxy,
+    prechargement: Arc<prechargement::Prechargement>,
 }
 
 impl Etat {
@@ -54,6 +60,13 @@ impl Etat {
             .expect("verrou du client")
             .clone()
             .ok_or_else(|| "non connecté".to_string())
+    }
+
+    /// Starts preloading thumbnails for the current connection (if enabled).
+    fn precharger(&self) {
+        if let Ok(client) = self.client() {
+            self.prechargement.lancer(client, self.cache.clone());
+        }
     }
 
     fn definir(&self, client: Option<Arc<ClientImmich>>, origine: Origine, session: bool) {
@@ -102,7 +115,9 @@ async fn etat_connexion(etat: State<'_, Etat>) -> Result<Option<Connexion>, Stri
     let Ok(client) = etat.client() else { return Ok(None) };
     let origine = *etat.origine.read().expect("verrou de l'origine");
     let session = *etat.session.read().expect("verrou de la session");
-    verifier_connexion(&client, origine, session).await.map(Some)
+    let connexion = verifier_connexion(&client, origine, session).await?;
+    etat.precharger();
+    Ok(Some(connexion))
 }
 
 /// Login methods of a server, before any authentication.
@@ -125,6 +140,7 @@ async fn connecter(etat: &Etat, url: &str, auth: Authentification, memoriser: bo
             .map_err(|e| e.to_string())??;
     }
     etat.definir(Some(client), origine, session);
+    etat.precharger();
     Ok(connexion)
 }
 
@@ -158,6 +174,7 @@ async fn se_deconnecter(etat: State<'_, Etat>) -> Result<(), String> {
     {
         tracing::warn!("révocation de la session impossible : {e}");
     }
+    etat.prechargement.arreter();
     let dossier = etat.dossier_config.clone();
     tokio::task::spawn_blocking(move || compte::oublier(&dossier)).await.map_err(|e| e.to_string())??;
     etat.definir(None, Origine::Memoire, false);
@@ -172,6 +189,51 @@ async fn liste_mois(etat: State<'_, Etat>, filtre: FiltreChronologie) -> Result<
 #[tauri::command]
 async fn detail_mois(etat: State<'_, Etat>, mois: String, filtre: FiltreChronologie) -> Result<DetailMois, String> {
     etat.client()?.detail_mois(&mois, &filtre).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rechercher(etat: State<'_, Etat>, criteres: CriteresRecherche, page: u32) -> Result<PageResultats, String> {
+    etat.client()?.rechercher(&criteres, page).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn lieux(etat: State<'_, Etat>) -> Result<Vec<Lieu>, String> {
+    etat.client()?.lieux().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn personnes(etat: State<'_, Etat>) -> Result<Vec<Personne>, String> {
+    etat.client()?.personnes().await.map_err(|e| e.to_string())
+}
+
+/// Number of photos per person, 8 requests at a time; failures are left out.
+#[tauri::command]
+async fn nombres_personnes(etat: State<'_, Etat>, ids: Vec<String>) -> Result<HashMap<String, u64>, String> {
+    let client = etat.client()?;
+    Ok(futures_util::stream::iter(ids)
+        .map(|id| {
+            let client = client.clone();
+            async move { client.nombre_photos_personne(&id).await.ok().map(|n| (id, n)) }
+        })
+        .buffer_unordered(8)
+        .filter_map(|r| async move { r })
+        .collect()
+        .await)
+}
+
+/// Number of photos per city, 8 requests at a time; failures are left out.
+#[tauri::command]
+async fn nombres_villes(etat: State<'_, Etat>, villes: Vec<String>) -> Result<HashMap<String, u64>, String> {
+    let client = etat.client()?;
+    Ok(futures_util::stream::iter(villes)
+        .map(|ville| {
+            let client = client.clone();
+            async move { client.nombre_photos_ville(&ville).await.ok().map(|n| (ville, n)) }
+        })
+        .buffer_unordered(8)
+        .filter_map(|r| async move { r })
+        .collect()
+        .await)
 }
 
 #[tauri::command]
@@ -228,24 +290,65 @@ fn url_video(etat: State<'_, Etat>, id: String) -> Result<String, String> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct InfosCache {
+struct OccupationCache {
     octets: u64,
     fichiers: usize,
     budget: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InfosCache {
+    vignettes: OccupationCache,
+    apercus: OccupationCache,
     dossier: String,
 }
 
 #[tauri::command]
 async fn infos_cache(etat: State<'_, Etat>) -> Result<InfosCache, String> {
     let cache = etat.cache.clone();
-    let (octets, fichiers) = tokio::task::spawn_blocking(move || cache.occupation()).await.map_err(|e| e.to_string())?;
-    Ok(InfosCache { octets, fichiers, budget: BUDGET_CACHE, dossier: etat.cache.dossier().display().to_string() })
+    let (vignettes, apercus) = tokio::task::spawn_blocking(move || {
+        (cache.occupation(TailleImage::Vignette), cache.occupation(TailleImage::Apercu))
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(InfosCache {
+        vignettes: OccupationCache { octets: vignettes.0, fichiers: vignettes.1, budget: BUDGET_VIGNETTES },
+        apercus: OccupationCache { octets: apercus.0, fichiers: apercus.1, budget: BUDGET_APERCUS },
+        dossier: etat.cache.dossier().display().to_string(),
+    })
+}
+
+#[tauri::command]
+fn etat_prechargement(etat: State<'_, Etat>) -> prechargement::EtatPrechargement {
+    etat.prechargement.etat()
+}
+
+/// Turns thumbnail preloading on or off (remembered across launches).
+#[tauri::command]
+fn definir_prechargement(etat: State<'_, Etat>, actif: bool) -> Result<(), String> {
+    etat.prechargement.definir_actif(actif)?;
+    if actif {
+        etat.precharger();
+    }
+    Ok(())
+}
+
+/// The user is scrolling: preloading pauses for a moment.
+#[tauri::command]
+fn signaler_defilement(etat: State<'_, Etat>) {
+    etat.prechargement.signaler_activite();
 }
 
 #[tauri::command]
 async fn vider_cache(etat: State<'_, Etat>) -> Result<(), String> {
+    etat.prechargement.arreter();
+    etat.prechargement.oublier_complet();
     let cache = etat.cache.clone();
-    tokio::task::spawn_blocking(move || cache.vider()).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || cache.vider()).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    // Thumbnails are fetched again in the background when preloading is on.
+    etat.precharger();
+    Ok(())
 }
 
 /// Serves `vignette://localhost/<taille>/<id>?v=<thumbhash>`.
@@ -320,20 +423,27 @@ pub fn lancer() {
             let proxy = proxy_video::Proxy::demarrer(client.clone())?;
 
             let a_elaguer = cache.clone();
-            tauri::async_runtime::spawn_blocking(move || match a_elaguer.elaguer(BUDGET_CACHE) {
-                Ok(0) => {}
-                Ok(libere) => tracing::info!("cache élagué : {} Mo libérés", libere / 1_048_576),
-                Err(e) => tracing::warn!("élagage du cache impossible : {e}"),
+            tauri::async_runtime::spawn_blocking(move || {
+                for (taille, budget) in [(TailleImage::Vignette, BUDGET_VIGNETTES), (TailleImage::Apercu, BUDGET_APERCUS)] {
+                    match a_elaguer.elaguer(taille, budget) {
+                        Ok(0) => {}
+                        Ok(libere) => tracing::info!("cache {} élagué : {} Mo libérés", taille.nom(), libere / 1_048_576),
+                        Err(e) => tracing::warn!("élagage du cache impossible : {e}"),
+                    }
+                }
             });
+            let dossier_config = app.path().app_config_dir()?;
+            let prechargement = Arc::new(prechargement::Prechargement::nouveau(&dossier_config, app.handle().clone()));
 
             app.manage(Etat {
                 client,
                 origine: RwLock::new(origine),
                 session: RwLock::new(false),
                 compte_cherche: tokio::sync::Mutex::new(false),
-                dossier_config: app.path().app_config_dir()?,
+                dossier_config,
                 cache,
                 proxy,
+                prechargement,
             });
             Ok(())
         })
@@ -356,6 +466,11 @@ pub fn lancer() {
             se_deconnecter,
             liste_mois,
             detail_mois,
+            rechercher,
+            lieux,
+            personnes,
+            nombres_personnes,
+            nombres_villes,
             infos_asset,
             definir_favori,
             definir_archive,
@@ -365,6 +480,9 @@ pub fn lancer() {
             url_video,
             infos_cache,
             vider_cache,
+            etat_prechargement,
+            definir_prechargement,
+            signaler_defilement,
             banc::mode_banc,
             banc::journal,
             banc::capture,

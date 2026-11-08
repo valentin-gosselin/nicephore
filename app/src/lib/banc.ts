@@ -13,6 +13,7 @@ export type ControleBanc = {
   basculerInfos: () => void;
   fermer: () => void;
   nombreSelectionnes: () => number;
+  etatMois: () => string;
 };
 
 const journal = (message: string) => invoke('journal', { message });
@@ -68,6 +69,7 @@ async function defiler(c: ControleBanc, ecransParSeconde: number, duree: number)
     c.conteneur.scrollTop = position;
     if (t >= prochainEchantillon) {
       const { total, pretes, demandees } = remplissage(c.conteneur);
+
       if (total) {
         echantillons.push(pretes / total);
         demandes.push(demandees / total);
@@ -121,8 +123,10 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
     await journal(`  ${await invoke('stats_images')}`);
     await journal(`  écran rempli après arrêt en ${await tempsRemplissage(c.conteneur)} ms`);
 
+    const avantRapide = c.etatMois();
     const rapide = await defiler(c, 8, 3000);
     await journal(`défilement rapide 8 écrans/s : ${JSON.stringify(rapide)}`);
+    await journal(`  mois avant ${avantRapide}, après ${c.etatMois()}`);
     await journal(`  écran rempli après arrêt en ${await tempsRemplissage(c.conteneur)} ms`);
 
     for (const [nom, part] of [['2-milieu', 0.5], ['3-anciennes', 0.9]] as const) {
@@ -176,12 +180,34 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
       ['/favoris', '8-favoris'],
       ['/archive', '9-archive'],
       ['/corbeille', '10-corbeille'],
+      ['/recherche?texte=concert', '12-recherche-concert'],
+      ['/recherche?type=video&du=2025-01-01', '13-recherche-videos'],
+      ['/explorer', '14-explorer'],
       ['/reglages', '11-reglages'],
     ]) {
+      const debutVue = performance.now();
       await goto(chemin);
-      await attendre(2500);
+      await attendre(chemin.startsWith('/explorer') ? 4000 : 2500);
       await journal(`vue ${chemin} : ${document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 90)}`);
       await capture(nom);
+      if (chemin === '/explorer') {
+        const personne = document.querySelector<HTMLAnchorElement>('a.personne');
+        await journal(`explorer : ${document.querySelectorAll('a.personne').length} personnes, ${document.querySelectorAll('a.lieu').length} lieux`);
+        if (personne) {
+          personne.click();
+          await attendre(2500);
+          await journal(`page personne : ${document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 90)}`);
+          await capture('15-personne');
+          // Back to Explorer, then forward to the person again.
+          document.querySelector<HTMLButtonElement>('[aria-label^="Retour"]')?.click();
+          await attendre(1500);
+          const apresRetour = location.pathname;
+          document.querySelector<HTMLButtonElement>('[aria-label^="Avancer"]')?.click();
+          await attendre(1500);
+          await journal(`navigation : retour vers ${apresRetour}, avance vers ${location.pathname}`);
+        }
+      }
+      void debutVue;
     }
     await journal('banc terminé');
   } catch (e) {

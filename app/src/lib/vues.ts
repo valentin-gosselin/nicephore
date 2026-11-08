@@ -1,7 +1,7 @@
 // The timeline views of the sidebar and what each one allows.
 import type { Filtre } from './api';
 
-export type IdVue = 'photos' | 'favoris' | 'archive' | 'corbeille';
+export type IdVue = 'photos' | 'favoris' | 'archive' | 'corbeille' | 'recherche' | 'personne';
 
 export type Vue = {
   id: IdVue;
@@ -12,7 +12,7 @@ export type Vue = {
   vide: string;
 };
 
-export const VUES: Record<IdVue, Vue> = {
+export const VUES: Record<'photos' | 'favoris' | 'archive' | 'corbeille', Vue> = {
   photos: { id: 'photos', titre: 'Photos', chemin: '/', filtre: {}, vide: 'Aucune photo pour le moment.' },
   favoris: {
     id: 'favoris',

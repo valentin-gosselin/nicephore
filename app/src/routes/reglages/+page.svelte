@@ -1,13 +1,22 @@
 <script lang="ts">
-  import { Button, Heading, Text } from '@immich/ui';
+  import { Button, Heading, ProgressBar, Switch, Text } from '@immich/ui';
   import { getVersion } from '@tauri-apps/api/app';
+  import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
-  import { infosCache, viderCache, type InfosCache } from '../../lib/api';
+  import {
+    definirPrechargement,
+    etatPrechargement,
+    infosCache,
+    viderCache,
+    type EtatPrechargement,
+    type InfosCache,
+  } from '../../lib/api';
   import { notifier } from '../../lib/notifications.svelte';
   import { deconnecter, session } from '../../lib/session.svelte';
   import { choisirTheme, theme, type ChoixTheme } from '../../lib/theme.svelte';
 
   let cache = $state<InfosCache | null>(null);
+  let prechargement = $state<EtatPrechargement | null>(null);
   let version = $state('');
   let vidage = $state(false);
 
@@ -30,6 +39,17 @@
     cache = await infosCache().catch(() => null);
   }
 
+  async function basculerPrechargement(actif: boolean) {
+    try {
+      await definirPrechargement(actif);
+      prechargement = await etatPrechargement();
+    } catch (e) {
+      notifier(`Réglage impossible : ${e}`, 'erreur');
+    }
+  }
+
+  const nombre = (n: number) => n.toLocaleString('fr-FR');
+
   async function vider() {
     vidage = true;
     try {
@@ -46,6 +66,17 @@
   onMount(() => {
     void rafraichirCache();
     getVersion().then((v) => (version = v));
+    etatPrechargement().then((e) => (prechargement = e));
+    let dernierRafraichissement = 0;
+    const arret = listen<EtatPrechargement>('prechargement', ({ payload }) => {
+      prechargement = payload;
+      // Refresh the disk usage from time to time while it grows.
+      if (performance.now() - dernierRafraichissement > 3000) {
+        dernierRafraichissement = performance.now();
+        void rafraichirCache();
+      }
+    });
+    return () => void arret.then((f) => f());
   });
 </script>
 
@@ -92,11 +123,38 @@
     </section>
 
     <section class="space-y-3">
+      <Heading size="small">Vignettes sur cet ordinateur</Heading>
+      <label class="flex items-center justify-between gap-6">
+        <span>
+          <Text>Garder toutes les vignettes</Text>
+          <Text size="small" color="muted">
+            Télécharge en tâche de fond la vignette de chaque photo, une seule fois : la chronologie défile alors sans
+            attente et reste consultable sans le serveur. Se met en pause pendant que vous faites défiler.
+          </Text>
+        </span>
+        {#if prechargement}
+          <Switch checked={prechargement.actif} onCheckedChange={(v: boolean) => basculerPrechargement(v)} />
+        {/if}
+      </label>
+      {#if prechargement?.actif && prechargement.total > 0}
+        <ProgressBar progress={Math.min(1, prechargement.presentes / prechargement.total)} />
+        <Text size="small" color="muted">
+          {nombre(prechargement.presentes)} sur {nombre(prechargement.total)} vignettes{#if prechargement.enCours}, téléchargement en cours{:else if prechargement.termine}, à jour{/if}{#if prechargement.erreurs}
+            ({nombre(prechargement.erreurs)} sans vignette sur le serveur){/if}
+        </Text>
+      {/if}
+    </section>
+
+    <section class="space-y-3">
       <Heading size="small">Cache des images</Heading>
       {#if cache}
         <Text size="small">
-          {mo(cache.octets)} utilisés sur {mo(cache.budget)} ({cache.fichiers.toLocaleString('fr-FR')} images). Les plus
-          anciennes sont effacées au-delà.
+          Vignettes : {mo(cache.vignettes.octets)} ({nombre(cache.vignettes.fichiers)} images, au plus
+          {mo(cache.vignettes.budget)}).
+        </Text>
+        <Text size="small">
+          Aperçus de la visionneuse : {mo(cache.apercus.octets)} ({nombre(cache.apercus.fichiers)} images, au plus
+          {mo(cache.apercus.budget)}). Les plus anciens sont effacés au-delà.
         </Text>
         <Text size="small" color="muted" class="break-all">{cache.dossier}</Text>
       {/if}

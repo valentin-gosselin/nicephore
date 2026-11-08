@@ -182,6 +182,125 @@ impl ClientImmich {
             .await
     }
 
+    /// One page of search results: smart search (`/search/smart`) for the
+    /// image content, metadata search (`/search/metadata`) otherwise.
+    pub async fn rechercher(&self, criteres: &CriteresRecherche, page: u32) -> Resultat<PageResultats> {
+        const TAILLE_PAGE: u32 = 150;
+        let mut corps = serde_json::json!({ "page": page.max(1), "size": TAILLE_PAGE, "withExif": true });
+        let texte = criteres.texte.trim();
+        let intelligente = criteres.mode == ModeRecherche::Contenu && !texte.is_empty();
+        if intelligente {
+            corps["query"] = texte.into();
+        } else {
+            corps["order"] = "desc".into();
+            match criteres.mode {
+                _ if texte.is_empty() => {}
+                ModeRecherche::Contenu | ModeRecherche::FichierNom => corps["originalFileName"] = texte.into(),
+                ModeRecherche::Description => corps["description"] = texte.into(),
+                ModeRecherche::Texte => corps["ocr"] = texte.into(),
+            }
+        }
+        if let Some(t) = &criteres.type_media {
+            corps["type"] = match t.as_str() {
+                "video" => "VIDEO",
+                _ => "IMAGE",
+            }
+            .into();
+        }
+        if !criteres.personnes.is_empty() {
+            criteres.personnes.iter().try_for_each(|id| valider_id(id))?;
+            corps["personIds"] = serde_json::json!(criteres.personnes);
+        }
+        if let Some(ville) = &criteres.ville {
+            corps["city"] = ville.as_str().into();
+        }
+        if let Some(pays) = &criteres.pays {
+            corps["country"] = pays.as_str().into();
+        }
+        if let Some(du) = &criteres.du {
+            corps["takenAfter"] = format!("{du}T00:00:00.000Z").into();
+        }
+        if let Some(au) = &criteres.au {
+            corps["takenBefore"] = format!("{au}T23:59:59.999Z").into();
+        }
+        if criteres.favoris {
+            corps["isFavorite"] = true.into();
+        }
+        corps["visibility"] = if criteres.archive { "archive" } else { "timeline" }.into();
+
+        let chemin = if intelligente { "search/smart" } else { "search/metadata" };
+        let reponse = self
+            .http
+            .post(self.url(chemin))
+            .json(&corps)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        let valeur: serde_json::Value = verifier(reponse).await?.json().await?;
+        let resultats = &valeur["assets"];
+        Ok(PageResultats {
+            assets: resultats["items"].as_array().into_iter().flatten().filter_map(AssetResume::depuis).collect(),
+            page_suivante: resultats["nextPage"].as_str().and_then(|p| p.parse().ok()),
+            total: resultats["total"].as_u64().unwrap_or(0),
+        })
+    }
+
+    /// `GET /search/explore`: one photo per city.
+    pub async fn lieux(&self) -> Resultat<Vec<Lieu>> {
+        let valeur: serde_json::Value = self.get_json("search/explore", &[]).await?;
+        let mut lieux = Vec::new();
+        for groupe in valeur.as_array().into_iter().flatten() {
+            if groupe["fieldName"].as_str() != Some("exifInfo.city") {
+                continue;
+            }
+            for element in groupe["items"].as_array().into_iter().flatten() {
+                if let (Some(ville), Some(asset)) = (element["value"].as_str(), AssetResume::depuis(&element["data"])) {
+                    lieux.push(Lieu { ville: ville.to_string(), asset });
+                }
+            }
+        }
+        Ok(lieux)
+    }
+
+    /// `GET /people/{id}/statistics`: number of assets where the person appears.
+    pub async fn nombre_photos_personne(&self, id: &str) -> Resultat<u64> {
+        valider_id(id)?;
+        let valeur: serde_json::Value = self.get_json(&format!("people/{id}/statistics"), &[]).await?;
+        Ok(valeur["assets"].as_u64().unwrap_or(0))
+    }
+
+    /// `POST /search/statistics` filtered on a city: number of assets taken there.
+    pub async fn nombre_photos_ville(&self, ville: &str) -> Resultat<u64> {
+        let reponse = self
+            .http
+            .post(self.url("search/statistics"))
+            .json(&serde_json::json!({ "city": ville, "visibility": "timeline" }))
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+        let valeur: serde_json::Value = verifier(reponse).await?.json().await?;
+        Ok(valeur["total"].as_u64().unwrap_or(0))
+    }
+
+    /// `GET /people`: every visible person, all pages.
+    pub async fn personnes(&self) -> Resultat<Vec<Personne>> {
+        let mut personnes = Vec::new();
+        for page in 1..=50u32 {
+            let page_texte = page.to_string();
+            let valeur: serde_json::Value = self
+                .get_json("people", &[("withHidden", "false"), ("size", "500"), ("page", &page_texte)])
+                .await?;
+            let lot: Vec<Personne> = serde_json::from_value(valeur["people"].clone())
+                .map_err(|e| Erreur::ReponseInattendue(e.to_string()))?;
+            let vide = lot.is_empty();
+            personnes.extend(lot);
+            if vide || !valeur["hasNextPage"].as_bool().unwrap_or(false) {
+                break;
+            }
+        }
+        Ok(personnes)
+    }
+
     /// `PUT /assets`: same change applied to many assets (favorite, archive...).
     pub async fn modifier_assets(&self, ids: &[String], modification: &ModificationAssets) -> Resultat<()> {
         valider_ids(ids)?;
@@ -229,16 +348,15 @@ impl ClientImmich {
         self.get_json(&format!("assets/{id}"), &[]).await
     }
 
-    /// `GET /assets/{id}/thumbnail?size=...`: rendered image (JPEG or WebP).
+    /// `GET /assets/{id}/thumbnail?size=...`: rendered image (JPEG or WebP),
+    /// or `GET /people/{id}/thumbnail` for a face.
     pub async fn image(&self, id: &str, taille: TailleImage) -> Resultat<ImageBrute> {
         valider_id(id)?;
-        let reponse = self
-            .http
-            .get(self.url(&format!("assets/{id}/thumbnail")))
-            .query(&[("size", taille.parametre())])
-            .timeout(Duration::from_secs(60))
-            .send()
-            .await?;
+        let requete = match taille {
+            TailleImage::Personne => self.http.get(self.url(&format!("people/{id}/thumbnail"))),
+            _ => self.http.get(self.url(&format!("assets/{id}/thumbnail"))).query(&[("size", taille.parametre())]),
+        };
+        let reponse = requete.timeout(Duration::from_secs(60)).send().await?;
         let reponse = verifier(reponse).await?;
         let type_mime = reponse
             .headers()
@@ -381,6 +499,39 @@ mod tests_serveur {
         let modes = modes_connexion(&url()).await.unwrap();
         assert!(modes.password_login || modes.oauth);
         assert!(!modes.url_serveur.ends_with('/'));
+    }
+
+    fn client() -> ClientImmich {
+        let cle = std::env::var("IMMICH_API_KEY").or_else(|_| std::env::var("IMMICH_KEY")).expect("clé");
+        ClientImmich::nouveau(&url(), &Authentification::CleApi(cle)).unwrap()
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a reachable Immich server and an API key"]
+    async fn recherche_explorer_et_personnes() {
+        let c = client();
+        let contenu = CriteresRecherche { texte: "concert".into(), ..Default::default() };
+        let page = c.rechercher(&contenu, 1).await.unwrap();
+        println!("contenu « concert » : {} résultats, page suivante {:?}", page.assets.len(), page.page_suivante);
+        assert!(!page.assets.is_empty());
+        let videos = CriteresRecherche { type_media: Some("video".into()), ..Default::default() };
+        let page = c.rechercher(&videos, 1).await.unwrap();
+        println!("vidéos : {} sur la première page", page.assets.len());
+        assert!(page.assets.iter().all(|a| !a.is_image));
+        let lieux = c.lieux().await.unwrap();
+        println!("lieux : {}", lieux.len());
+        let personnes = c.personnes().await.unwrap();
+        println!("personnes : {}, dont nommées : {}", personnes.len(), personnes.iter().filter(|p| !p.name.is_empty()).count());
+        if let Some(p) = personnes.first() {
+            let filtre = FiltreChronologie { personne: Some(p.id.clone()), ..Default::default() };
+            let mois = c.liste_mois(&filtre).await.unwrap();
+            let total: u64 = mois.iter().map(|m| u64::from(m.count)).sum();
+            let stats = c.nombre_photos_personne(&p.id).await.unwrap();
+            println!("premier visage : {} mois, {total} éléments, statistiques {stats}", mois.len());
+        }
+        if let Some(l) = lieux.first() {
+            println!("ville {} : {} photos", l.ville, c.nombre_photos_ville(&l.ville).await.unwrap());
+        }
     }
 
     #[tokio::test]

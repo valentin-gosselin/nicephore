@@ -88,6 +88,8 @@ pub enum TailleImage {
     Apercu,
     /// Full resolution rendering (when enabled on the server).
     Pleine,
+    /// Face thumbnail of a person (`/people/{id}/thumbnail`).
+    Personne,
 }
 
 impl TailleImage {
@@ -96,6 +98,7 @@ impl TailleImage {
             TailleImage::Vignette => "thumbnail",
             TailleImage::Apercu => "preview",
             TailleImage::Pleine => "fullsize",
+            TailleImage::Personne => "thumbnail",
         }
     }
 
@@ -104,6 +107,7 @@ impl TailleImage {
             "vignette" | "thumbnail" => Some(TailleImage::Vignette),
             "apercu" | "preview" => Some(TailleImage::Apercu),
             "pleine" | "fullsize" => Some(TailleImage::Pleine),
+            "personne" => Some(TailleImage::Personne),
             _ => None,
         }
     }
@@ -113,6 +117,7 @@ impl TailleImage {
             TailleImage::Vignette => "vignette",
             TailleImage::Apercu => "apercu",
             TailleImage::Pleine => "pleine",
+            TailleImage::Personne => "personne",
         }
     }
 }
@@ -136,6 +141,9 @@ pub struct FiltreChronologie {
     pub favori: bool,
     #[serde(default)]
     pub corbeille: bool,
+    /// Only the assets where this person appears.
+    #[serde(default)]
+    pub personne: Option<String>,
 }
 
 impl FiltreChronologie {
@@ -153,8 +161,12 @@ impl FiltreChronologie {
         if self.favori {
             parametres.push(("isFavorite", "true".into()));
         }
+        if let Some(personne) = &self.personne {
+            crate::valider_id(personne)?;
+            parametres.push(("personId", personne.clone()));
+        }
         // Partner assets are only allowed on the plain main timeline.
-        if visibilite == "timeline" && !self.favori {
+        if visibilite == "timeline" && !self.favori && self.personne.is_none() {
             parametres.push(("withPartners", "true".into()));
         }
         Ok(parametres)
@@ -192,4 +204,109 @@ pub struct SessionOuverte {
     pub access_token: String,
     pub name: String,
     pub user_email: String,
+}
+
+/// Asset as returned by searches, reduced to what the grid needs.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetResume {
+    pub id: String,
+    pub ratio: f64,
+    pub is_image: bool,
+    pub is_favorite: bool,
+    pub thumbhash: Option<String>,
+    /// Milliseconds, for videos.
+    pub duration: Option<f64>,
+    pub file_created_at: String,
+    /// Capture date in the photographer's time zone, without offset.
+    pub local_date_time: String,
+}
+
+impl AssetResume {
+    pub(crate) fn depuis(valeur: &serde_json::Value) -> Option<Self> {
+        let largeur = valeur["width"].as_f64().or_else(|| valeur["exifInfo"]["exifImageWidth"].as_f64());
+        let hauteur = valeur["height"].as_f64().or_else(|| valeur["exifInfo"]["exifImageHeight"].as_f64());
+        let ratio = match (largeur, hauteur) {
+            (Some(l), Some(h)) if l > 0.0 && h > 0.0 => l / h,
+            _ => 1.0,
+        };
+        Some(Self {
+            id: valeur["id"].as_str()?.to_string(),
+            ratio,
+            is_image: valeur["type"].as_str() != Some("VIDEO"),
+            is_favorite: valeur["isFavorite"].as_bool().unwrap_or(false),
+            thumbhash: valeur["thumbhash"].as_str().map(str::to_string),
+            duration: valeur["duration"].as_f64(),
+            file_created_at: valeur["fileCreatedAt"].as_str().unwrap_or_default().to_string(),
+            local_date_time: valeur["localDateTime"].as_str().unwrap_or_default().to_string(),
+        })
+    }
+}
+
+/// How the search text is matched.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ModeRecherche {
+    /// Smart search on the image content (CLIP), e.g. "beach at sunset".
+    #[default]
+    Contenu,
+    FichierNom,
+    Description,
+    /// Text read in the images (OCR).
+    Texte,
+}
+
+/// Search text and filters, all optional.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CriteresRecherche {
+    #[serde(default)]
+    pub texte: String,
+    #[serde(default)]
+    pub mode: ModeRecherche,
+    /// `image` or `video`.
+    #[serde(default)]
+    pub type_media: Option<String>,
+    #[serde(default)]
+    pub personnes: Vec<String>,
+    #[serde(default)]
+    pub ville: Option<String>,
+    #[serde(default)]
+    pub pays: Option<String>,
+    /// ISO dates (YYYY-MM-DD), inclusive.
+    #[serde(default)]
+    pub du: Option<String>,
+    #[serde(default)]
+    pub au: Option<String>,
+    #[serde(default)]
+    pub favoris: bool,
+    #[serde(default)]
+    pub archive: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageResultats {
+    pub assets: Vec<AssetResume>,
+    pub page_suivante: Option<u32>,
+    pub total: u64,
+}
+
+/// A place of the Explore page: a city and one of its photos.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Lieu {
+    pub ville: String,
+    pub asset: AssetResume,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Personne {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub is_favorite: bool,
+    #[serde(default)]
+    pub updated_at: Option<String>,
 }

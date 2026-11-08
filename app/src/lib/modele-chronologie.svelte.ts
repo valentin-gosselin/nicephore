@@ -2,7 +2,7 @@
 // loaded on demand when they approach the viewport, and their height is
 // estimated until then so the scroll range is right from the start.
 
-import { detailMois, type DetailMois, type Filtre, type Mois } from './api';
+import { detailMois, listeMois, type AssetResume, type DetailMois, type Filtre, type Mois } from './api';
 import { disposer } from './disposition';
 
 export type Asset = {
@@ -45,6 +45,12 @@ export class Section {
   constructor(mois: Mois) {
     this.cle = mois.timeBucket;
     this.nombre = mois.count;
+    if (mois.timeBucket === CLE_LISTE) {
+      // Flat list (search results): one untitled section.
+      this.annee = NaN;
+      this.libelle = '';
+      return;
+    }
     const [annee, numero] = mois.timeBucket.split('-').map(Number);
     this.annee = annee;
     const libelle = new Date(Date.UTC(annee, numero - 1, 1)).toLocaleDateString('fr-FR', {
@@ -79,6 +85,8 @@ export type TitreVisible = {
   fin: number;
 };
 
+/** Key of the single section of a flat list. */
+export const CLE_LISTE = 'liste';
 export const HAUTEUR_TITRE_MOIS = 56;
 export const HAUTEUR_TITRE_JOUR = 36;
 export const ECART = 4;
@@ -99,6 +107,21 @@ function formaterDuree(valeur: number | string | null): string | null {
   const m = Math.floor((total % 3600) / 60);
   const s = String(total % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+/** Search results carry a local date without offset: read it as UTC. */
+export function depuisResume(r: AssetResume): Asset {
+  const date = new Date(`${(r.localDateTime || r.fileCreatedAt).slice(0, 19)}Z`);
+  return {
+    id: r.id,
+    ratio: r.ratio || 1,
+    image: r.isImage,
+    favori: r.isFavorite,
+    thumbhash: r.thumbhash,
+    duree: r.isImage ? null : formaterDuree(r.duration),
+    date,
+    jour: Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10),
+  };
 }
 
 function versAssets(detail: DetailMois): Asset[] {
@@ -148,11 +171,20 @@ export class Chronologie {
   largeur = 0;
   hauteurCible = 220;
   filtre: Filtre = {};
+  /** Day titles inside months (timelines); flat lists have none. */
+  parJour = true;
+  /** The year scrubber makes sense for timelines only. */
+  afficherFrise = true;
   private enCours = 0;
   private attente: number[] = [];
   private promesses = new Map<number, Promise<void>>();
   /** Called after a month changed height, so the view can keep its anchor. */
   surChangement: (() => void) | null = null;
+
+  /** Loads the month index of the timeline. */
+  async demarrer() {
+    this.initialiser(await listeMois(this.filtre));
+  }
 
   initialiser(mois: Mois[]) {
     this.sections = mois.map((m) => new Section(m));
@@ -171,7 +203,7 @@ export class Chronologie {
     this.recalculer();
   }
 
-  private disposerSection(section: Section) {
+  protected disposerSection(section: Section) {
     // Before the first measure, lay out on a sane width rather than nothing.
     const largeur = Math.max(this.largeur, 320);
     if (section.etat !== 'charge') {
@@ -179,7 +211,7 @@ export class Chronologie {
       const rangees = Math.ceil((section.nombre * 1.5 * this.hauteurCible) / largeur);
       const jours = Math.min(section.nombre, 6);
       section.hauteur =
-        HAUTEUR_TITRE_MOIS + rangees * (this.hauteurCible + ECART) + jours * HAUTEUR_TITRE_JOUR;
+        (section.libelle ? HAUTEUR_TITRE_MOIS : 8) + rangees * (this.hauteurCible + ECART) + jours * HAUTEUR_TITRE_JOUR;
       return;
     }
     if (section.assets.length === 0) {
@@ -189,17 +221,21 @@ export class Chronologie {
       return;
     }
     const lignes: Ligne[] = [];
-    let y = HAUTEUR_TITRE_MOIS;
+    let y = section.libelle ? HAUTEUR_TITRE_MOIS : 8;
     let debut = 0;
     const assets = section.assets;
     while (debut < assets.length) {
       const jour = assets[debut].jour;
       let fin = debut;
-      while (fin < assets.length && assets[fin].jour === jour) fin++;
-      // A day can appear twice in a month when time zones reorder assets,
-      // so the key uses the position, not the date.
-      lignes.push({ type: 'jour', y, libelle: libelleJour(jour), cle: `${section.cle}/${lignes.length}`, debut, fin });
-      y += HAUTEUR_TITRE_JOUR;
+      if (this.parJour) {
+        while (fin < assets.length && assets[fin].jour === jour) fin++;
+        // A day can appear twice in a month when time zones reorder assets,
+        // so the key uses the position, not the date.
+        lignes.push({ type: 'jour', y, libelle: libelleJour(jour), cle: `${section.cle}/${lignes.length}`, debut, fin });
+        y += HAUTEUR_TITRE_JOUR;
+      } else {
+        fin = assets.length;
+      }
       const ratios = assets.slice(debut, fin).map((a) => a.ratio);
       const { rangees, hauteur } = disposer(ratios, largeur, this.hauteurCible, ECART);
       for (const rangee of rangees) {
@@ -217,7 +253,7 @@ export class Chronologie {
     section.hauteur = y;
   }
 
-  private recalculer() {
+  protected recalculer() {
     let haut = 0;
     for (const section of this.sections) {
       section.haut = haut;
@@ -316,7 +352,9 @@ export class Chronologie {
       const section = this.sections[s];
       if (section.haut > fin) break;
       if (section.hauteur === 0) continue;
-      titres.push({ cle: section.cle, y: section.haut, libelle: section.libelle, mois: true, section: s, debut: 0, fin: 0 });
+      if (section.libelle) {
+        titres.push({ cle: section.cle, y: section.haut, libelle: section.libelle, mois: true, section: s, debut: 0, fin: 0 });
+      }
       if (section.etat !== 'charge') {
         attentes.push({
           cle: section.cle,
@@ -441,6 +479,7 @@ export class Chronologie {
     const marques: { annee: number; haut: number }[] = [];
     let precedente = NaN;
     for (const section of this.sections) {
+      if (Number.isNaN(section.annee)) continue;
       if (section.annee !== precedente) {
         marques.push({ annee: section.annee, haut: section.haut });
         precedente = section.annee;

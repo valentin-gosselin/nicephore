@@ -56,6 +56,8 @@
   }
 
   function surTouche(e: KeyboardEvent) {
+    // Alt+arrows belong to the app navigation (back closes the viewer).
+    if (e.altKey) return;
     if (e.key === 'Escape') {
       if (document.fullscreenElement) return;
       onfermer(position);

@@ -33,7 +33,7 @@
   // little and the user is not flinging through the timeline.
   $effect(() => {
     const voulue = url;
-    if (dejaAffichees.has(voulue)) {
+    if (dejaAffichees.has(voulue) || (taille === 'vignette' && defilement.vignettesLocales)) {
       src = voulue;
       return;
     }
