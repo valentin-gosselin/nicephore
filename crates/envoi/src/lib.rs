@@ -11,7 +11,7 @@ pub mod base;
 mod moteur;
 
 pub use base::{Base, Bilan, Cible, EntreeJournal, FichierEnEchec, Regle};
-pub use moteur::{EtatEnvoi, Moteur, Phase};
+pub use moteur::{Condition, EtatEnvoi, Moteur, Phase};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

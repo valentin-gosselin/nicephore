@@ -232,6 +232,9 @@ export type EtatEnvoi = {
   erreur: string | null;
   erreursRegles: Record<string, string>;
   dernierPassage: number | null;
+  /** Why sending waits (on battery, metered network). */
+  attente: string | null;
+  envoyesPassage: number;
 };
 export type EntreeJournal = {
   id: number;
@@ -254,3 +257,15 @@ export const pauseEnvoi = (pause: boolean) => invoke<void>('pause_envoi', { paus
 export const journalEnvoi = (limite: number) => invoke<EntreeJournal[]>('journal_envoi', { limite });
 export const echecsEnvoi = (regle: number) => invoke<FichierEnEchec[]>('echecs_envoi', { regle });
 export const reessayerEnvoi = (regle: number) => invoke<number>('reessayer_envoi', { regle });
+
+/** Application settings (background, conditions, notifications). */
+export type ReglagesApp = {
+  fermerEnArrierePlan: boolean;
+  pauseSurBatterie: boolean;
+  pauseReseauFacture: boolean;
+  notifications: boolean;
+};
+export type ReglagesAppVue = ReglagesApp & { demarrageAuto: boolean; zoneDisponible: boolean };
+export const reglagesApp = () => invoke<ReglagesAppVue>('reglages_app');
+export const definirReglagesApp = (reglages: ReglagesApp) => invoke<void>('definir_reglages_app', { reglages });
+export const definirDemarrageAuto = (actif: boolean) => invoke<void>('definir_demarrage_auto', { actif });

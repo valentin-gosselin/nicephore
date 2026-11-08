@@ -56,7 +56,14 @@ pub struct EtatEnvoi {
     /// Problem per rule (folder missing, album deleted...).
     pub erreurs_regles: BTreeMap<i64, String>,
     pub dernier_passage: Option<i64>,
+    /// Why sending waits (on battery, metered network...).
+    pub attente: Option<String>,
+    /// Files sent by the last finished pass.
+    pub envoyes_passage: u64,
 }
+
+/// Tells whether uploads must wait, and why.
+pub type Condition = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 pub struct Moteur {
     base: Mutex<Base>,
@@ -68,6 +75,8 @@ pub struct Moteur {
     /// How long a file must stay unchanged before it is sent.
     stabilite_ms: AtomicI64,
     surveillance: Mutex<Option<notify::RecommendedWatcher>>,
+    condition: Mutex<Option<Condition>>,
+    envoyes_passage: AtomicU64,
 }
 
 /// Outcome of one file upload.
@@ -87,6 +96,8 @@ impl Moteur {
             pause: AtomicBool::new(false),
             stabilite_ms: AtomicI64::new(analyse::DELAI_STABILITE.as_millis() as i64),
             surveillance: Mutex::new(None),
+            condition: Mutex::new(None),
+            envoyes_passage: AtomicU64::new(0),
         })
     }
 
@@ -130,6 +141,18 @@ impl Moteur {
     /// (10 s by default).
     pub fn regler_stabilite(&self, delai: Duration) {
         self.stabilite_ms.store(delai.as_millis() as i64, Ordering::SeqCst);
+    }
+
+    /// Uploads wait while `condition` gives a reason (checked before every
+    /// pass and every file).
+    pub fn definir_condition(&self, condition: Condition) {
+        *self.condition.lock().expect("verrou de la condition") = Some(condition);
+        self.reveiller();
+    }
+
+    async fn raison_d_attendre(&self) -> Option<String> {
+        let condition = self.condition.lock().expect("verrou de la condition").clone()?;
+        tokio::task::spawn_blocking(move || condition()).await.ok().flatten()
     }
 
     /// Call after adding, removing or switching rules.
@@ -203,6 +226,14 @@ impl Moteur {
     /// wanted earlier than usual (files still being written, retries due).
     pub async fn passage(&self) -> Resultat<Option<Duration>> {
         let client = self.client.lock().expect("verrou du client").clone().ok_or(Erreur::SansConnexion)?;
+        if let Some(raison) = self.raison_d_attendre().await {
+            tracing::info!("envoi en attente : {raison}");
+            self.etat.send_modify(|e| e.attente = Some(raison));
+            return Ok(Some(Duration::from_secs(60)));
+        }
+        let debut = std::time::Instant::now();
+        self.envoyes_passage.store(0, Ordering::SeqCst);
+        self.etat.send_modify(|e| e.attente = None);
         let types = client.types_medias().await?;
         let regles: Vec<Regle> = self.base().regles()?.into_iter().filter(|r| r.actif).collect();
         let mut revoir: Option<Duration> = None;
@@ -225,21 +256,36 @@ impl Moteur {
                 }
             }
         }
+        // Stopped halfway by a condition: look again in a minute.
+        if self.etat.borrow().attente.is_some() {
+            let minute = Duration::from_secs(60);
+            revoir = Some(revoir.map_or(minute, |r| r.min(minute)));
+        }
         if let Some(prochain) = self.base().prochain_essai(maintenant_ms())? {
             let d = Duration::from_millis((prochain - maintenant_ms()).max(1_000) as u64);
             revoir = Some(revoir.map_or(d, |r| r.min(d)));
         }
+        tracing::info!(
+            "passage d'envoi : {} règles en {} ms, {} envoyés, revoir dans {:?}",
+            regles.len(),
+            debut.elapsed().as_millis(),
+            self.envoyes_passage.load(Ordering::SeqCst),
+            revoir
+        );
         self.fin_passage(erreurs);
         Ok(revoir)
     }
 
     fn fin_passage(&self, erreurs: BTreeMap<i64, String>) {
+        let envoyes = self.envoyes_passage.swap(0, Ordering::SeqCst);
         self.etat.send_modify(|e| {
             *e = EtatEnvoi {
                 en_pause: e.en_pause,
                 connecte: e.connecte,
+                attente: e.attente.take(),
                 erreurs_regles: erreurs,
                 dernier_passage: Some(maintenant_ms()),
+                envoyes_passage: envoyes,
                 ..Default::default()
             }
         });
@@ -275,6 +321,7 @@ impl Moteur {
         let maintenant = maintenant_ms();
         let delai = Duration::from_millis(self.stabilite_ms.load(Ordering::SeqCst).max(0) as u64);
         let mut revoir = None;
+        tracing::debug!("{} : {} fichiers, {} connus", regle.dossier, inventaire.fichiers.len(), connus.len());
         let a_empreinter: Vec<FichierLocal> = inventaire
             .fichiers
             .into_iter()
@@ -385,6 +432,11 @@ impl Moteur {
         fichier: &AEnvoyer,
         octets: &Arc<AtomicU64>,
     ) -> Resultat<Issue> {
+        // A condition appeared (unplugged, hotspot): the rest waits.
+        if let Some(raison) = self.raison_d_attendre().await {
+            self.etat.send_modify(|e| e.attente = Some(raison));
+            return Ok(Issue::Saute);
+        }
         let chemin = analyse::absolu(racine, &fichier.chemin);
         // Changed or gone since its fingerprint: the next pass decides.
         let meta = match tokio::fs::metadata(&chemin).await {
@@ -424,6 +476,7 @@ impl Moteur {
             }
             Ok(reponse) => {
                 base.marquer_envoye(regle.id, &fichier.chemin, &reponse.id)?;
+                self.envoyes_passage.fetch_add(1, Ordering::SeqCst);
                 base.journaliser(Some(regle.id), Some(&fichier.chemin), "envoye", None, Some(&reponse.id))?;
                 Ok(Issue::Envoye)
             }

@@ -248,6 +248,38 @@ export async function lancerScenarioEcriture() {
       await aller('/albums');
       const balade = await element<HTMLAnchorElement>('a.album', (a) => (a.textContent ?? '').includes('Balade banc'));
       await verifier('album du sous-dossier', !!balade && (balade.textContent ?? '').includes('2 éléments'), balade?.textContent?.replace(/\s+/g, ' ') ?? '');
+      // 12. Background: settings, then closing the window into the tray
+      // while a folder is sent.
+      await aller('/reglages');
+      await verifier('section Envoi en arrière-plan', page().includes('Envoi en arrière-plan'));
+      type Vue = { demarrageAuto: boolean; zoneDisponible: boolean; pauseSurBatterie: boolean };
+      const reglages = () => invoke<Vue>('reglages_app');
+      const interrupteur = (texte: string) =>
+        element<HTMLElement>('label', (l) => (l.textContent ?? '').includes(texte)).then((l) => l?.querySelector<HTMLElement>('[role="switch"], button, input'));
+      const demarrageAvant = (await reglages()).demarrageAuto;
+      (await interrupteur('Lancer Nicéphore à l’ouverture de session'))?.click();
+      await attendre(800);
+      await verifier('démarrage avec la session activé', (await reglages()).demarrageAuto === !demarrageAvant);
+      (await interrupteur('Lancer Nicéphore à l’ouverture de session'))?.click();
+      await attendre(800);
+      await verifier('démarrage avec la session désactivé', (await reglages()).demarrageAuto === demarrageAvant);
+      (await interrupteur('Attendre le secteur'))?.click();
+      await attendre(800);
+      await verifier('réglage batterie retenu', (await reglages()).pauseSurBatterie === false);
+      (await interrupteur('Attendre le secteur'))?.click();
+      await attendre(800);
+      await capture('e7-reglages');
+      const zone = (await reglages()).zoneDisponible;
+      await verifier('icône dans la zone de notification', zone);
+      if (zone) {
+        await invoke('fermer_fenetre');
+        await attendre(1500);
+        await verifier('fenêtre fermée, Nicéphore reste ouvert', !(await invoke<boolean>('fenetre_visible')));
+        await invoke('montrer_fenetre');
+        await attendre(1000);
+        await verifier('rouverte depuis la zone de notification', await invoke<boolean>('fenetre_visible'));
+      }
+
       await aller('/envoi');
       (await element<HTMLButtonElement>('[aria-label^="Ne plus envoyer"]'))?.click();
       const confirmerRetrait = await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus envoyer');

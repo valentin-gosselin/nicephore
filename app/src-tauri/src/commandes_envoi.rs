@@ -6,22 +6,107 @@ use serde::Serialize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::Etat;
+use crate::reglages::{self, Reglages};
 
-/// Starts the engine and relays its state to the interface (at most about
-/// five times a second).
+/// Starts the engine and relays its state to the interface and the tray
+/// (at most about five times a second), with a notification at the end of
+/// a pass that sent files, or when sending stops on an error.
 pub fn demarrer(moteur: &Arc<Moteur>, app: AppHandle) {
     tauri::async_runtime::spawn(moteur.lancer());
     let mut etat = moteur.etat();
     tauri::async_runtime::spawn(async move {
+        let mut dernier_passage = None;
+        let mut derniere_erreur: Option<String> = None;
         while etat.changed().await.is_ok() {
             let instantane = etat.borrow_and_update().clone();
-            let _ = app.emit("envoi", instantane);
+            let _ = app.emit("envoi", instantane.clone());
+            if let Some(etat_app) = app.try_state::<Etat>() {
+                if let Some(zone) = &etat_app.zone {
+                    zone.mettre_a_jour(&instantane);
+                }
+                let notifier = etat_app.reglages.read().expect("verrou des réglages").notifications && !fenetre_au_premier_plan(&app);
+                if instantane.dernier_passage != dernier_passage {
+                    dernier_passage = instantane.dernier_passage;
+                    if notifier && instantane.envoyes_passage > 0 {
+                        let n = instantane.envoyes_passage;
+                        let texte = if n > 1 { format!("{n} photos et vidéos envoyées vers Immich") } else { "1 photo envoyée vers Immich".into() };
+                        notification(&app, &texte);
+                    }
+                }
+                if instantane.erreur != derniere_erreur {
+                    derniere_erreur = instantane.erreur.clone();
+                    if notifier && let Some(erreur) = &derniere_erreur {
+                        notification(&app, &format!("Envoi arrêté : {erreur}"));
+                    }
+                }
+            }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
     });
+}
+
+fn fenetre_au_premier_plan(app: &AppHandle) -> bool {
+    app.get_webview_window("main")
+        .is_some_and(|f| f.is_visible().unwrap_or(false) && f.is_focused().unwrap_or(false))
+}
+
+/// Shows a desktop notification without waiting: the D-Bus call can hang
+/// until its timeout when no notification server answers.
+fn notification(app: &AppHandle, texte: &str) {
+    use tauri_plugin_notification::NotificationExt;
+    let (app, texte) = (app.clone(), texte.to_string());
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Err(e) = app.notification().builder().title("Nicéphore").body(texte).show() {
+            tracing::warn!("notification impossible : {e}");
+        }
+    });
+}
+
+/// First time the window is closed into the tray: say so once.
+pub fn prevenir_arriere_plan(app: &AppHandle) {
+    static DEJA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if DEJA.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if app.try_state::<Etat>().is_some_and(|e| e.reglages.read().expect("verrou des réglages").notifications) {
+        notification(app, "Nicéphore continue d’envoyer vos dossiers depuis la zone de notification.");
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReglagesVue {
+    #[serde(flatten)]
+    reglages: Reglages,
+    demarrage_auto: bool,
+    /// A tray icon could be created (otherwise closing quits).
+    zone_disponible: bool,
+}
+
+#[tauri::command]
+pub fn reglages_app(etat: State<'_, Etat>) -> ReglagesVue {
+    ReglagesVue {
+        reglages: etat.reglages.read().expect("verrou des réglages").clone(),
+        demarrage_auto: reglages::demarrage_auto(),
+        zone_disponible: etat.zone.is_some(),
+    }
+}
+
+#[tauri::command]
+pub fn definir_reglages_app(etat: State<'_, Etat>, reglages: Reglages) -> Result<(), String> {
+    reglages::enregistrer(&etat.dossier_config, &reglages)?;
+    *etat.reglages.write().expect("verrou des réglages") = reglages;
+    // A condition may have just been lifted.
+    etat.envoi.reveiller();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn definir_demarrage_auto(actif: bool) -> Result<(), String> {
+    reglages::definir_demarrage_auto(actif)
 }
 
 #[derive(Serialize)]

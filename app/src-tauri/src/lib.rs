@@ -1,12 +1,15 @@
 //! Tauri shell of Nicéphore: commands used by the Svelte UI, the
 //! `vignette://` protocol serving cached images, and the local video proxy.
 
+mod alimentation;
 mod banc;
 mod commandes_envoi;
 mod compte;
 mod prechargement;
 mod proxy_video;
+mod reglages;
 mod telechargement;
+mod zone_notification;
 
 use api_immich::{
     Album, AssetResume, Authentification, BilanAlbum, ClientImmich, CriteresRecherche, DetailMois,
@@ -56,6 +59,18 @@ pub struct Etat {
     envoi: Arc<envoi::Moteur>,
     /// The upload database could not be opened (shown on the Envoi page).
     erreur_base_envoi: Option<String>,
+    reglages: Arc<RwLock<reglages::Reglages>>,
+    /// Tray icon (absent when the desktop offers none).
+    zone: Option<zone_notification::Zone>,
+}
+
+impl Etat {
+    /// Closing the window hides it when uploads may go on in the tray.
+    fn garder_en_arriere_plan(&self) -> bool {
+        self.zone.is_some()
+            && self.reglages.read().expect("verrou des réglages").fermer_en_arriere_plan
+            && self.envoi.base().regles().is_ok_and(|r| r.iter().any(|r| r.actif))
+    }
 }
 
 impl Etat {
@@ -532,6 +547,17 @@ pub fn lancer() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .on_window_event(|fenetre, evenement| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = evenement
+                && fenetre.label() == "main"
+                && fenetre.app_handle().try_state::<Etat>().is_some_and(|e| e.garder_en_arriere_plan())
+            {
+                api.prevent_close();
+                let _ = fenetre.hide();
+                commandes_envoi::prevenir_arriere_plan(fenetre.app_handle());
+            }
+        })
         .setup(|app| {
             let dossier_cache = app.path().app_cache_dir()?.join("images");
             let cache = Arc::new(CacheVignettes::nouveau(dossier_cache));
@@ -566,11 +592,26 @@ pub fn lancer() {
                     (envoi::Base::en_memoire().expect("base en mémoire"), Some(e.to_string()))
                 }
             };
+            let reglages = Arc::new(RwLock::new(reglages::charger(&dossier_config)));
             let moteur = envoi::Moteur::nouveau(base);
             moteur.definir_client(client.read().expect("verrou du client").clone());
+            let pour_condition = Arc::clone(&reglages);
+            moteur.definir_condition(Arc::new(move || {
+                let r = pour_condition.read().expect("verrou des réglages").clone();
+                if r.pause_sur_batterie && alimentation::sur_batterie() {
+                    Some("sur batterie".into())
+                } else if r.pause_reseau_facture && alimentation::reseau_facture() {
+                    Some("réseau facturé".into())
+                } else {
+                    None
+                }
+            }));
             if erreur_base_envoi.is_none() {
                 commandes_envoi::demarrer(&moteur, app.handle().clone());
             }
+            let zone = zone_notification::creer(app.handle())
+                .map_err(|e| tracing::warn!("pas d'icône dans la zone de notification : {e}"))
+                .ok();
 
             app.manage(Etat {
                 client,
@@ -583,7 +624,16 @@ pub fn lancer() {
                 prechargement,
                 envoi: moteur,
                 erreur_base_envoi,
+                reglages,
+                zone,
             });
+            // Started with the session: stay in the tray if uploads can
+            // go on there, else show the window as usual.
+            let etat = app.state::<Etat>();
+            let arriere_plan = std::env::args().any(|a| a == reglages::ARG_ARRIERE_PLAN) && etat.garder_en_arriere_plan();
+            if !arriere_plan && let Some(fenetre) = app.get_webview_window("main") {
+                fenetre.show()?;
+            }
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("vignette", |ctx, requete, repondeur| {
@@ -642,6 +692,9 @@ pub fn lancer() {
             definir_prechargement,
             signaler_defilement,
             commandes_envoi::regles_envoi,
+            commandes_envoi::reglages_app,
+            commandes_envoi::definir_reglages_app,
+            commandes_envoi::definir_demarrage_auto,
             commandes_envoi::ajouter_regle_envoi,
             commandes_envoi::activer_regle_envoi,
             commandes_envoi::supprimer_regle_envoi,
@@ -652,6 +705,9 @@ pub fn lancer() {
             commandes_envoi::echecs_envoi,
             commandes_envoi::reessayer_envoi,
             banc::dossier_photos_banc,
+            banc::fermer_fenetre,
+            banc::fenetre_visible,
+            banc::montrer_fenetre,
             banc::mode_banc,
             banc::scenario_banc,
             banc::journal,

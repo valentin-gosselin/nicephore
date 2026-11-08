@@ -201,3 +201,37 @@ async fn une_photo_qui_arrive_part_toute_seule() {
     let ids: Vec<String> = moteur.base().journal(100).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
     c.mettre_a_la_corbeille(&ids).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn attente_sur_batterie() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join("batterie");
+    ecrire(&racine.join("p.jpg"), &variante(&photo_du_serveur(), &format!("p {jeton}")), 3_600);
+    patienter().await;
+
+    let moteur = moteur();
+    let regle = moteur.base().ajouter_regle(&racine, &Cible::Bibliotheque).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    let sur_batterie = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let drapeau = std::sync::Arc::clone(&sur_batterie);
+    moteur.definir_condition(std::sync::Arc::new(move || {
+        drapeau.load(std::sync::atomic::Ordering::SeqCst).then(|| "sur batterie".to_string())
+    }));
+
+    let revoir = moteur.passage().await.unwrap();
+    assert_eq!(revoir, Some(Duration::from_secs(60)));
+    assert_eq!(moteur.instantane().attente.as_deref(), Some("sur batterie"));
+    assert_eq!(compter(&moteur, regle).envoyes, 0);
+
+    sur_batterie.store(false, std::sync::atomic::Ordering::SeqCst);
+    moteur.passage().await.unwrap();
+    let etat = moteur.instantane();
+    assert_eq!((etat.attente, etat.envoyes_passage), (None, 1));
+    assert_eq!(compter(&moteur, regle).envoyes, 1);
+
+    let ids: Vec<String> = moteur.base().journal(100).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
+    c.mettre_a_la_corbeille(&ids).await.unwrap();
+}

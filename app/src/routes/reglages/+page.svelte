@@ -4,12 +4,17 @@
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import {
+    definirDemarrageAuto,
     definirPrechargement,
+    definirReglagesApp,
     etatPrechargement,
     infosCache,
+    reglagesApp,
     viderCache,
     type EtatPrechargement,
     type InfosCache,
+    type ReglagesApp,
+    type ReglagesAppVue,
   } from '../../lib/api';
   import { notifier } from '../../lib/notifications.svelte';
   import { deconnecter, session } from '../../lib/session.svelte';
@@ -19,6 +24,46 @@
   let prechargement = $state<EtatPrechargement | null>(null);
   let version = $state('');
   let vidage = $state(false);
+  let reglages = $state<ReglagesAppVue | null>(null);
+
+  async function changer(cle: keyof ReglagesApp, valeur: boolean) {
+    if (!reglages) return;
+    const { demarrageAuto: _d, zoneDisponible: _z, ...actuels } = reglages;
+    try {
+      await definirReglagesApp({ ...actuels, [cle]: valeur });
+      reglages = await reglagesApp();
+    } catch (e) {
+      notifier(`Réglage impossible : ${e}`, 'erreur');
+    }
+  }
+
+  async function changerDemarrage(actif: boolean) {
+    try {
+      await definirDemarrageAuto(actif);
+      reglages = await reglagesApp();
+    } catch (e) {
+      notifier(`Démarrage automatique impossible : ${e}`, 'erreur');
+    }
+  }
+
+  const options: { cle: keyof ReglagesApp; titre: string; detail: string }[] = [
+    {
+      cle: 'fermerEnArrierePlan',
+      titre: 'Continuer dans la zone de notification',
+      detail: 'Fermer la fenêtre laisse Nicéphore envoyer vos dossiers ; on le quitte depuis son icône.',
+    },
+    {
+      cle: 'pauseSurBatterie',
+      titre: 'Attendre le secteur',
+      detail: 'Sur un portable débranché, l’envoi attend que l’ordinateur soit rebranché.',
+    },
+    {
+      cle: 'pauseReseauFacture',
+      titre: 'Attendre un réseau non facturé',
+      detail: 'Pas d’envoi sur un partage de connexion du téléphone ou un réseau marqué comme facturé.',
+    },
+    { cle: 'notifications', titre: 'Notifications', detail: 'Prévenir à la fin d’un envoi, ou s’il s’arrête sur une erreur.' },
+  ];
 
   function origine(c: { origine: string; session: boolean }) {
     const quoi = c.session ? 'Session ouverte avec e-mail et mot de passe' : 'Clé API';
@@ -67,6 +112,7 @@
     void rafraichirCache();
     getVersion().then((v) => (version = v));
     etatPrechargement().then((e) => (prechargement = e));
+    reglagesApp().then((r) => (reglages = r));
     let dernierRafraichissement = 0;
     const arret = listen<EtatPrechargement>('prechargement', ({ payload }) => {
       prechargement = payload;
@@ -121,6 +167,32 @@
         {/each}
       </div>
     </section>
+
+    {#if reglages}
+      {@const r = reglages}
+      <section class="space-y-4" aria-label="Envoi en arrière-plan">
+        <Heading size="small">Envoi en arrière-plan</Heading>
+        <label class="flex items-center justify-between gap-6">
+          <span>
+            <Text>Lancer Nicéphore à l’ouverture de session</Text>
+            <Text size="small" color="muted">Il démarre discrètement dans la zone de notification pour envoyer vos dossiers.</Text>
+          </span>
+          <Switch checked={r.demarrageAuto} onCheckedChange={(v: boolean) => changerDemarrage(v)} />
+        </label>
+        {#each options as o (o.cle)}
+          <label class="flex items-center justify-between gap-6">
+            <span>
+              <Text>{o.titre}</Text>
+              <Text size="small" color="muted">
+                {o.detail}{#if o.cle === 'fermerEnArrierePlan' && !r.zoneDisponible}
+                  Le bureau n’offre pas de zone de notification : fermer la fenêtre quitte Nicéphore.{/if}
+              </Text>
+            </span>
+            <Switch checked={r[o.cle]} onCheckedChange={(v: boolean) => changer(o.cle, v)} />
+          </label>
+        {/each}
+      </section>
+    {/if}
 
     <section class="space-y-3">
       <Heading size="small">Vignettes sur cet ordinateur</Heading>

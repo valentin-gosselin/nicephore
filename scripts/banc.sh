@@ -44,12 +44,20 @@ if [ -n "$jetable" ]; then
     python3 -I "$racine/tests/immich-jetable/dossier-envoi.py" "$donnees_jetable/images" "$sortie/photos"
 fi
 
+# The write scenario gets its own config directory: settings it toggles
+# (session autostart...) never reach the user's real session.
+config_privee=""
+if [ -n "$jetable" ]; then
+    config_privee="export XDG_CONFIG_HOME=\"$sortie/config\""
+fi
+
 interne="$sortie/lancer.sh"
 cat > "$interne" <<FIN
 #!/bin/sh
 # Never fall back to the real X server.
 unset DISPLAY
 export GDK_BACKEND=wayland
+$config_privee
 exec "$binaire"
 FIN
 chmod +x "$interne"

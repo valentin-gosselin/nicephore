@@ -78,6 +78,7 @@
     if (!etat) return '';
     if (!etat.connecte) return 'Non connecté au serveur.';
     if (etat.enPause) return 'En pause.';
+    if (etat.attente) return `En attente : ${etat.attente}. L’envoi reprendra tout seul.`;
     const sur = etat.total ? ` (${nombre(etat.faits)} sur ${nombre(etat.total)})` : '';
     switch (etat.phase) {
       case 'analyse':
@@ -164,8 +165,9 @@
     let precedente = '';
     const arret = listen<EtatEnvoi>('envoi', ({ payload }) => {
       etat = payload;
-      // Counters and log follow the phases, not every byte.
-      const cle = `${payload.phase}/${payload.regle}/${payload.phase === 'envoi' ? payload.faits : ''}`;
+      // Counters and log follow the phases and the end of every pass (a
+      // quick pass may only show as idle to idle), not every byte.
+      const cle = `${payload.phase}/${payload.regle}/${payload.phase === 'envoi' ? payload.faits : ''}/${payload.dernierPassage}`;
       if (cle !== precedente) {
         precedente = cle;
         void rafraichir();

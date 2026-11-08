@@ -29,6 +29,27 @@ pub fn dossier_photos_banc() -> Option<String> {
     dossier.is_dir().then(|| dossier.to_string_lossy().into_owned())
 }
 
+/// Asks the main window to close, like the title bar button would.
+#[tauri::command]
+pub fn fermer_fenetre(app: tauri::AppHandle) {
+    use tauri::Manager;
+    if mode_banc() && let Some(fenetre) = app.get_webview_window("main") {
+        let _ = fenetre.close();
+    }
+}
+
+#[tauri::command]
+pub fn fenetre_visible(app: tauri::AppHandle) -> bool {
+    use tauri::Manager;
+    app.get_webview_window("main").and_then(|f| f.is_visible().ok()).unwrap_or(false)
+}
+
+/// What the tray's "Ouvrir Nicéphore" does.
+#[tauri::command]
+pub fn montrer_fenetre(app: tauri::AppHandle) {
+    crate::zone_notification::montrer(&app);
+}
+
 #[tauri::command]
 pub fn journal(message: String) {
     tracing::info!(target: "banc", "{message}");
