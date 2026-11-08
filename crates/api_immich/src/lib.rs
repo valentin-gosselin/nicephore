@@ -638,6 +638,14 @@ mod tests {
     }
 
     #[test]
+    fn modification_d_album_lue_depuis_l_interface() {
+        // The UI sends `nom`; Immich expects `albumName` (bug caught in situ).
+        let m: ModificationAlbum = serde_json::from_value(serde_json::json!({ "nom": "Vacances" })).unwrap();
+        assert_eq!(m.nom.as_deref(), Some("Vacances"));
+        assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({ "albumName": "Vacances" }));
+    }
+
+    #[test]
     fn url_serveur_sans_api() {
         let c = ClientImmich::nouveau("http://h:2283/api", &Authentification::CleApi("cle".into())).unwrap();
         assert!(ClientImmich::nouveau("http://h", &Authentification::Session(" ".into())).is_err());

@@ -6,6 +6,10 @@
   import { etatPrechargement, signalerDefilement, type EtatPrechargement } from './api';
   import { listen } from '@tauri-apps/api/event';
   import { lancerBanc } from './banc';
+  import { lancerScenarioEcriture } from './scenario-ecriture';
+
+  // Benchmarks start once per app run, not on every visit of Photos.
+  const lancements = globalThis as { __bancLance?: boolean; __scenarioLance?: boolean };
   import BarreSelection from './BarreSelection.svelte';
   import {
     Chronologie,
@@ -215,7 +219,14 @@
       .then(async () => {
         pret = true;
         await tick();
-        if (vue.id === 'photos' && (await invoke<boolean>('mode_banc'))) {
+        const banc = vue.id === 'photos' && (await invoke<boolean>('mode_banc'));
+        if (banc && (await invoke<string>('scenario_banc')) === 'ecriture') {
+          if (!lancements.__scenarioLance) {
+            lancements.__scenarioLance = true;
+            void lancerScenarioEcriture();
+          }
+        } else if (banc && !lancements.__bancLance) {
+          lancements.__bancLance = true;
           const touche = (key: string) => window.dispatchEvent(new KeyboardEvent('keydown', { key }));
           void lancerBanc(
             {

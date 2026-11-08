@@ -14,6 +14,13 @@ pub fn mode_banc() -> bool {
     dossier_banc().is_some()
 }
 
+/// Scenario to run: empty for the read-only benchmark, `ecriture` for the
+/// in-app write scenario (disposable server only, checked by the UI too).
+#[tauri::command]
+pub fn scenario_banc() -> String {
+    std::env::var("NICEPHORE_BANC_SCENARIO").unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn journal(message: String) {
     tracing::info!(target: "banc", "{message}");

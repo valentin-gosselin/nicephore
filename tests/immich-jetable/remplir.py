@@ -92,8 +92,14 @@ def main():
             mois = 1 + (i // 6)
             envoyer_photo(jeton, chemin, f"2025-{mois:02}-{1 + i % 27:02}T12:00:00.000Z")
         print("36 photos envoyées sur 6 mois")
+    # API key for the in-app scenarios (the app reads IMMICH_API_KEY).
+    fichier_cle = DONNEES / "cle-api"
+    if not fichier_cle.exists():
+        cle = appel("POST", "api-keys", {"name": "banc Nicéphore", "permissions": ["all"]}, jeton=jeton)["secret"]
+        fichier_cle.write_text(cle)
     (DONNEES / "test.env").write_text(
         f"IMMICH_TEST_URL={URL}\nIMMICH_TEST_EMAIL={EMAIL}\nIMMICH_TEST_PASSWORD={MOT_DE_PASSE}\n"
+        f"IMMICH_TEST_API_KEY={fichier_cle.read_text().strip()}\n"
     )
     print(f"connexion écrite dans {DONNEES / 'test.env'}")
 

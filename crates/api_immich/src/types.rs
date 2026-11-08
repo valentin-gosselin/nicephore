@@ -364,7 +364,8 @@ pub struct Album {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModificationAlbum {
-    #[serde(skip_serializing_if = "Option::is_none", rename = "albumName")]
+    /// Sent to Immich as `albumName`, received from the UI as `nom`.
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "albumName"))]
     pub nom: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,

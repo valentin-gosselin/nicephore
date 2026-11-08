@@ -562,6 +562,7 @@ pub fn lancer() {
             definir_prechargement,
             signaler_defilement,
             banc::mode_banc,
+            banc::scenario_banc,
             banc::journal,
             banc::capture,
             banc::quitter,
