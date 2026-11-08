@@ -1,10 +1,11 @@
 <script lang="ts">
-  // Sidebar: the timeline views, the sections planned for the next lots
-  // (shown disabled so the roadmap is visible), and the settings.
+  // Sidebar: the timeline views, the library, this computer's uploads and
+  // the settings.
   import { Icon } from '@immich/ui';
   import {
     mdiAccountMultipleOutline,
     mdiArchiveArrowDownOutline,
+    mdiCloudUploadOutline,
     mdiCogOutline,
     mdiCompassOutline,
     mdiHeartOutline,
@@ -14,6 +15,9 @@
     mdiTrashCanOutline,
   } from '@mdi/js';
   import { page } from '$app/state';
+  import { listen } from '@tauri-apps/api/event';
+  import { onMount } from 'svelte';
+  import { etatEnvoi, type EtatEnvoi } from './api';
 
   let { repliee }: { repliee: boolean } = $props();
 
@@ -37,7 +41,20 @@
         { libelle: 'Corbeille', icone: mdiTrashCanOutline, chemin: '/corbeille' },
       ],
     },
+    {
+      titre: 'Cet ordinateur',
+      entrees: [{ libelle: 'Envoi', icone: mdiCloudUploadOutline, chemin: '/envoi' }],
+    },
   ];
+
+  // A dot on "Envoi" while files are being sent.
+  let envoi = $state<EtatEnvoi | null>(null);
+  const envoiActif = $derived(!!envoi && !envoi.enPause && envoi.phase !== 'inactif');
+  onMount(() => {
+    etatEnvoi().then((e) => (envoi = e)).catch(() => {});
+    const arret = listen<EtatEnvoi>('envoi', ({ payload }) => (envoi = payload));
+    return () => void arret.then((f) => f());
+  });
 
   const actif = (chemin: string) =>
     page.url.pathname === chemin ||
@@ -54,7 +71,10 @@
       aria-current={actif(entree.chemin) ? 'page' : undefined}
       title={repliee ? entree.libelle : undefined}
     >
-      <Icon icon={entree.icone} size="22" />
+      <span class="relative flex">
+        <Icon icon={entree.icone} size="22" />
+        {#if entree.chemin === '/envoi' && envoiActif}<span class="temoin" title="Envoi en cours"></span>{/if}
+      </span>
       {#if !repliee}<span>{entree.libelle}</span>{/if}
     </a>
   {:else}
@@ -113,6 +133,21 @@
   .desactivee {
     opacity: 0.45;
     cursor: default;
+  }
+  .temoin {
+    position: absolute;
+    right: -2px;
+    top: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--immich-ui-primary-500);
+    animation: pulsation 1.4s ease-in-out infinite;
+  }
+  @keyframes pulsation {
+    50% {
+      opacity: 0.35;
+    }
   }
   .bientot {
     margin-left: auto;

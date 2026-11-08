@@ -582,6 +582,56 @@ impl ClientImmich {
         verifier(reponse).await.map(|_| ())
     }
 
+    /// `GET /server/media-types`: extensions the server accepts.
+    pub async fn types_medias(&self) -> Resultat<TypesMedias> {
+        self.get_json("server/media-types", &[]).await
+    }
+
+    /// `POST /assets/bulk-upload-check`: which files the server already
+    /// holds (by SHA-1), at most 1 000 at once.
+    pub async fn verifier_envois(&self, elements: &[ElementVerification]) -> Resultat<Vec<ResultatVerification>> {
+        if elements.len() > 1_000 {
+            return Err(Erreur::Configuration("au plus 1 000 fichiers par vérification".into()));
+        }
+        #[derive(serde::Deserialize)]
+        struct Reponse {
+            results: Vec<ResultatVerification>,
+        }
+        let reponse = self
+            .http
+            .post(self.url("assets/bulk-upload-check"))
+            .json(&serde_json::json!({ "assets": elements }))
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        Ok(verifier(reponse).await?.json::<Reponse>().await?.results)
+    }
+
+    /// `POST /assets`: sends one file, streamed from `corps`. No overall
+    /// time limit for big videos on slow links, only a generous one
+    /// proportional to the size (at least 64 kB/s).
+    pub async fn envoyer_asset(&self, meta: &MetaEnvoi, corps: reqwest::Body) -> Resultat<ReponseEnvoi> {
+        let partie = reqwest::multipart::Part::stream_with_length(corps, meta.taille)
+            .file_name(meta.nom_fichier.clone())
+            .mime_str("application/octet-stream")
+            .expect("type MIME valide");
+        let formulaire = reqwest::multipart::Form::new()
+            .text("fileCreatedAt", meta.cree_le.clone())
+            .text("fileModifiedAt", meta.modifie_le.clone())
+            .text("filename", meta.nom_fichier.clone())
+            .part("assetData", partie);
+        let delai = Duration::from_secs(120 + meta.taille / 65_536);
+        let reponse = self
+            .http
+            .post(self.url("assets"))
+            .header("x-immich-checksum", &meta.sha1)
+            .multipart(formulaire)
+            .timeout(delai)
+            .send()
+            .await?;
+        Ok(verifier(reponse).await?.json().await?)
+    }
+
     /// `GET /assets/{id}`: full metadata (EXIF, people, tags...).
     pub async fn infos_asset(&self, id: &str) -> Resultat<serde_json::Value> {
         valider_id(id)?;
@@ -635,8 +685,9 @@ async fn verifier(reponse: reqwest::Response) -> Resultat<reqwest::Response> {
         401 => Erreur::CleRefusee,
         403 => Erreur::PermissionManquante(message),
         404 => Erreur::Introuvable,
-        // Immich answers 400 "Not found or no ... access" for missing items.
-        400 if message.starts_with("Not found") => Erreur::Introuvable,
+        // Immich answers 400 "Not found or no ... access" or "Album not
+        // found" for missing items.
+        400 if message.to_ascii_lowercase().contains("not found") => Erreur::Introuvable,
         code => Erreur::Http { statut: code, message },
     })
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/api_immich", "crates/cache_vignettes", "app/src-tauri"]
+members = ["crates/api_immich", "crates/cache_vignettes", "crates/envoi", "app/src-tauri"]
 
 [workspace.package]
 edition = "2024"

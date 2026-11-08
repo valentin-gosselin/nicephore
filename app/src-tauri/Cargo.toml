@@ -17,6 +17,7 @@ api_immich = { path = "../../crates/api_immich" }
 axum = "0.8.9"
 bytes = "1.12.1"
 cache_vignettes = { path = "../../crates/cache_vignettes" }
+envoi = { path = "../../crates/envoi" }
 futures-util = "0.3.34"
 keyring = "4.2.0"
 rand = "0.10.3"

@@ -227,6 +227,12 @@ jetable en Docker pour l'intégration), jamais contre la vraie bibliothèque.
 
 ## 8. Chantiers notés en route
 
+- **Découpage réel** (08/11) : `crates/api_immich` (client), `crates/cache_vignettes` (cache disque
+  des images), `crates/envoi` (moteur d'envoi : base SQLite, analyse, boucle ; lot 6). Les crates
+  `store`, `sync`, `vfs` et `platform` prévues plus haut naîtront avec les étapes 3 et 4.
+- **Étape 2 découpée** : lot 6 envoi (fait), lot 7 zone de notification et démarrage automatique,
+  lot 8 mode portable, lot 9 mises à jour signées, paquets et intégration continue.
+
 - **Connexion OAuth** (demandé le 08/11) : ouvrir la page du fournisseur d'identité dans le navigateur
   du système, pour profiter du gestionnaire de mots de passe, puis récupérer le jeton par une
   redirection vers l'appli (adresse de rappel en boucle locale ou schéma `nicephore://`). Immich ne

@@ -456,3 +456,68 @@ impl Souvenir {
         })
     }
 }
+
+/// File extensions the server accepts, by kind (`GET /server/media-types`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TypesMedias {
+    #[serde(default)]
+    pub image: Vec<String>,
+    #[serde(default)]
+    pub video: Vec<String>,
+    #[serde(default)]
+    pub sidecar: Vec<String>,
+}
+
+impl TypesMedias {
+    /// True for an image or video extension (case insensitive, with or
+    /// without the leading dot).
+    pub fn accepte(&self, extension: &str) -> bool {
+        let extension = format!(".{}", extension.trim_start_matches('.').to_ascii_lowercase());
+        self.image.iter().chain(&self.video).any(|e| e.eq_ignore_ascii_case(&extension))
+    }
+}
+
+/// One file to look up before sending it. `id` is chosen by the caller and
+/// echoed back; `checksum` is the SHA-1 of the content (hex).
+#[derive(Debug, Clone, Serialize)]
+pub struct ElementVerification {
+    pub id: String,
+    pub checksum: String,
+}
+
+/// Answer of `POST /assets/bulk-upload-check` for one file.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResultatVerification {
+    pub id: String,
+    /// `accept` (unknown to the server) or `reject`.
+    pub action: String,
+    /// `duplicate` or `unsupported-format` when rejected.
+    #[serde(default)]
+    pub reason: Option<String>,
+    /// Existing asset when it is a duplicate.
+    #[serde(default)]
+    pub asset_id: Option<String>,
+    #[serde(default)]
+    pub is_trashed: bool,
+}
+
+/// Metadata sent with a file.
+#[derive(Debug, Clone)]
+pub struct MetaEnvoi {
+    pub nom_fichier: String,
+    pub taille: u64,
+    /// SHA-1 (hex): the server rejects the upload as a duplicate early.
+    pub sha1: String,
+    /// RFC 3339 dates.
+    pub cree_le: String,
+    pub modifie_le: String,
+}
+
+/// Answer of `POST /assets`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReponseEnvoi {
+    pub id: String,
+    /// `created`, `replaced` or `duplicate`.
+    pub status: String,
+}

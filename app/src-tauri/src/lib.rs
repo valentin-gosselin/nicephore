@@ -2,6 +2,7 @@
 //! `vignette://` protocol serving cached images, and the local video proxy.
 
 mod banc;
+mod commandes_envoi;
 mod compte;
 mod prechargement;
 mod proxy_video;
@@ -52,6 +53,9 @@ pub struct Etat {
     cache: Arc<CacheVignettes>,
     proxy: proxy_video::Proxy,
     prechargement: Arc<prechargement::Prechargement>,
+    envoi: Arc<envoi::Moteur>,
+    /// The upload database could not be opened (shown on the Envoi page).
+    erreur_base_envoi: Option<String>,
 }
 
 impl Etat {
@@ -71,6 +75,7 @@ impl Etat {
     }
 
     fn definir(&self, client: Option<Arc<ClientImmich>>, origine: Origine, session: bool) {
+        self.envoi.definir_client(client.clone());
         *self.client.write().expect("verrou du client") = client;
         *self.origine.write().expect("verrou de l'origine") = origine;
         *self.session.write().expect("verrou de la session") = session;
@@ -548,6 +553,25 @@ pub fn lancer() {
             let dossier_config = app.path().app_config_dir()?;
             let prechargement = Arc::new(prechargement::Prechargement::nouveau(&dossier_config, app.handle().clone()));
 
+            // The upload database; a private one in benchmark mode, so a
+            // benchmark never sees the user's rules.
+            let chemin_base = match std::env::var_os("NICEPHORE_BANC_DOSSIER") {
+                Some(dossier) => PathBuf::from(dossier).join("envoi.sqlite"),
+                None => app.path().app_data_dir()?.join("envoi.sqlite"),
+            };
+            let (base, erreur_base_envoi) = match envoi::Base::ouvrir(&chemin_base) {
+                Ok(base) => (base, None),
+                Err(e) => {
+                    tracing::error!("base d'envoi {} : {e}", chemin_base.display());
+                    (envoi::Base::en_memoire().expect("base en mémoire"), Some(e.to_string()))
+                }
+            };
+            let moteur = envoi::Moteur::nouveau(base);
+            moteur.definir_client(client.read().expect("verrou du client").clone());
+            if erreur_base_envoi.is_none() {
+                commandes_envoi::demarrer(&moteur, app.handle().clone());
+            }
+
             app.manage(Etat {
                 client,
                 origine: RwLock::new(origine),
@@ -557,6 +581,8 @@ pub fn lancer() {
                 cache,
                 proxy,
                 prechargement,
+                envoi: moteur,
+                erreur_base_envoi,
             });
             Ok(())
         })
@@ -615,6 +641,17 @@ pub fn lancer() {
             etat_prechargement,
             definir_prechargement,
             signaler_defilement,
+            commandes_envoi::regles_envoi,
+            commandes_envoi::ajouter_regle_envoi,
+            commandes_envoi::activer_regle_envoi,
+            commandes_envoi::supprimer_regle_envoi,
+            commandes_envoi::etat_envoi,
+            commandes_envoi::lancer_envoi,
+            commandes_envoi::pause_envoi,
+            commandes_envoi::journal_envoi,
+            commandes_envoi::echecs_envoi,
+            commandes_envoi::reessayer_envoi,
+            banc::dossier_photos_banc,
             banc::mode_banc,
             banc::scenario_banc,
             banc::journal,

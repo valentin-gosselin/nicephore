@@ -29,7 +29,7 @@ case "${1:-}" in
         set -a
         . "$DONNEES/test.env"
         set +a
-        cd "$racine" && cargo test -p api_immich --test ecriture -- --ignored --test-threads=1 --nocapture
+        cd "$racine" && cargo test -p api_immich --test ecriture -- --ignored --test-threads=1 --nocapture && cargo test -p envoi --test jetable -- --ignored --test-threads=1
         ;;
     *)
         echo "usage : $0 demarrer|arreter|detruire|tester" >&2

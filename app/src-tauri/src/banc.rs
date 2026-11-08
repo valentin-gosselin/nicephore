@@ -21,6 +21,14 @@ pub fn scenario_banc() -> String {
     std::env::var("NICEPHORE_BANC_SCENARIO").unwrap_or_default()
 }
 
+/// Folder of generated photos prepared by `scripts/banc.sh --jetable` for
+/// the upload scenario.
+#[tauri::command]
+pub fn dossier_photos_banc() -> Option<String> {
+    let dossier = dossier_banc()?.join("photos");
+    dossier.is_dir().then(|| dossier.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn journal(message: String) {
     tracing::info!(target: "banc", "{message}");

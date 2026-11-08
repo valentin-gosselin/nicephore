@@ -200,3 +200,57 @@ const baseImages = navigator.userAgent.includes('Windows')
 export function urlImage(taille: TailleImage, id: string, version: string | null): string {
   return `${baseImages}/${taille}/${id}?v=${encodeURIComponent(version ?? '')}`;
 }
+
+// ---- Upload of local folders ----
+
+/** Where the photos of a folder go. */
+export type Cible =
+  | { genre: 'bibliotheque' }
+  | { genre: 'album'; id: string; nom: string }
+  | { genre: 'albumParDossier' };
+export type BilanEnvoi = { envoyes: number; presents: number; enAttente: number; echecs: number; ignores: number };
+export type RegleEnvoi = {
+  id: number;
+  dossier: string;
+  cible: Cible;
+  actif: boolean;
+  creeLe: number;
+  bilan: BilanEnvoi;
+  dossierAbsent: boolean;
+};
+export type PhaseEnvoi = 'inactif' | 'analyse' | 'empreintes' | 'verification' | 'envoi' | 'albums';
+export type EtatEnvoi = {
+  phase: PhaseEnvoi;
+  regle: number | null;
+  fichier: string | null;
+  faits: number;
+  total: number;
+  octetsFaits: number;
+  octetsTotal: number;
+  enPause: boolean;
+  connecte: boolean;
+  erreur: string | null;
+  erreursRegles: Record<string, string>;
+  dernierPassage: number | null;
+};
+export type EntreeJournal = {
+  id: number;
+  horodatage: number;
+  regle: number | null;
+  chemin: string | null;
+  action: string;
+  detail: string | null;
+  assetId: string | null;
+};
+export type FichierEnEchec = { chemin: string; erreur: string | null; essais: number };
+
+export const reglesEnvoi = () => invoke<RegleEnvoi[]>('regles_envoi');
+export const ajouterRegleEnvoi = (dossier: string, cible: Cible) => invoke<RegleEnvoi>('ajouter_regle_envoi', { dossier, cible });
+export const activerRegleEnvoi = (id: number, actif: boolean) => invoke<void>('activer_regle_envoi', { id, actif });
+export const supprimerRegleEnvoi = (id: number) => invoke<void>('supprimer_regle_envoi', { id });
+export const etatEnvoi = () => invoke<EtatEnvoi>('etat_envoi');
+export const lancerEnvoi = () => invoke<void>('lancer_envoi');
+export const pauseEnvoi = (pause: boolean) => invoke<void>('pause_envoi', { pause });
+export const journalEnvoi = (limite: number) => invoke<EntreeJournal[]>('journal_envoi', { limite });
+export const echecsEnvoi = (regle: number) => invoke<FichierEnEchec[]>('echecs_envoi', { regle });
+export const reessayerEnvoi = (regle: number) => invoke<number>('reessayer_envoi', { regle });

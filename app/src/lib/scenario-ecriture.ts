@@ -139,6 +139,8 @@ export async function lancerScenarioEcriture() {
     await verifier('favoris retirés', compte() === 0, entete());
 
     // 7. Trash, then undo from the toast.
+    await aller('/corbeille');
+    const corbeilleAvant = compte();
     await aller('/');
     const avant = entete();
     await selectionner(1);
@@ -150,7 +152,7 @@ export async function lancerScenarioEcriture() {
     await attendre(2000);
     await verifier('annulation depuis la notification', entete() === avant, entete());
     await aller('/corbeille');
-    await verifier('corbeille vide après annulation', document.body.textContent?.includes('La corbeille est vide') ?? false);
+    await verifier('corbeille inchangée après annulation', compte() === corbeilleAvant, `${corbeilleAvant} puis ${compte()}`);
 
     // 8. Archive, then unarchive from the Archive view (counts compared,
     // the test server may hold leftovers of earlier runs).
@@ -218,7 +220,42 @@ export async function lancerScenarioEcriture() {
     (await element<HTMLButtonElement>('[role="dialog"] button[type="submit"]'))?.click();
     await attendre(1800);
     await verifier('tag en lot', notifications().some((t) => t.includes('Lot banc') && t.includes('2 éléments')), notifications().join(' | ').slice(0, 160));
-    await capture('e5-fin');
+    await capture('e5-tags');
+
+    // 11. Upload of a local folder (the folder picker is the only step
+    // skipped: the rule is added with the folder prepared by banc.sh).
+    await aller('/envoi');
+    const page = () => document.querySelector('main')?.textContent?.replace(/\s+/g, ' ') ?? document.body.textContent ?? '';
+    await verifier('page Envoi vide au départ', page().includes('Aucun dossier n’est envoyé'));
+    const dossier = await invoke<string | null>('dossier_photos_banc');
+    await verifier('dossier de photos préparé', !!dossier, dossier ?? '');
+    if (dossier) {
+      await invoke('ajouter_regle_envoi', { dossier, cible: { genre: 'albumParDossier' } });
+      let envoyes = false;
+      for (let i = 0; i < 60 && !envoyes; i++) {
+        await attendre(500);
+        envoyes = page().includes('3 envoyés') && page().includes('À jour');
+      }
+      await verifier('trois photos envoyées, la copie reconnue', envoyes && page().includes('1 déjà sur le serveur'), page().slice(0, 300));
+      await verifier('fichier texte ignoré sans erreur', !page().includes('non envoyé'));
+      await verifier('albums créés dans le journal', page().includes('Album créé') && page().includes('Envoyé'));
+      await capture('e6-envoi');
+      await cliquer('Mettre l’envoi en pause');
+      await verifier('pause', page().includes('En pause.'));
+      await cliquer('Reprendre l’envoi');
+      await attendre(1500);
+      await verifier('reprise', !page().includes('En pause.'));
+      await aller('/albums');
+      const balade = await element<HTMLAnchorElement>('a.album', (a) => (a.textContent ?? '').includes('Balade banc'));
+      await verifier('album du sous-dossier', !!balade && (balade.textContent ?? '').includes('2 éléments'), balade?.textContent?.replace(/\s+/g, ' ') ?? '');
+      await aller('/envoi');
+      (await element<HTMLButtonElement>('[aria-label^="Ne plus envoyer"]'))?.click();
+      const confirmerRetrait = await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus envoyer');
+      confirmerRetrait?.click();
+      await attendre(1500);
+      await verifier('dossier retiré', page().includes('Aucun dossier n’est envoyé') && page().includes('Dossier retiré'));
+    }
+    await capture('e7-fin');
 
     await journal(`scénario terminé : ${reussites} réussites, ${echecs} échecs`);
   } catch (e) {

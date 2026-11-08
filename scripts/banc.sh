@@ -38,6 +38,11 @@ fi
 sortie="$racine/banc/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$sortie"
 export NICEPHORE_BANC_DOSSIER="$sortie"
+if [ -n "$jetable" ]; then
+    # Photos for the upload scenario: variants of a seeded photo (new
+    # checksums), one copy already on the server, one file to skip.
+    python3 -I "$racine/tests/immich-jetable/dossier-envoi.py" "$donnees_jetable/images" "$sortie/photos"
+fi
 
 interne="$sortie/lancer.sh"
 cat > "$interne" <<FIN
