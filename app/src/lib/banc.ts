@@ -1,6 +1,7 @@
 // Development benchmark: scripted scrolling through the real timeline, with
 // frame timing, "time to a full screen" and screenshots. Enabled only when
 // the Rust side runs with NICEPHORE_BANC_DOSSIER set.
+import { goto } from '$app/navigation';
 import { invoke } from '@tauri-apps/api/core';
 
 export type ControleBanc = {
@@ -11,6 +12,7 @@ export type ControleBanc = {
   ouvrirPremiereVideo: () => boolean;
   basculerInfos: () => void;
   fermer: () => void;
+  nombreSelectionnes: () => number;
 };
 
 const journal = (message: string) => invoke('journal', { message });
@@ -154,6 +156,32 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
       c.fermer();
     } else {
       await journal('vidéo : aucune vidéo visible pour le test');
+    }
+    // Multi-selection: three clicks on the check marks, then a shift+click range.
+    await attendre(800);
+    const coches = [...c.conteneur.querySelectorAll<HTMLButtonElement>('.tuile .coche')].filter((b) => {
+      const r = b.getBoundingClientRect();
+      return r.top > c.conteneur.getBoundingClientRect().top && r.bottom < innerHeight;
+    });
+    for (const coche of coches.slice(0, 3)) coche.click();
+    const derniere = coches[Math.min(9, coches.length - 1)];
+    derniere?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    await attendre(400);
+    await journal(`sélection : ${c.nombreSelectionnes()} éléments (3 clics puis Maj+clic sur la ${Math.min(10, coches.length)}e coche visible)`);
+    await capture('7-selection');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    // Every view of the sidebar, read only.
+    for (const [chemin, nom] of [
+      ['/favoris', '8-favoris'],
+      ['/archive', '9-archive'],
+      ['/corbeille', '10-corbeille'],
+      ['/reglages', '11-reglages'],
+    ]) {
+      await goto(chemin);
+      await attendre(2500);
+      await journal(`vue ${chemin} : ${document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 90)}`);
+      await capture(nom);
     }
     await journal('banc terminé');
   } catch (e) {

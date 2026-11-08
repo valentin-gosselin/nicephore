@@ -123,3 +123,73 @@ pub struct ImageBrute {
     pub octets: Bytes,
     pub type_mime: Option<String>,
 }
+
+/// Which assets a timeline shows: the main timeline, favorites, archive or
+/// trash. Mirrors the query parameters of `/timeline/buckets`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FiltreChronologie {
+    /// `timeline` (default) or `archive`; ignored for the trash.
+    #[serde(default)]
+    pub visibilite: Option<String>,
+    #[serde(default)]
+    pub favori: bool,
+    #[serde(default)]
+    pub corbeille: bool,
+}
+
+impl FiltreChronologie {
+    pub(crate) fn parametres(&self) -> crate::Resultat<Vec<(&'static str, String)>> {
+        let mut parametres = vec![("withStacked", "true".to_string())];
+        if self.corbeille {
+            parametres.push(("isTrashed", "true".into()));
+            return Ok(parametres);
+        }
+        let visibilite = self.visibilite.as_deref().unwrap_or("timeline");
+        if !matches!(visibilite, "timeline" | "archive") {
+            return Err(crate::Erreur::Configuration(format!("visibilité inconnue : {visibilite}")));
+        }
+        parametres.push(("visibility", visibilite.into()));
+        if self.favori {
+            parametres.push(("isFavorite", "true".into()));
+        }
+        // Partner assets are only allowed on the plain main timeline.
+        if visibilite == "timeline" && !self.favori {
+            parametres.push(("withPartners", "true".into()));
+        }
+        Ok(parametres)
+    }
+}
+
+/// Fields changed by a bulk update (`PUT /assets`); unset fields are untouched.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModificationAssets {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "isFavorite")]
+    pub favori: Option<bool>,
+    /// `timeline` or `archive`.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "visibility")]
+    pub visibilite: Option<String>,
+}
+
+/// Login methods of a server (`GET /server/features`, public).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModesConnexion {
+    #[serde(default)]
+    pub password_login: bool,
+    #[serde(default)]
+    pub oauth: bool,
+    /// Normalised server address, filled by the client.
+    #[serde(default)]
+    pub url_serveur: String,
+}
+
+/// Session opened by `POST /auth/login`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOuverte {
+    pub access_token: String,
+    pub name: String,
+    pub user_email: String,
+}

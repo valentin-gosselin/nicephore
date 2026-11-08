@@ -1,14 +1,18 @@
 <script lang="ts">
   import '../app.css';
-  // Importing the theme manager applies the light/dark class, following the
-  // system preference unless the user picks one.
-  import { themeManager, TooltipProvider } from '@immich/ui';
+  import { TooltipProvider } from '@immich/ui';
+  import { onMount } from 'svelte';
+  import Coquille from '../lib/Coquille.svelte';
+  import { initialiserTheme } from '../lib/theme.svelte';
 
   let { children } = $props();
-  void themeManager;
+
+  onMount(() => void initialiserTheme());
 </script>
 
 <!-- Buttons from @immich/ui show tooltips, which need this provider. -->
 <TooltipProvider>
-  {@render children()}
+  <Coquille>
+    {@render children()}
+  </Coquille>
 </TooltipProvider>

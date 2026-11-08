@@ -1,9 +1,13 @@
-# Desktop client for Immich (working title)
+# Nicéphore
 
 Unofficial desktop client for [Immich](https://immich.app), the self-hosted photo and video
 management server. Not affiliated with or endorsed by the Immich project.
 
-Status: early prototype. Name, license and roadmap are still being decided.
+Named after Nicéphore Niépce, who took the oldest surviving photograph, a view from his window
+at Le Gras (about 1827). The icon is a nod to it.
+
+Status: early development. Browsing works (timeline, favorites, archive, trash, viewer, video,
+multi-selection with bulk actions); sync is not there yet.
 
 ## Goals
 
@@ -32,4 +36,13 @@ npx tauri dev          # development
 npx tauri build        # release
 ```
 
-For development, `IMMICH_URL` and `IMMICH_API_KEY` connect the app at startup.
+For development, `IMMICH_URL` and `IMMICH_API_KEY` connect the app at startup
+(`scripts/lancer.sh --dev` reads them from `~/.config/nicephore/dev.env`). Otherwise the app shows
+a login screen and keeps the API key in the operating system keyring.
+
+`scripts/banc.sh` runs a scripted benchmark in an invisible virtual KWin session (scrolling frame
+times, thumbnail fill rate, screenshots), and `scripts/installer-lanceur.sh` adds a desktop entry.
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).

@@ -126,6 +126,21 @@ impl CacheVignettes {
             .join(format!("{id}-{}.img", empreinte_version(version)))
     }
 
+    /// Total size and number of cached files.
+    pub fn occupation(&self) -> (u64, usize) {
+        let mut fichiers = Vec::new();
+        let _ = lister(&self.dossier, &mut fichiers);
+        (fichiers.iter().map(|(_, taille, _)| taille).sum(), fichiers.len())
+    }
+
+    /// Empties the cache (images are downloaded again when needed).
+    pub fn vider(&self) -> std::io::Result<()> {
+        match std::fs::remove_dir_all(&self.dossier) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
     /// Removes the least recently used files until the cache fits in
     /// `budget_octets`. Meant to run in a background task.
     pub fn elaguer(&self, budget_octets: u64) -> std::io::Result<u64> {

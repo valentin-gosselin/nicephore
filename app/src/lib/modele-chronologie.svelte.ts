@@ -2,7 +2,7 @@
 // loaded on demand when they approach the viewport, and their height is
 // estimated until then so the scroll range is right from the start.
 
-import { detailMois, type DetailMois, type Mois } from './api';
+import { detailMois, type DetailMois, type Filtre, type Mois } from './api';
 import { disposer } from './disposition';
 
 export type Asset = {
@@ -17,7 +17,8 @@ export type Asset = {
   jour: string;
 };
 
-type LigneJour = { type: 'jour'; y: number; libelle: string; cle: string };
+/** Day title; `debut`..`fin` are the indices of the day's assets in the month. */
+type LigneJour = { type: 'jour'; y: number; libelle: string; cle: string; debut: number; fin: number };
 type LignePhotos = {
   type: 'photos';
   y: number;
@@ -30,7 +31,7 @@ type EtatSection = 'vide' | 'chargement' | 'charge' | 'erreur';
 
 export class Section {
   readonly cle: string;
-  readonly nombre: number;
+  nombre: number;
   readonly libelle: string;
   readonly annee: number;
   etat: EtatSection = 'vide';
@@ -66,6 +67,17 @@ export type TuileVisible = {
 };
 
 export type Position = { section: number; index: number };
+
+export type TitreVisible = {
+  cle: string;
+  y: number;
+  libelle: string;
+  mois: boolean;
+  section: number;
+  /** For day titles: indices of the day's assets in the month. */
+  debut: number;
+  fin: number;
+};
 
 export const HAUTEUR_TITRE_MOIS = 56;
 export const HAUTEUR_TITRE_JOUR = 36;
@@ -135,6 +147,7 @@ export class Chronologie {
 
   largeur = 0;
   hauteurCible = 220;
+  filtre: Filtre = {};
   private enCours = 0;
   private attente: number[] = [];
   private promesses = new Map<number, Promise<void>>();
@@ -169,6 +182,12 @@ export class Chronologie {
         HAUTEUR_TITRE_MOIS + rangees * (this.hauteurCible + ECART) + jours * HAUTEUR_TITRE_JOUR;
       return;
     }
+    if (section.assets.length === 0) {
+      // A month emptied by an action (trash, archive...) disappears.
+      section.lignes = [];
+      section.hauteur = 0;
+      return;
+    }
     const lignes: Ligne[] = [];
     let y = HAUTEUR_TITRE_MOIS;
     let debut = 0;
@@ -179,7 +198,7 @@ export class Chronologie {
       while (fin < assets.length && assets[fin].jour === jour) fin++;
       // A day can appear twice in a month when time zones reorder assets,
       // so the key uses the position, not the date.
-      lignes.push({ type: 'jour', y, libelle: libelleJour(jour), cle: `${section.cle}/${lignes.length}` });
+      lignes.push({ type: 'jour', y, libelle: libelleJour(jour), cle: `${section.cle}/${lignes.length}`, debut, fin });
       y += HAUTEUR_TITRE_JOUR;
       const ratios = assets.slice(debut, fin).map((a) => a.ratio);
       const { rangees, hauteur } = disposer(ratios, largeur, this.hauteurCible, ECART);
@@ -265,7 +284,7 @@ export class Chronologie {
     if (!section || section.etat === 'charge') return Promise.resolve();
     section.etat = 'chargement';
     this.enCours++;
-    const promesse = detailMois(section.cle)
+    const promesse = detailMois(section.cle, this.filtre)
       .then((detail) => {
         section.assets = versAssets(detail);
         section.etat = 'charge';
@@ -288,7 +307,7 @@ export class Chronologie {
 
   /** Visible titles and tiles between two absolute positions. */
   visibles(debut: number, fin: number) {
-    const titres: { cle: string; y: number; libelle: string; mois: boolean }[] = [];
+    const titres: TitreVisible[] = [];
     const tuiles: TuileVisible[] = [];
     const attentes: { cle: string; y: number; hauteur: number }[] = [];
     if (!this.sections.length) return { titres, tuiles, attentes };
@@ -296,7 +315,8 @@ export class Chronologie {
     for (let s = this.sectionA(debut); s < this.sections.length; s++) {
       const section = this.sections[s];
       if (section.haut > fin) break;
-      titres.push({ cle: section.cle, y: section.haut, libelle: section.libelle, mois: true });
+      if (section.hauteur === 0) continue;
+      titres.push({ cle: section.cle, y: section.haut, libelle: section.libelle, mois: true, section: s, debut: 0, fin: 0 });
       if (section.etat !== 'charge') {
         attentes.push({
           cle: section.cle,
@@ -309,7 +329,7 @@ export class Chronologie {
         const y = section.haut + ligne.y;
         if (ligne.type === 'jour') {
           if (y + HAUTEUR_TITRE_JOUR >= debut && y <= fin) {
-            titres.push({ cle: ligne.cle, y, libelle: ligne.libelle, mois: false });
+            titres.push({ cle: ligne.cle, y, libelle: ligne.libelle, mois: false, section: s, debut: ligne.debut, fin: ligne.fin });
           }
           continue;
         }
@@ -361,6 +381,59 @@ export class Chronologie {
       }
     }
     return null;
+  }
+
+  /** Assets between two positions (inclusive), across loaded months. */
+  entre(a: Position, b: Position): Asset[] {
+    const [debut, fin] =
+      a.section < b.section || (a.section === b.section && a.index <= b.index) ? [a, b] : [b, a];
+    const resultat: Asset[] = [];
+    for (let s = debut.section; s <= fin.section; s++) {
+      const section = this.sections[s];
+      if (section.etat !== 'charge') continue;
+      const premier = s === debut.section ? debut.index : 0;
+      const dernier = s === fin.section ? fin.index : section.assets.length - 1;
+      resultat.push(...section.assets.slice(premier, dernier + 1));
+    }
+    return resultat;
+  }
+
+  /** Every asset of the loaded months. */
+  chargees(): Asset[] {
+    return this.sections.flatMap((s) => (s.etat === 'charge' ? s.assets : []));
+  }
+
+  /** Months currently holding one of these assets. */
+  sectionsDe(ids: Set<string>): number[] {
+    return this.sections.flatMap((s, i) => (s.assets.some((a) => ids.has(a.id)) ? [i] : []));
+  }
+
+  /** Updates the favorite flag in place (no reload needed). */
+  marquerFavoris(ids: Set<string>, favori: boolean) {
+    for (const section of this.sections) for (const a of section.assets) if (ids.has(a.id)) a.favori = favori;
+    this.revision++;
+  }
+
+  /** Reloads months after a change on the server, keeping the old layout
+   * on screen until the new content arrives. */
+  async rafraichir(indices: number[]) {
+    await Promise.all(
+      indices.map(async (index) => {
+        const section = this.sections[index];
+        try {
+          section.assets = versAssets(await detailMois(section.cle, this.filtre));
+        } catch {
+          // The month may now be empty and rejected by the server.
+          section.assets = [];
+        }
+        section.nombre = section.assets.length;
+        section.etat = 'charge';
+        this.disposerSection(section);
+      }),
+    );
+    this.nombreTotal = this.sections.reduce((n, s) => n + s.nombre, 0);
+    this.recalculer();
+    this.surChangement?.();
   }
 
   /** Year marks for the scrubber: first month of every year. */

@@ -1,11 +1,18 @@
-//! Tauri shell of the desktop app: commands used by the Svelte UI, the
+//! Tauri shell of Nicéphore: commands used by the Svelte UI, the
 //! `vignette://` protocol serving cached images, and the local video proxy.
 
+mod banc;
+mod compte;
 mod proxy_video;
+mod telechargement;
 
-use api_immich::{ClientImmich, DetailMois, Mois, TailleImage, Utilisateur};
+use api_immich::{
+    Authentification, ClientImmich, DetailMois, FiltreChronologie, ModesConnexion, ModificationAssets, Mois,
+    TailleImage, Utilisateur,
+};
 use cache_vignettes::{CacheVignettes, ErreurCache};
 use serde::Serialize;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tauri::http::{self, StatusCode};
 use tauri::{Manager, State};
@@ -16,8 +23,26 @@ const BUDGET_CACHE: u64 = 4 * 1024 * 1024 * 1024;
 /// Client shared by the commands, the image protocol and the video proxy.
 pub type ClientPartage = Arc<RwLock<Option<Arc<ClientImmich>>>>;
 
+/// Where the current connection comes from.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+enum Origine {
+    /// `IMMICH_URL` / `IMMICH_API_KEY` (development).
+    Environnement,
+    /// Remembered in the OS keyring.
+    Trousseau,
+    /// Typed in this session, not remembered.
+    Memoire,
+}
+
 pub struct Etat {
     client: ClientPartage,
+    origine: RwLock<Origine>,
+    /// The current connection is a session (revoked on logout).
+    session: RwLock<bool>,
+    /// Set once the remembered account has been looked up.
+    compte_cherche: tokio::sync::Mutex<bool>,
+    dossier_config: PathBuf,
     cache: Arc<CacheVignettes>,
     proxy: proxy_video::Proxy,
 }
@@ -30,6 +55,12 @@ impl Etat {
             .clone()
             .ok_or_else(|| "non connecté".to_string())
     }
+
+    fn definir(&self, client: Option<Arc<ClientImmich>>, origine: Origine, session: bool) {
+        *self.client.write().expect("verrou du client") = client;
+        *self.origine.write().expect("verrou de l'origine") = origine;
+        *self.session.write().expect("verrou de la session") = session;
+    }
 }
 
 #[derive(Serialize)]
@@ -38,45 +69,153 @@ struct Connexion {
     url_serveur: String,
     version: String,
     utilisateur: Utilisateur,
+    origine: Origine,
+    /// Session (email and password) rather than an API key.
+    session: bool,
 }
 
-async fn verifier_connexion(client: &ClientImmich) -> Result<Connexion, String> {
+async fn verifier_connexion(client: &ClientImmich, origine: Origine, session: bool) -> Result<Connexion, String> {
     client.ping().await.map_err(|e| e.to_string())?;
     let version = client.version().await.map_err(|e| e.to_string())?;
     let utilisateur = client.moi().await.map_err(|e| e.to_string())?;
-    Ok(Connexion { url_serveur: client.url_serveur(), version: version.to_string(), utilisateur })
+    Ok(Connexion { url_serveur: client.url_serveur(), version: version.to_string(), utilisateur, origine, session })
 }
 
-/// Returns the current connection, if any, after checking it still works.
+/// Current connection, if any, after checking it still works. On the first
+/// call, looks for a remembered account in the keyring.
 #[tauri::command]
 async fn etat_connexion(etat: State<'_, Etat>) -> Result<Option<Connexion>, String> {
+    {
+        let mut cherche = etat.compte_cherche.lock().await;
+        if !*cherche && etat.client().is_err() {
+            let dossier = etat.dossier_config.clone();
+            if let Ok(Some((url, auth))) = tokio::task::spawn_blocking(move || compte::charger(&dossier)).await {
+                let session = matches!(auth, Authentification::Session(_));
+                match ClientImmich::nouveau(&url, &auth) {
+                    Ok(client) => etat.definir(Some(Arc::new(client)), Origine::Trousseau, session),
+                    Err(e) => tracing::warn!("compte mémorisé inutilisable : {e}"),
+                }
+            }
+        }
+        *cherche = true;
+    }
     let Ok(client) = etat.client() else { return Ok(None) };
-    verifier_connexion(&client).await.map(Some)
+    let origine = *etat.origine.read().expect("verrou de l'origine");
+    let session = *etat.session.read().expect("verrou de la session");
+    verifier_connexion(&client, origine, session).await.map(Some)
 }
 
-/// Connects with a server URL and an API key. The key stays in memory only
-/// (keyring storage comes with the settings screen).
+/// Login methods of a server, before any authentication.
 #[tauri::command]
-async fn se_connecter(etat: State<'_, Etat>, url: String, cle: String) -> Result<Connexion, String> {
-    let client = Arc::new(ClientImmich::nouveau(&url, &cle).map_err(|e| e.to_string())?);
-    let connexion = verifier_connexion(&client).await?;
-    *etat.client.write().expect("verrou du client") = Some(client);
+async fn modes_connexion(url: String) -> Result<ModesConnexion, String> {
+    api_immich::modes_connexion(&url).await.map_err(|e| e.to_string())
+}
+
+/// Connects (and optionally remembers) with ready-made credentials.
+async fn connecter(etat: &Etat, url: &str, auth: Authentification, memoriser: bool) -> Result<Connexion, String> {
+    let client = Arc::new(ClientImmich::nouveau(url, &auth).map_err(|e| e.to_string())?);
+    let origine = if memoriser { Origine::Trousseau } else { Origine::Memoire };
+    let session = matches!(auth, Authentification::Session(_));
+    let connexion = verifier_connexion(&client, origine, session).await?;
+    if memoriser {
+        let dossier = etat.dossier_config.clone();
+        let url = client.url_serveur();
+        tokio::task::spawn_blocking(move || compte::enregistrer(&dossier, &url, &auth))
+            .await
+            .map_err(|e| e.to_string())??;
+    }
+    etat.definir(Some(client), origine, session);
     Ok(connexion)
 }
 
+/// Email and password login, like the web app. Only the session token
+/// returned by the server is kept (in the keyring when `memoriser` is set).
 #[tauri::command]
-async fn liste_mois(etat: State<'_, Etat>) -> Result<Vec<Mois>, String> {
-    etat.client()?.liste_mois().await.map_err(|e| e.to_string())
+async fn se_connecter_mot_de_passe(
+    etat: State<'_, Etat>,
+    url: String,
+    email: String,
+    mot_de_passe: String,
+    memoriser: bool,
+) -> Result<Connexion, String> {
+    let session = api_immich::ouvrir_session(&url, &email, &mot_de_passe).await.map_err(|e| e.to_string())?;
+    connecter(&etat, &url, Authentification::Session(session.access_token), memoriser).await
+}
+
+/// Connects with a server URL and an API key (advanced option).
+#[tauri::command]
+async fn se_connecter(etat: State<'_, Etat>, url: String, cle: String, memoriser: bool) -> Result<Connexion, String> {
+    connecter(&etat, &url, Authentification::CleApi(cle), memoriser).await
+}
+
+/// Disconnects: revokes the session on the server (best effort), then
+/// forgets the remembered account.
+#[tauri::command]
+async fn se_deconnecter(etat: State<'_, Etat>) -> Result<(), String> {
+    if *etat.session.read().expect("verrou de la session")
+        && let Ok(client) = etat.client()
+        && let Err(e) = client.fermer_session().await
+    {
+        tracing::warn!("révocation de la session impossible : {e}");
+    }
+    let dossier = etat.dossier_config.clone();
+    tokio::task::spawn_blocking(move || compte::oublier(&dossier)).await.map_err(|e| e.to_string())??;
+    etat.definir(None, Origine::Memoire, false);
+    Ok(())
 }
 
 #[tauri::command]
-async fn detail_mois(etat: State<'_, Etat>, mois: String) -> Result<DetailMois, String> {
-    etat.client()?.detail_mois(&mois).await.map_err(|e| e.to_string())
+async fn liste_mois(etat: State<'_, Etat>, filtre: FiltreChronologie) -> Result<Vec<Mois>, String> {
+    etat.client()?.liste_mois(&filtre).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn detail_mois(etat: State<'_, Etat>, mois: String, filtre: FiltreChronologie) -> Result<DetailMois, String> {
+    etat.client()?.detail_mois(&mois, &filtre).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn infos_asset(etat: State<'_, Etat>, id: String) -> Result<serde_json::Value, String> {
     etat.client()?.infos_asset(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn definir_favori(etat: State<'_, Etat>, ids: Vec<String>, favori: bool) -> Result<(), String> {
+    let modification = ModificationAssets { favori: Some(favori), ..Default::default() };
+    etat.client()?.modifier_assets(&ids, &modification).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn definir_archive(etat: State<'_, Etat>, ids: Vec<String>, archive: bool) -> Result<(), String> {
+    let visibilite = if archive { "archive" } else { "timeline" };
+    let modification = ModificationAssets { visibilite: Some(visibilite.into()), ..Default::default() };
+    etat.client()?.modifier_assets(&ids, &modification).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn mettre_corbeille(etat: State<'_, Etat>, ids: Vec<String>) -> Result<(), String> {
+    etat.client()?.mettre_a_la_corbeille(&ids).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn restaurer_corbeille(etat: State<'_, Etat>, ids: Vec<String>) -> Result<(), String> {
+    etat.client()?.restaurer(&ids).await.map_err(|e| e.to_string())
+}
+
+/// Downloads the original files into `dossier`, emitting `telechargement`
+/// progress events.
+#[tauri::command]
+async fn telecharger(
+    app: tauri::AppHandle,
+    etat: State<'_, Etat>,
+    ids: Vec<String>,
+    dossier: PathBuf,
+) -> Result<telechargement::Bilan, String> {
+    if !dossier.is_dir() {
+        return Err(format!("dossier introuvable : {}", dossier.display()));
+    }
+    let client = etat.client()?;
+    Ok(telechargement::telecharger(app, &client, &ids, &dossier).await)
 }
 
 /// URL of the local proxy streaming a video (the `<video>` element cannot
@@ -87,54 +226,26 @@ fn url_video(etat: State<'_, Etat>, id: String) -> Result<String, String> {
     Ok(etat.proxy.url_video(&id))
 }
 
-/// Benchmark mode (development): enabled when `NICEPHORE_BANC_DOSSIER` points
-/// to a directory receiving screenshots and measurements.
-fn dossier_banc() -> Option<std::path::PathBuf> {
-    std::env::var_os("NICEPHORE_BANC_DOSSIER").map(Into::into)
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InfosCache {
+    octets: u64,
+    fichiers: usize,
+    budget: u64,
+    dossier: String,
 }
 
 #[tauri::command]
-fn mode_banc() -> bool {
-    dossier_banc().is_some()
+async fn infos_cache(etat: State<'_, Etat>) -> Result<InfosCache, String> {
+    let cache = etat.cache.clone();
+    let (octets, fichiers) = tokio::task::spawn_blocking(move || cache.occupation()).await.map_err(|e| e.to_string())?;
+    Ok(InfosCache { octets, fichiers, budget: BUDGET_CACHE, dossier: etat.cache.dossier().display().to_string() })
 }
 
 #[tauri::command]
-fn journal(message: String) {
-    tracing::info!(target: "banc", "{message}");
-}
-
-/// Takes a screenshot of the (virtual) screen with Spectacle.
-#[tauri::command]
-async fn capture(nom: String) -> Result<(), String> {
-    let Some(dossier) = dossier_banc() else { return Err("mode banc inactif".into()) };
-    if nom.is_empty() || !nom.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-        return Err("nom de capture invalide".into());
-    }
-    let chemin = dossier.join(format!("{nom}.png"));
-    let statut = tokio::process::Command::new("spectacle")
-        .args(["--background", "--nonotify", "--fullscreen", "--output"])
-        .arg(&chemin)
-        .status()
-        .await
-        .map_err(|e| e.to_string())?;
-    if statut.success() { Ok(()) } else { Err(format!("spectacle : {statut}")) }
-}
-
-#[tauri::command]
-fn quitter(app: tauri::AppHandle) {
-    app.exit(0);
-}
-
-/// Timing of the image protocol, read by the benchmark.
-static STATS_IMAGES: std::sync::Mutex<(u64, u64, u64)> = std::sync::Mutex::new((0, 0, 0));
-
-#[tauri::command]
-fn stats_images() -> String {
-    let mut stats = STATS_IMAGES.lock().expect("verrou des stats");
-    let (nombre, total, max) = *stats;
-    *stats = (0, 0, 0);
-    let moyenne = total.checked_div(nombre).unwrap_or(0);
-    format!("{nombre} images servies, {moyenne} ms en moyenne, {max} ms au pire")
+async fn vider_cache(etat: State<'_, Etat>) -> Result<(), String> {
+    let cache = etat.cache.clone();
+    tokio::task::spawn_blocking(move || cache.vider()).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
 }
 
 /// Serves `vignette://localhost/<taille>/<id>?v=<thumbhash>`.
@@ -181,7 +292,7 @@ async fn servir_image(
 fn client_depuis_environnement() -> Option<Arc<ClientImmich>> {
     let url = std::env::var("IMMICH_URL").ok()?;
     let cle = std::env::var("IMMICH_API_KEY").ok()?;
-    match ClientImmich::nouveau(&url, &cle) {
+    match ClientImmich::nouveau(&url, &Authentification::CleApi(cle)) {
         Ok(client) => Some(Arc::new(client)),
         Err(e) => {
             tracing::warn!("IMMICH_URL / IMMICH_API_KEY ignorés : {e}");
@@ -199,10 +310,13 @@ pub fn lancer() {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let dossier_cache = app.path().app_cache_dir()?.join("images");
             let cache = Arc::new(CacheVignettes::nouveau(dossier_cache));
-            let client: ClientPartage = Arc::new(RwLock::new(client_depuis_environnement()));
+            let depuis_env = client_depuis_environnement();
+            let origine = if depuis_env.is_some() { Origine::Environnement } else { Origine::Memoire };
+            let client: ClientPartage = Arc::new(RwLock::new(depuis_env));
             let proxy = proxy_video::Proxy::demarrer(client.clone())?;
 
             let a_elaguer = cache.clone();
@@ -212,7 +326,15 @@ pub fn lancer() {
                 Err(e) => tracing::warn!("élagage du cache impossible : {e}"),
             });
 
-            app.manage(Etat { client, cache, proxy });
+            app.manage(Etat {
+                client,
+                origine: RwLock::new(origine),
+                session: RwLock::new(false),
+                compte_cherche: tokio::sync::Mutex::new(false),
+                dossier_config: app.path().app_config_dir()?,
+                cache,
+                proxy,
+            });
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("vignette", |ctx, requete, repondeur| {
@@ -223,23 +345,31 @@ pub fn lancer() {
             tauri::async_runtime::spawn(async move {
                 let debut = std::time::Instant::now();
                 repondeur.respond(servir_image(client, cache, uri).await);
-                let ms = debut.elapsed().as_millis() as u64;
-                let mut stats = STATS_IMAGES.lock().expect("verrou des stats");
-                *stats = (stats.0 + 1, stats.1 + ms, stats.2.max(ms));
+                banc::compter_image(debut.elapsed());
             });
         })
         .invoke_handler(tauri::generate_handler![
             etat_connexion,
+            modes_connexion,
+            se_connecter_mot_de_passe,
             se_connecter,
+            se_deconnecter,
             liste_mois,
             detail_mois,
             infos_asset,
+            definir_favori,
+            definir_archive,
+            mettre_corbeille,
+            restaurer_corbeille,
+            telecharger,
             url_video,
-            mode_banc,
-            journal,
-            capture,
-            quitter,
-            stats_images
+            infos_cache,
+            vider_cache,
+            banc::mode_banc,
+            banc::journal,
+            banc::capture,
+            banc::quitter,
+            banc::stats_images
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de l'application");

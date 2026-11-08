@@ -1,19 +1,33 @@
 <script lang="ts">
-  import { LoadingSpinner, Text } from '@immich/ui';
+  import { Heading, LoadingSpinner, Text } from '@immich/ui';
+  import { mdiCheckCircle, mdiCheckboxBlankCircleOutline } from '@mdi/js';
   import { onMount, tick } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listeMois } from './api';
   import { lancerBanc } from './banc';
-  import { Chronologie, HAUTEUR_TITRE_JOUR, HAUTEUR_TITRE_MOIS, type Position, type TuileVisible } from './modele-chronologie.svelte';
+  import BarreSelection from './BarreSelection.svelte';
+  import {
+    Chronologie,
+    HAUTEUR_TITRE_JOUR,
+    HAUTEUR_TITRE_MOIS,
+    type Position,
+    type TitreVisible,
+    type TuileVisible,
+  } from './modele-chronologie.svelte';
   import { defilement as etatDefilement } from './defilement.svelte';
   import Frise from './Frise.svelte';
+  import { Selection } from './selection.svelte';
   import Tuile from './Tuile.svelte';
   import Visionneuse from './Visionneuse.svelte';
+  import type { Vue } from './vues';
 
-  let { onnombre }: { onnombre?: (n: number) => void } = $props();
+  let { vue }: { vue: Vue } = $props();
 
   const MARGE = 16;
   const chrono = new Chronologie();
+  // svelte-ignore state_referenced_locally
+  chrono.filtre = vue.filtre;
+  const selection = new Selection();
 
   let conteneur: HTMLDivElement;
   let defilement = $state(0);
@@ -103,11 +117,17 @@
 
   function surTouche(e: KeyboardEvent) {
     if (ouverte) return;
+    const champ = e.target instanceof HTMLElement && e.target.closest('input, textarea');
+    if (champ) return;
     if (e.ctrlKey && (e.key === '+' || e.key === '=')) zoomer(1.15);
     else if (e.ctrlKey && e.key === '-') zoomer(1 / 1.15);
     else if (e.ctrlKey && e.key === '0') {
       hauteurCible = 220;
       void garderAncre(() => chrono.redisposer(largeurVue - MARGE * 2, hauteurCible));
+    } else if (e.ctrlKey && e.key.toLowerCase() === 'a') selection.ajouter(chrono.chargees());
+    else if (e.key === 'Escape' && selection.active) selection.vider();
+    else if (e.key === 'Delete' && selection.active && vue.id !== 'corbeille') {
+      document.querySelector<HTMLButtonElement>('[aria-label^="Mettre à la corbeille"]')?.click();
     } else if (e.key === 'Home') allerA(0, false);
     else if (e.key === 'End') allerA(chrono.hauteurTotale, false);
     else return;
@@ -116,6 +136,29 @@
 
   function ouvrir(tuile: TuileVisible) {
     ouverte = { section: tuile.section, index: tuile.index };
+  }
+
+  /** Toggles one asset; with shift, selects the whole range from the last click. */
+  function basculer(tuile: TuileVisible, plage: boolean) {
+    const position = { section: tuile.section, index: tuile.index };
+    if (plage && selection.ancre) {
+      selection.ajouter(chrono.entre(selection.ancre, position));
+      selection.ancre = position;
+    } else {
+      selection.basculer(tuile.asset, position);
+    }
+  }
+
+  /** Day title checkbox: selects (or deselects) every asset of that day. */
+  function jourSelectionne(titre: TitreVisible) {
+    const assets = chrono.sections[titre.section]?.assets.slice(titre.debut, titre.fin) ?? [];
+    return assets.length > 0 && assets.every((a) => selection.contient(a.id));
+  }
+
+  function basculerJour(titre: TitreVisible) {
+    const assets = chrono.sections[titre.section].assets.slice(titre.debut, titre.fin);
+    if (jourSelectionne(titre)) selection.retirerTous(assets);
+    else selection.ajouter(assets);
   }
 
   function fermer(position: Position) {
@@ -139,16 +182,15 @@
     observateur.observe(conteneur);
 
     const debutChargement = performance.now();
-    listeMois()
+    listeMois(vue.filtre)
       .then(async (mois) => {
         largeurVue = conteneur.clientWidth;
         chrono.largeur = largeurVue - MARGE * 2;
         chrono.hauteurCible = hauteurCible;
         chrono.initialiser(mois);
-        onnombre?.(chrono.nombreTotal);
         pret = true;
         await tick();
-        if (await invoke<boolean>('mode_banc')) {
+        if (vue.id === 'photos' && (await invoke<boolean>('mode_banc'))) {
           const touche = (key: string) => window.dispatchEvent(new KeyboardEvent('keydown', { key }));
           void lancerBanc(
             {
@@ -167,6 +209,7 @@
               },
               basculerInfos: () => touche('i'),
               fermer: () => touche('Escape'),
+              nombreSelectionnes: () => selection.taille,
             },
             debutChargement,
           );
@@ -180,51 +223,90 @@
 
 <svelte:window onkeydown={surTouche} />
 
-<div class="flex h-full min-h-0">
-  <div
-    id="chronologie"
-    bind:this={conteneur}
-    class="chronologie relative h-full min-w-0 flex-1 overflow-y-auto outline-none"
-    onscroll={surDefilement}
-    onwheel={surMolette}
-    tabindex="-1"
-  >
-    {#if erreur}
-      <div class="p-8"><Text color="danger">Impossible de charger la chronologie : {erreur}</Text></div>
-    {:else if !pret}
-      <div class="flex h-full items-center justify-center"><LoadingSpinner size="giant" /></div>
+<div class="flex h-full min-h-0 flex-col">
+  <div class="entete shrink-0 border-b border-gray-200 dark:border-gray-800">
+    {#if selection.active}
+      <BarreSelection {vue} {selection} {chrono} />
+    {:else}
+      <div class="flex h-14 items-center gap-3 px-5">
+        <Heading size="small">{vue.titre}</Heading>
+        {#if pret}
+          <Text size="small" color="muted">
+            {chrono.nombreTotal.toLocaleString('fr-FR')} élément{chrono.nombreTotal > 1 ? 's' : ''}
+          </Text>
+        {/if}
+      </div>
     {/if}
-
-    <div class="relative" style:height="{chrono.hauteurTotale}px" style:margin="0 {MARGE}px">
-      {#each fenetre.attentes as a (a.cle)}
-        <div
-          class="attente absolute left-0 right-0 rounded-lg"
-          style:transform="translateY({a.y}px)"
-          style:height="{a.hauteur}px"
-        ></div>
-      {/each}
-
-      {#each fenetre.titres as titre (titre.cle)}
-        <div
-          class="absolute left-0 right-0 flex items-end"
-          class:titre-mois={titre.mois}
-          class:titre-jour={!titre.mois}
-          style:transform="translateY({titre.y}px)"
-          style:height="{titre.mois ? HAUTEUR_TITRE_MOIS : HAUTEUR_TITRE_JOUR}px"
-        >
-          {titre.libelle}
-        </div>
-      {/each}
-
-      {#each fenetre.tuiles as tuile (`${tuile.section}:${tuile.asset.id}`)}
-        <Tuile {tuile} onouvrir={ouvrir} />
-      {/each}
-    </div>
   </div>
 
-  {#if pret}
-    <Frise {chrono} {defilement} {hauteurVue} onaller={allerA} />
-  {/if}
+  <div class="flex min-h-0 flex-1">
+    <div
+      id="chronologie"
+      bind:this={conteneur}
+      class="chronologie relative h-full min-w-0 flex-1 overflow-y-auto outline-none"
+      onscroll={surDefilement}
+      onwheel={surMolette}
+      tabindex="-1"
+    >
+      {#if erreur}
+        <div class="p-8"><Text color="danger">Impossible de charger la chronologie : {erreur}</Text></div>
+      {:else if !pret}
+        <div class="flex h-full items-center justify-center"><LoadingSpinner size="giant" /></div>
+      {:else if chrono.nombreTotal === 0}
+        <div class="flex h-full items-center justify-center p-8"><Text color="muted">{vue.vide}</Text></div>
+      {/if}
+
+      <div class="relative" style:height="{chrono.hauteurTotale}px" style:margin="0 {MARGE}px">
+        {#each fenetre.attentes as a (a.cle)}
+          <div
+            class="attente absolute left-0 right-0 rounded-lg"
+            style:transform="translateY({a.y}px)"
+            style:height="{a.hauteur}px"
+          ></div>
+        {/each}
+
+        {#each fenetre.titres as titre (titre.cle)}
+          <div
+            class="titre absolute left-0 right-0 flex items-end gap-1.5"
+            class:titre-mois={titre.mois}
+            class:titre-jour={!titre.mois}
+            class:mode-selection={selection.active}
+            style:transform="translateY({titre.y}px)"
+            style:height="{titre.mois ? HAUTEUR_TITRE_MOIS : HAUTEUR_TITRE_JOUR}px"
+          >
+            {#if !titre.mois}
+              <button
+                type="button"
+                class="coche-jour"
+                class:cochee={jourSelectionne(titre)}
+                aria-label="Sélectionner la journée"
+                onclick={() => basculerJour(titre)}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d={jourSelectionne(titre) ? mdiCheckCircle : mdiCheckboxBlankCircleOutline} />
+                </svg>
+              </button>
+            {/if}
+            {titre.libelle}
+          </div>
+        {/each}
+
+        {#each fenetre.tuiles as tuile (`${tuile.section}:${tuile.asset.id}`)}
+          <Tuile
+            {tuile}
+            selectionnee={selection.contient(tuile.asset.id)}
+            modeSelection={selection.active}
+            onouvrir={ouvrir}
+            onbasculer={basculer}
+          />
+        {/each}
+      </div>
+    </div>
+
+    {#if pret && chrono.nombreTotal > 0}
+      <Frise {chrono} {defilement} {hauteurVue} onaller={allerA} />
+    {/if}
+  </div>
 </div>
 
 {#if ouverte}
@@ -247,7 +329,27 @@
     padding-bottom: 8px;
     font-size: 13px;
     font-weight: 500;
-    opacity: 0.75;
+  }
+  .titre-jour {
+    color: color-mix(in oklab, currentColor 75%, transparent);
+  }
+  .coche-jour {
+    display: flex;
+    width: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+      width 120ms,
+      opacity 120ms;
+  }
+  .titre-jour:hover .coche-jour,
+  .mode-selection .coche-jour,
+  .coche-jour:focus-visible {
+    width: 18px;
+    opacity: 1;
+  }
+  .coche-jour.cochee {
+    color: var(--immich-ui-primary-500);
   }
   .attente {
     background: repeating-linear-gradient(

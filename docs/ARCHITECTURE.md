@@ -222,3 +222,13 @@ jetable en Docker pour l'intégration), jamais contre la vraie bibliothèque.
 4. **Dépôt** : privé jusqu'au prototype validé, ou public dès le départ.
 5. **Prise de contact** avec l'auteur de Mimick pour un cœur de synchro commun : maintenant ou
    après le prototype.
+
+---
+
+## 8. Chantiers notés en route
+
+- **Connexion OAuth** (demandé le 08/11) : ouvrir la page du fournisseur d'identité dans le navigateur
+  du système, pour profiter du gestionnaire de mots de passe, puis récupérer le jeton par une
+  redirection vers l'appli (adresse de rappel en boucle locale ou schéma `nicephore://`). Immich ne
+  passe la main au navigateur que pour OAuth : la connexion par e-mail et mot de passe n'a pas de
+  mécanisme équivalent. Le serveur de test n'a pas OAuth activé.

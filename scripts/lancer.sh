@@ -10,21 +10,28 @@
 #           recipe as the Music Assistant desktop app on this machine)
 # The working mode is remembered in ~/.cache/nicephore/mode.
 #   lancer.sh --mode compat   forces a mode;  lancer.sh --oublier  retries all.
+#   lancer.sh --dev [...]     development connection (see below).
 set -eu
 racine=$(cd "$(dirname "$0")/.." && pwd)
 binaire="${NICEPHORE_BINAIRE:-$racine/target/release/nicephore}"
 cache="${XDG_CACHE_HOME:-$HOME/.cache}/nicephore"
 mkdir -p "$cache"
 
-# Development connection: IMMICH_URL and IMMICH_API_KEY (or IMMICH_KEY), read
-# from $NICEPHORE_ENV (default ~/.config/nicephore/dev.env).
-fichier_env="${NICEPHORE_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/nicephore/dev.env}"
-if [ -f "$fichier_env" ]; then
-    set -a
-    . "$fichier_env"
-    set +a
+# With --dev, connects with IMMICH_URL and IMMICH_API_KEY (or IMMICH_KEY) read
+# from $NICEPHORE_ENV (default ~/.config/nicephore/dev.env). Without it, the
+# app behaves as installed: login screen, key remembered in the OS keyring.
+if [ "${1:-}" = "--dev" ]; then
+    shift
+    fichier_env="${NICEPHORE_ENV:-${XDG_CONFIG_HOME:-$HOME/.config}/nicephore/dev.env}"
+    if [ -f "$fichier_env" ]; then
+        set -a
+        . "$fichier_env"
+        set +a
+    fi
+    export IMMICH_API_KEY="${IMMICH_API_KEY:-${IMMICH_KEY:-}}"
+else
+    unset IMMICH_URL IMMICH_API_KEY
 fi
-export IMMICH_API_KEY="${IMMICH_API_KEY:-${IMMICH_KEY:-}}"
 
 modes="natif dmabuf compat"
 case "${1:-}" in

@@ -10,8 +10,10 @@ pub enum Erreur {
     Configuration(String),
     #[error("serveur injoignable : {0}")]
     Reseau(String),
-    #[error("la clé API est refusée par le serveur")]
+    #[error("connexion refusée par le serveur (session expirée ou clé révoquée)")]
     CleRefusee,
+    #[error("adresse e-mail ou mot de passe incorrect")]
+    IdentifiantsRefuses,
     #[error("droit manquant sur la clé API : {0}")]
     PermissionManquante(String),
     #[error("élément introuvable")]
