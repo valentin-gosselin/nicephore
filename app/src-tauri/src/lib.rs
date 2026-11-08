@@ -8,9 +8,9 @@ mod proxy_video;
 mod telechargement;
 
 use api_immich::{
-    Album, Authentification, BilanAlbum, ClientImmich, CriteresRecherche, DetailMois, FiltreChronologie, Lieu,
-    ModesConnexion, ModificationAlbum, ModificationAssets, ModificationPersonne, Mois, PageResultats, Personne,
-    TailleImage, Utilisateur,
+    Album, AssetResume, Authentification, BilanAlbum, ClientImmich, CriteresRecherche, DetailMois,
+    FiltreChronologie, Lieu, Marqueur, ModesConnexion, ModificationAlbum, ModificationAssets, ModificationPersonne,
+    Mois, PageResultats, Personne, Souvenir, StylesCarte, TailleImage, Utilisateur,
 };
 use cache_vignettes::{CacheVignettes, ErreurCache};
 use serde::Serialize;
@@ -304,6 +304,31 @@ async fn nombres_villes(etat: State<'_, Etat>, villes: Vec<String>) -> Result<Ha
 }
 
 #[tauri::command]
+async fn marqueurs(etat: State<'_, Etat>) -> Result<Vec<Marqueur>, String> {
+    etat.client()?.marqueurs().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn styles_carte(etat: State<'_, Etat>) -> Result<StylesCarte, String> {
+    etat.client()?.styles_carte().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn souvenirs(etat: State<'_, Etat>, jour: String) -> Result<Vec<Souvenir>, String> {
+    etat.client()?.souvenirs(&jour).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn souvenir(etat: State<'_, Etat>, id: String) -> Result<Souvenir, String> {
+    etat.client()?.souvenir(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn assets_par_ids(etat: State<'_, Etat>, ids: Vec<String>) -> Result<Vec<AssetResume>, String> {
+    etat.client()?.assets_par_ids(&ids).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn infos_asset(etat: State<'_, Etat>, id: String) -> Result<serde_json::Value, String> {
     etat.client()?.infos_asset(&id).await.map_err(|e| e.to_string())
 }
@@ -549,6 +574,11 @@ pub fn lancer() {
             retirer_de_l_album,
             nombres_personnes,
             nombres_villes,
+            marqueurs,
+            styles_carte,
+            souvenirs,
+            souvenir,
+            assets_par_ids,
             infos_asset,
             definir_favori,
             definir_archive,

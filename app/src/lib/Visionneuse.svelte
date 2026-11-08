@@ -1,6 +1,6 @@
 <script lang="ts">
   import { IconButton, LoadingSpinner } from '@immich/ui';
-  import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiFullscreen, mdiInformationOutline } from '@mdi/js';
+  import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiFullscreen, mdiInformationOutline, mdiPause, mdiPlay } from '@mdi/js';
   import { onMount } from 'svelte';
   import { urlImage, urlVideo } from './api';
   import type { Chronologie, Position } from './modele-chronologie.svelte';
@@ -10,13 +10,20 @@
     chrono,
     depart,
     onfermer,
-  }: { chrono: Chronologie; depart: Position; onfermer: (p: Position) => void } = $props();
+    diaporama = false,
+  }: { chrono: Chronologie; depart: Position; onfermer: (p: Position) => void; diaporama?: boolean } = $props();
+
+  /** Time each photo stays on screen during a slideshow. */
+  const DUREE_DIAPO = 5000;
 
   let racine: HTMLDivElement;
   // The viewer starts on `depart`, then navigates on its own.
   // svelte-ignore state_referenced_locally
   let position = $state<Position>(depart);
   let infos = $state(false);
+  // Slideshow: photos advance every 5 s, videos at their end.
+  // svelte-ignore state_referenced_locally
+  let lecture = $state(diaporama);
   let video = $state<string | null>(null);
   let apercuCharge = $state(false);
   let pleineCharge = $state(false);
@@ -53,7 +60,16 @@
   async function aller(sens: 1 | -1) {
     const suivante = await chrono.voisin(position, sens);
     if (suivante) position = suivante;
+    // Nothing after the last photo: the slideshow stops there.
+    else if (sens === 1) lecture = false;
+    return !!suivante;
   }
+
+  $effect(() => {
+    if (!lecture || !asset?.image || !apercuCharge) return;
+    const minuteur = setTimeout(() => void aller(1), DUREE_DIAPO);
+    return () => clearTimeout(minuteur);
+  });
 
   function surTouche(e: KeyboardEvent) {
     // Alt+arrows belong to the app navigation (back closes the viewer).
@@ -65,6 +81,7 @@
     else if (e.key === 'ArrowLeft') void aller(-1);
     else if (e.key === 'i') infos = !infos;
     else if (e.key === 'f') basculerPleinEcran();
+    else if (e.key === 'd') lecture = !lecture;
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -157,16 +174,29 @@
           {/if}
         {:else if video}
           <!-- svelte-ignore a11y_media_has_caption -->
-          <video class="max-h-full max-w-full" src={video} controls autoplay></video>
+          <video class="max-h-full max-w-full" src={video} controls autoplay onended={() => lecture && void aller(1)}></video>
         {:else}
           <LoadingSpinner size="giant" />
         {/if}
       {/key}
     {/if}
 
+    {#if lecture && asset?.image && apercuCharge}
+      {#key asset.id}
+        <div class="progression" style:animation-duration="{DUREE_DIAPO}ms"></div>
+      {/key}
+    {/if}
     <div class="barre absolute left-0 right-0 top-0 flex justify-between p-3">
       <IconButton icon={mdiClose} aria-label="Fermer" variant="ghost" color="secondary" shape="round" onclick={() => onfermer(position)} />
       <div class="flex gap-1">
+        <IconButton
+          icon={lecture ? mdiPause : mdiPlay}
+          aria-label={lecture ? 'Arrêter le diaporama (D)' : 'Diaporama (D)'}
+          variant="ghost"
+          color="secondary"
+          shape="round"
+          onclick={() => (lecture = !lecture)}
+        />
         <IconButton icon={mdiFullscreen} aria-label="Plein écran (F)" variant="ghost" color="secondary" shape="round" onclick={basculerPleinEcran} />
         <IconButton icon={mdiInformationOutline} aria-label="Infos (I)" variant="ghost" color="secondary" shape="round" onclick={() => (infos = !infos)} />
       </div>
@@ -210,6 +240,25 @@
   }
   .flou {
     filter: blur(8px);
+  }
+  .progression {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 2;
+    height: 3px;
+    background: white;
+    animation-name: avance;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+  @keyframes avance {
+    from {
+      width: 0;
+    }
+    to {
+      width: 100%;
+    }
   }
   .barre {
     background: linear-gradient(to bottom, rgb(0 0 0 / 0.55), transparent);

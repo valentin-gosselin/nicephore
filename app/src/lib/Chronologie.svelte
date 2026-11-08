@@ -156,8 +156,19 @@
     e.preventDefault();
   }
 
+  let diaporama = $state(false);
+
   function ouvrir(tuile: TuileVisible) {
+    diaporama = false;
     ouverte = { section: tuile.section, index: tuile.index };
+  }
+
+  /** Opens the viewer on the first item, as a slideshow (memories). */
+  export function lancerDiaporama() {
+    const premiere = chrono.sections.findIndex((s) => s.assets.length > 0);
+    if (premiere < 0) return;
+    diaporama = true;
+    ouverte = { section: premiere, index: 0 };
   }
 
   /** Toggles one asset; with shift, selects the whole range from the last click. */
@@ -278,7 +289,7 @@
         {#if pret}
           <Text size="small" color="muted">
             {chrono.nombreTotal.toLocaleString('fr-FR')}{liste?.plusDeResultats ? '+' : ''}
-            {liste ? 'résultat' : 'élément'}{chrono.nombreTotal > 1 ? 's' : ''}
+            {liste && vue.id === 'recherche' ? 'résultat' : 'élément'}{chrono.nombreTotal > 1 ? 's' : ''}
           </Text>
         {/if}
         {#if entete}{@render entete()}{/if}
@@ -357,7 +368,7 @@
 </div>
 
 {#if ouverte}
-  <Visionneuse {chrono} depart={ouverte} onfermer={fermer} />
+  <Visionneuse {chrono} depart={ouverte} onfermer={fermer} {diaporama} />
 {/if}
 
 <style>

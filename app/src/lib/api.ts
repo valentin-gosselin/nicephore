@@ -141,6 +141,23 @@ export const modifierPersonne = (id: string, modification: ModificationPersonne)
 export const fusionnerPersonnes = (cible: string, autres: string[]) =>
   invoke<number>('fusionner_personnes', { cible, autres });
 
+export type Marqueur = { id: string; lat: number; lon: number; city: string | null };
+export type StylesCarte = { mapLightStyleUrl: string; mapDarkStyleUrl: string };
+export type Souvenir = {
+  id: string;
+  /** `on_this_day` or `birthday`. */
+  genre: string;
+  annee: number;
+  personne: string | null;
+  date: string;
+  assets: AssetResume[];
+};
+export const marqueurs = () => invoke<Marqueur[]>('marqueurs');
+export const stylesCarte = () => invoke<StylesCarte>('styles_carte');
+export const souvenirs = (jour: string) => invoke<Souvenir[]>('souvenirs', { jour });
+export const souvenir = (id: string) => invoke<Souvenir>('souvenir', { id });
+export const assetsParIds = (ids: string[]) => invoke<AssetResume[]>('assets_par_ids', { ids });
+
 export const albums = () => invoke<Album[]>('albums');
 export const album = (id: string) => invoke<Album>('album', { id });
 export const creerAlbum = (nom: string, description: string, ids: string[]) =>

@@ -63,6 +63,7 @@ name = "api_immich"
 version = "0.0.1"
 dependencies = [
  "bytes",
+ "futures-util",
  "reqwest",
  "serde",
  "serde_json",

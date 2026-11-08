@@ -1,7 +1,13 @@
 <script lang="ts">
+  import BandeauSouvenirs from '../lib/BandeauSouvenirs.svelte';
   import Chronologie from '../lib/Chronologie.svelte';
   import { VUES } from '../lib/vues';
 </script>
 
 <svelte:head><title>Photos · Nicéphore</title></svelte:head>
-<Chronologie vue={VUES.photos} />
+<div class="flex h-full flex-col">
+  <BandeauSouvenirs />
+  <div class="min-h-0 flex-1">
+    <Chronologie vue={VUES.photos} />
+  </div>
+</div>

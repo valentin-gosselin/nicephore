@@ -379,3 +379,48 @@ pub struct BilanAlbum {
     pub deja_presents: u64,
     pub echecs: u64,
 }
+
+/// A geotagged asset on the map (`/map/markers`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Marqueur {
+    pub id: String,
+    pub lat: f64,
+    pub lon: f64,
+    #[serde(default)]
+    pub city: Option<String>,
+}
+
+/// Map styles configured on the server (MapLibre style URLs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StylesCarte {
+    pub map_light_style_url: String,
+    pub map_dark_style_url: String,
+}
+
+/// A memory ("on this day" or birthday) with its assets.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Souvenir {
+    pub id: String,
+    /// `on_this_day` or `birthday`.
+    pub genre: String,
+    pub annee: i32,
+    pub personne: Option<String>,
+    pub date: String,
+    pub assets: Vec<AssetResume>,
+}
+
+impl Souvenir {
+    pub(crate) fn depuis(valeur: &serde_json::Value) -> Option<Self> {
+        Some(Self {
+            id: valeur["id"].as_str()?.to_string(),
+            genre: valeur["type"].as_str().unwrap_or("on_this_day").to_string(),
+            annee: valeur["data"]["year"].as_i64().unwrap_or(0) as i32,
+            personne: valeur["data"]["personName"].as_str().map(str::to_string),
+            date: valeur["memoryAt"].as_str().unwrap_or_default().to_string(),
+            assets: valeur["assets"].as_array().into_iter().flatten().filter_map(AssetResume::depuis).collect(),
+        })
+    }
+}

@@ -24,7 +24,7 @@
       entrees: [
         { libelle: 'Photos', icone: mdiImageMultipleOutline, chemin: '/' },
         { libelle: 'Explorer', icone: mdiCompassOutline, chemin: '/explorer' },
-        { libelle: 'Carte', icone: mdiMapOutline, bientot: 'La carte arrive au lot 4' },
+        { libelle: 'Carte', icone: mdiMapOutline, chemin: '/carte' },
         { libelle: 'Personnes', icone: mdiAccountMultipleOutline, chemin: '/personnes' },
         { libelle: 'Albums', icone: mdiImageAlbum, chemin: '/albums' },
       ],

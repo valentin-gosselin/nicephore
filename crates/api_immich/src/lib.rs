@@ -420,6 +420,57 @@ impl ClientImmich {
         verifier(reponse).await.map(|_| ())
     }
 
+    /// `GET /map/markers`: every geotagged asset of the timeline.
+    pub async fn marqueurs(&self) -> Resultat<Vec<Marqueur>> {
+        self.get_json("map/markers", &[("withPartners", "true")]).await
+    }
+
+    /// Map style URLs from `GET /server/config` (Immich's tile server by default).
+    pub async fn styles_carte(&self) -> Resultat<StylesCarte> {
+        self.get_json("server/config", &[]).await
+    }
+
+    /// `GET /memories?for=YYYY-MM-DD`: the memories shown on that day.
+    pub async fn souvenirs(&self, jour: &str) -> Resultat<Vec<Souvenir>> {
+        let valide = jour.len() == 10 && jour.chars().enumerate().all(|(i, c)| if i == 4 || i == 7 { c == '-' } else { c.is_ascii_digit() });
+        if !valide {
+            return Err(Erreur::Configuration(format!("date invalide : {jour}")));
+        }
+        let valeur: serde_json::Value = self.get_json("memories", &[("for", jour)]).await?;
+        Ok(valeur.as_array().into_iter().flatten().filter_map(Souvenir::depuis).collect())
+    }
+
+    /// `GET /memories/{id}`.
+    pub async fn souvenir(&self, id: &str) -> Resultat<Souvenir> {
+        valider_id(id)?;
+        let valeur: serde_json::Value = self.get_json(&format!("memories/{id}"), &[]).await?;
+        Souvenir::depuis(&valeur).ok_or_else(|| Erreur::ReponseInattendue("souvenir illisible".into()))
+    }
+
+    /// Grid descriptions of a set of assets (map selection), 8 requests at a
+    /// time, in the given order; unreadable ones are left out.
+    pub async fn assets_par_ids(&self, ids: &[String]) -> Resultat<Vec<AssetResume>> {
+        use futures_util::StreamExt;
+        valider_ids(ids)?;
+        // Owned values: the futures must not borrow across the stream.
+        let taches: Vec<_> = ids
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(i, id)| {
+                let client = self.clone();
+                async move { client.infos_asset(&id).await.ok().and_then(|v| AssetResume::depuis(&v)).map(|a| (i, a)) }
+            })
+            .collect();
+        let mut lus: Vec<(usize, AssetResume)> = futures_util::stream::iter(taches)
+            .buffer_unordered(8)
+            .filter_map(|r| async move { r })
+            .collect()
+            .await;
+        lus.sort_by_key(|(i, _)| *i);
+        Ok(lus.into_iter().map(|(_, a)| a).collect())
+    }
+
     /// `GET /people/{id}/statistics`: number of assets where the person appears.
     pub async fn nombre_photos_personne(&self, id: &str) -> Resultat<u64> {
         valider_id(id)?;
@@ -704,6 +755,22 @@ mod tests_serveur {
         if let Some(p) = personnes.iter().find(|p| !p.name.is_empty()) {
             let proches = c.personnes_proches(&p.id).await.unwrap();
             println!("proches de {} : {} (dont nommées {})", p.name, proches.len(), proches.iter().filter(|x| !x.name.is_empty()).count());
+        }
+        let marqueurs = c.marqueurs().await.unwrap();
+        println!("carte : {} marqueurs", marqueurs.len());
+        let styles = c.styles_carte().await.unwrap();
+        assert!(styles.map_light_style_url.starts_with("http"));
+        let ids: Vec<String> = marqueurs.iter().take(5).map(|m| m.id.clone()).collect();
+        if !ids.is_empty() {
+            let lus = c.assets_par_ids(&ids).await.unwrap();
+            println!("assets par ids : {} sur {}", lus.len(), ids.len());
+            assert_eq!(lus.first().map(|a| a.id.clone()), ids.first().cloned());
+        }
+        let jour = "2026-11-08";
+        let souvenirs = c.souvenirs(jour).await.unwrap();
+        println!("souvenirs du {jour} : {}", souvenirs.iter().map(|s| format!("{} ({} éléments)", s.annee, s.assets.len())).collect::<Vec<_>>().join(", "));
+        if let Some(s) = souvenirs.first() {
+            assert_eq!(c.souvenir(&s.id).await.unwrap().assets.len(), s.assets.len());
         }
         let albums = c.albums().await.unwrap();
         println!("albums : {} dont {} possédés", albums.len(), albums.iter().filter(|a| a.possede).count());

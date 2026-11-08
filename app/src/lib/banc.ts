@@ -246,6 +246,61 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
       }
       void debutVue;
     }
+    // Memories: strip above the timeline, memory page, slideshow.
+    await goto('/');
+    await attendre(3000);
+    const souvenirs = document.querySelectorAll<HTMLAnchorElement>('a.souvenir');
+    await journal(`souvenirs du jour : ${souvenirs.length}`);
+    if (souvenirs.length) {
+      souvenirs[0].click();
+      await attendre(2500);
+      await journal(`page souvenir : ${document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80)}`);
+      await capture('22-souvenir');
+      [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Diaporama')?.click();
+      await attendre(2000);
+      const image = () => document.querySelector('.visionneuse img.image:not(.flou)')?.getAttribute('src');
+      const avant = image();
+      await capture('23-diaporama');
+      await attendre(6000);
+      await journal(`diaporama : ${avant && image() !== avant ? 'passe à la photo suivante' : 'immobile'}`);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await attendre(500);
+    }
+
+    // Map: clustered markers on the server's map style, then a cluster click.
+    // WebGL check: clear a canvas in red and read a pixel back.
+    const essai = document.createElement('canvas');
+    essai.width = essai.height = 4;
+    const gl = essai.getContext('webgl2');
+    let pixel = 'sans contexte';
+    if (gl) {
+      gl.clearColor(1, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const lu = new Uint8Array(4);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, lu);
+      pixel = [...lu].join(',');
+    }
+    await journal(`WebGL : pixel relu ${pixel} (attendu 255,0,0,255), moteur ${gl?.getParameter(gl.RENDERER) ?? '?'}`);
+    await goto('/carte');
+    await attendre(8000);
+    const toile = document.querySelector<HTMLCanvasElement>('.maplibregl-canvas');
+    await journal(`carte : affichée ${toile?.clientWidth}x${toile?.clientHeight}, conteneur ${toile?.parentElement?.parentElement?.clientWidth}x${toile?.parentElement?.parentElement?.clientHeight}`);
+    await journal(`carte : ${toile ? `toile ${toile.width}x${toile.height}` : 'pas de toile'}, ${document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80)}`);
+    await capture('21-carte');
+    if (toile) {
+      const b = toile.getBoundingClientRect();
+      for (const [fx, fy] of [[0.5, 0.5], [0.45, 0.45], [0.55, 0.55], [0.4, 0.6]]) {
+        if (document.querySelector('aside.panneau')) break;
+        const options = { bubbles: true, clientX: b.left + b.width * fx, clientY: b.top + b.height * fy };
+        toile.dispatchEvent(new MouseEvent('mousedown', options));
+        toile.dispatchEvent(new MouseEvent('mouseup', options));
+        toile.dispatchEvent(new MouseEvent('click', options));
+        await attendre(2500);
+      }
+      await attendre(2500);
+      await journal(`sélection sur la carte : ${document.querySelector('aside.panneau')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 80) ?? 'aucun panneau'}`);
+      await capture('21b-carte-selection');
+    }
     await journal('banc terminé');
   } catch (e) {
     await journal(`banc interrompu : ${e}`);
