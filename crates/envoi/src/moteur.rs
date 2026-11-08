@@ -137,6 +137,14 @@ impl Moteur {
         }
     }
 
+    /// Switches to another database (another account): its rules are
+    /// watched instead of the previous ones.
+    pub fn remplacer_base(&self, base: Base) {
+        *self.base.lock().expect("verrou de la base d'envoi") = base;
+        self.etat.send_modify(|e| e.erreurs_regles.clear());
+        self.regles_changees();
+    }
+
     /// Changes how long a file must stay unchanged before it is sent
     /// (10 s by default).
     pub fn regler_stabilite(&self, delai: Duration) {

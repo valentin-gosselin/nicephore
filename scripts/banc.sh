@@ -23,6 +23,15 @@ elif [ "${1:-}" = "--portable" ]; then
 fi
 # --mise-a-jour <AppImage>: in-app update scenario (see
 # scripts/essai-mise-a-jour.sh, which builds the versions and serves them).
+# --comptes: multi-account scenario, portable mode (no keyring in the
+# private session), one launch.
+comptes=""
+if [ "${1:-}" = "--comptes" ]; then
+    jetable=1
+    portable=1
+    comptes=1
+    shift
+fi
 mise_a_jour=""
 if [ "${1:-}" = "--mise-a-jour" ]; then
     jetable=1
@@ -99,7 +108,10 @@ lancer() {
         "$interne" >>"$sortie/sortie.txt" 2>&1 || true
 }
 
-if [ -n "$portable" ]; then
+if [ -n "$comptes" ]; then
+    NICEPHORE_BANC_SCENARIO=comptes lancer
+    echo "banc: bases d'envoi par compte : $(ls "$sortie/donnees/envoi" | grep -c '^envoi-.*[.]sqlite$')" >>"$sortie/sortie.txt"
+elif [ -n "$portable" ]; then
     # The real profile folders, watched for any write (none expected; the
     # real config is not redirected here, on purpose).
     identifiant=io.github.valentin-gosselin.nicephore
@@ -116,8 +128,8 @@ if [ -n "$portable" ]; then
     {
         echo "banc: fichiers du mode portable :"
         (cd "$sortie/donnees" && find . -maxdepth 2 | sort | sed 's/^/banc:   /')
-        if grep -q '"coffre"' "$sortie/donnees/config/compte.json" && ! grep -qi 'token' "$sortie/donnees/config/compte.json"; then
-            echo "banc: ok : connexion scellée dans donnees/config/compte.json"
+        if grep -q '"coffre"' "$sortie/donnees/config/comptes.json" && ! grep -qi 'token' "$sortie/donnees/config/comptes.json"; then
+            echo "banc: ok : connexion scellée dans donnees/config/comptes.json"
         else
             echo "banc: ÉCHEC : connexion non scellée"
         fi

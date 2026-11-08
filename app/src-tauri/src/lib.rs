@@ -63,7 +63,10 @@ pub struct Etat {
     prechargement: Arc<prechargement::Prechargement>,
     envoi: Arc<envoi::Moteur>,
     /// The upload database could not be opened (shown on the Envoi page).
-    erreur_base_envoi: Option<String>,
+    erreur_base_envoi: RwLock<Option<String>>,
+    emplacements: portable::Emplacements,
+    /// Account whose upload database is open.
+    compte_envoi: RwLock<Option<String>>,
     reglages: Arc<RwLock<reglages::Reglages>>,
     /// Tray icon (absent when the desktop offers none).
     zone: Option<zone_notification::Zone>,
@@ -94,6 +97,45 @@ impl Etat {
         if let Ok(client) = self.client() {
             self.prechargement.lancer(client, self.cache.clone());
         }
+    }
+
+    /// Opens the upload database of the connected account: each account has
+    /// its own folders, so a folder set for one account never goes to
+    /// another. The database of earlier versions goes to the first account
+    /// connected after the update.
+    fn ouvrir_base_envoi(&self, connexion: &Connexion) {
+        let cle = compte::cle_compte(&connexion.url_serveur, &connexion.utilisateur.id);
+        if self.compte_envoi.read().expect("verrou du compte d'envoi").as_deref() == Some(cle.as_str()) {
+            return;
+        }
+        let chemin = match std::env::var_os("NICEPHORE_BANC_DOSSIER") {
+            // Benchmark: a private database, whatever the account.
+            Some(dossier) if self.portable.is_none() => PathBuf::from(dossier).join("envoi.sqlite"),
+            _ => self.emplacements.donnees.join(format!("envoi-{cle}.sqlite")),
+        };
+        let ancienne = self.emplacements.donnees.join("envoi.sqlite");
+        if !chemin.exists() && ancienne.exists() && chemin.parent() == ancienne.parent() {
+            for suffixe in ["", "-wal", "-shm"] {
+                let de = PathBuf::from(format!("{}{suffixe}", ancienne.display()));
+                if de.exists()
+                    && let Err(e) = std::fs::rename(&de, format!("{}{suffixe}", chemin.display()))
+                {
+                    tracing::warn!("reprise de la base d'envoi impossible : {e}");
+                }
+            }
+        }
+        match envoi::Base::ouvrir(&chemin) {
+            Ok(base) => {
+                self.envoi.remplacer_base(base);
+                *self.erreur_base_envoi.write().expect("verrou de l'erreur") = None;
+            }
+            Err(e) => {
+                tracing::error!("base d'envoi {} : {e}", chemin.display());
+                self.envoi.remplacer_base(envoi::Base::en_memoire().expect("base en mémoire"));
+                *self.erreur_base_envoi.write().expect("verrou de l'erreur") = Some(e.to_string());
+            }
+        }
+        *self.compte_envoi.write().expect("verrou du compte d'envoi") = Some(cle);
     }
 
     fn definir(&self, client: Option<Arc<ClientImmich>>, origine: Origine, session: bool) {
@@ -131,10 +173,20 @@ async fn etat_connexion(etat: State<'_, Etat>) -> Result<Option<Connexion>, Stri
         if !*cherche && etat.client().is_err() {
             let dossier = etat.dossier_config.clone();
             let portable = etat.portable.is_some();
-            if let Ok(compte::Memorise::Pret(url, auth)) = tokio::task::spawn_blocking(move || compte::lire(&dossier, portable)).await {
+            if let Ok(compte::Memorise::Pret { url, auth, ancien }) =
+                tokio::task::spawn_blocking(move || compte::lire(&dossier, portable)).await
+            {
                 let session = matches!(auth, Authentification::Session(_));
                 match ClientImmich::nouveau(&url, &auth) {
-                    Ok(client) => etat.definir(Some(Arc::new(client)), Origine::Trousseau, session),
+                    Ok(client) => {
+                        let client = Arc::new(client);
+                        // Old single-account format: converted once its user is known.
+                        if ancien && let Ok(moi) = client.moi().await {
+                            let (dossier, url) = (etat.dossier_config.clone(), client.url_serveur());
+                            let _ = tokio::task::spawn_blocking(move || compte::convertir_ancien(&dossier, &url, &moi, &auth)).await;
+                        }
+                        etat.definir(Some(client), Origine::Trousseau, session);
+                    }
                     Err(e) => tracing::warn!("compte mémorisé inutilisable : {e}"),
                 }
             }
@@ -145,8 +197,28 @@ async fn etat_connexion(etat: State<'_, Etat>) -> Result<Option<Connexion>, Stri
     let origine = *etat.origine.read().expect("verrou de l'origine");
     let session = *etat.session.read().expect("verrou de la session");
     let connexion = verifier_connexion(&client, origine, session).await?;
+    etat.ouvrir_base_envoi(&connexion);
     etat.precharger();
     Ok(Some(connexion))
+}
+
+/// Remembered accounts, for the account menu.
+#[tauri::command]
+async fn comptes(etat: State<'_, Etat>) -> Result<Vec<compte::CompteVue>, String> {
+    let dossier = etat.dossier_config.clone();
+    tokio::task::spawn_blocking(move || compte::lister(&dossier)).await.map_err(|e| e.to_string())
+}
+
+/// Switches to another remembered account. `None`: it is sealed and waits
+/// for its passphrase (the interface then shows the unlock screen).
+#[tauri::command]
+async fn changer_compte(etat: State<'_, Etat>, cle: String) -> Result<Option<Connexion>, String> {
+    let dossier = etat.dossier_config.clone();
+    tokio::task::spawn_blocking(move || compte::activer(&dossier, &cle)).await.map_err(|e| e.to_string())??;
+    etat.prechargement.arreter();
+    etat.definir(None, Origine::Memoire, false);
+    *etat.compte_cherche.lock().await = false;
+    etat_connexion(etat).await
 }
 
 /// Portable mode: the server of the sealed account waiting for its
@@ -168,13 +240,20 @@ async fn compte_verrouille(etat: State<'_, Etat>) -> Result<Option<String>, Stri
 #[tauri::command]
 async fn deverrouiller(etat: State<'_, Etat>, phrase: String) -> Result<Connexion, String> {
     let dossier = etat.dossier_config.clone();
-    let (url, auth) = tokio::task::spawn_blocking(move || compte::deverrouiller(&dossier, &phrase))
+    let (url, auth, ancien) = tokio::task::spawn_blocking(move || compte::deverrouiller(&dossier, &phrase))
         .await
         .map_err(|e| e.to_string())??;
     let client = Arc::new(ClientImmich::nouveau(&url, &auth).map_err(|e| e.to_string())?);
     let session = matches!(auth, Authentification::Session(_));
     let connexion = verifier_connexion(&client, Origine::Coffre, session).await?;
+    if ancien {
+        let (dossier, url, moi) = (etat.dossier_config.clone(), connexion.url_serveur.clone(), connexion.utilisateur.clone());
+        tokio::task::spawn_blocking(move || compte::convertir_ancien(&dossier, &url, &moi, &auth))
+            .await
+            .map_err(|e| e.to_string())??;
+    }
     etat.definir(Some(client), Origine::Coffre, session);
+    etat.ouvrir_base_envoi(&connexion);
     etat.precharger();
     Ok(connexion)
 }
@@ -214,15 +293,16 @@ async fn connecter(
     let connexion = verifier_connexion(&client, origine, session).await?;
     if memoriser {
         let dossier = etat.dossier_config.clone();
-        let url = client.url_serveur();
-        tokio::task::spawn_blocking(move || match phrase.filter(|_| portable) {
-            Some(phrase) => compte::enregistrer_scelle(&dossier, &url, &auth, &phrase),
-            None => compte::enregistrer(&dossier, &url, &auth),
+        let (url, moi) = (client.url_serveur(), connexion.utilisateur.clone());
+        tokio::task::spawn_blocking(move || {
+            compte::enregistrer(&dossier, &url, &moi, &auth, phrase.as_deref().filter(|_| portable))
         })
         .await
         .map_err(|e| e.to_string())??;
     }
+    etat.prechargement.arreter();
     etat.definir(Some(client), origine, session);
+    etat.ouvrir_base_envoi(&connexion);
     etat.precharger();
     Ok(connexion)
 }
@@ -255,7 +335,7 @@ async fn se_connecter(
 }
 
 /// Disconnects: revokes the session on the server (best effort), then
-/// forgets the remembered account.
+/// forgets this account; another remembered account becomes the active one.
 #[tauri::command]
 async fn se_deconnecter(etat: State<'_, Etat>) -> Result<(), String> {
     if *etat.session.read().expect("verrou de la session")
@@ -266,8 +346,9 @@ async fn se_deconnecter(etat: State<'_, Etat>) -> Result<(), String> {
     }
     etat.prechargement.arreter();
     let dossier = etat.dossier_config.clone();
-    tokio::task::spawn_blocking(move || compte::oublier(&dossier)).await.map_err(|e| e.to_string())??;
+    tokio::task::spawn_blocking(move || compte::oublier_actif(&dossier)).await.map_err(|e| e.to_string())??;
     etat.definir(None, Origine::Memoire, false);
+    *etat.compte_cherche.lock().await = false;
     Ok(())
 }
 
@@ -670,19 +751,8 @@ pub fn lancer() {
             let dossier_config = emplacements.config.clone();
             let prechargement = Arc::new(prechargement::Prechargement::nouveau(&dossier_config, app.handle().clone()));
 
-            // The upload database; a private one in benchmark mode, so a
-            // benchmark never sees the user's rules.
-            let chemin_base = match std::env::var_os("NICEPHORE_BANC_DOSSIER") {
-                Some(dossier) if portable.is_none() => PathBuf::from(dossier).join("envoi.sqlite"),
-                _ => emplacements.donnees.join("envoi.sqlite"),
-            };
-            let (base, erreur_base_envoi) = match envoi::Base::ouvrir(&chemin_base) {
-                Ok(base) => (base, None),
-                Err(e) => {
-                    tracing::error!("base d'envoi {} : {e}", chemin_base.display());
-                    (envoi::Base::en_memoire().expect("base en mémoire"), Some(e.to_string()))
-                }
-            };
+            // Each account has its upload database, opened once connected.
+            let base = envoi::Base::en_memoire().expect("base en mémoire");
             let reglages = Arc::new(RwLock::new(reglages::charger(&dossier_config)));
             let moteur = envoi::Moteur::nouveau(base);
             moteur.definir_client(client.read().expect("verrou du client").clone());
@@ -697,9 +767,7 @@ pub fn lancer() {
                     None
                 }
             }));
-            if erreur_base_envoi.is_none() {
-                commandes_envoi::demarrer(&moteur, app.handle().clone());
-            }
+            commandes_envoi::demarrer(&moteur, app.handle().clone());
             let zone = zone_notification::creer(app.handle())
                 .map_err(|e| tracing::warn!("pas d'icône dans la zone de notification : {e}"))
                 .ok();
@@ -714,7 +782,9 @@ pub fn lancer() {
                 proxy,
                 prechargement,
                 envoi: moteur,
-                erreur_base_envoi,
+                erreur_base_envoi: RwLock::new(None),
+                emplacements,
+                compte_envoi: RwLock::new(None),
                 reglages,
                 zone,
                 portable,
@@ -742,6 +812,8 @@ pub fn lancer() {
         })
         .invoke_handler(tauri::generate_handler![
             etat_connexion,
+            comptes,
+            changer_compte,
             compte_verrouille,
             deverrouiller,
             infos_portable,

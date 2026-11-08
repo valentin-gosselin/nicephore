@@ -1,12 +1,11 @@
 <script lang="ts">
-  // Sidebar: the timeline views, the library, this computer's uploads and
-  // the settings.
+  // Sidebar: the timeline views, the library and this computer's uploads
+  // (settings are in the account menu, top right).
   import { Icon } from '@immich/ui';
   import {
     mdiAccountMultipleOutline,
     mdiArchiveArrowDownOutline,
     mdiCloudUploadOutline,
-    mdiCogOutline,
     mdiCompassOutline,
     mdiHeartOutline,
     mdiImageAlbum,
@@ -96,8 +95,6 @@
       {@render lien(entree)}
     {/each}
   {/each}
-  <span class="flex-1"></span>
-  {@render lien({ libelle: 'Réglages', icone: mdiCogOutline, chemin: '/reglages' })}
 </nav>
 
 <style>

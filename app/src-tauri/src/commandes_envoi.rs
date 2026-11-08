@@ -131,8 +131,8 @@ fn erreur(e: envoi::Erreur) -> String {
 
 #[tauri::command]
 pub fn regles_envoi(etat: State<'_, Etat>) -> Result<Vec<RegleVue>, String> {
-    if let Some(e) = &etat.erreur_base_envoi {
-        return Err(e.clone());
+    if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
+        return Err(e);
     }
     let base = etat.envoi.base();
     let mut bilans = base.bilans().map_err(erreur)?;
@@ -150,8 +150,8 @@ pub fn regles_envoi(etat: State<'_, Etat>) -> Result<Vec<RegleVue>, String> {
 
 #[tauri::command]
 pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible) -> Result<Regle, String> {
-    if let Some(e) = &etat.erreur_base_envoi {
-        return Err(e.clone());
+    if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
+        return Err(e);
     }
     let chemin = Path::new(&dossier);
     if !chemin.is_absolute() || !chemin.is_dir() {

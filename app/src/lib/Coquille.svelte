@@ -19,7 +19,7 @@
   import MenuCompte from './MenuCompte.svelte';
   import Deverrouillage from './Deverrouillage.svelte';
   import Notifications from './Notifications.svelte';
-  import { session, verifierSession } from './session.svelte';
+  import { compteAjoute, session, verifierSession } from './session.svelte';
 
   let { children }: { children: Snippet } = $props();
 
@@ -78,6 +78,9 @@
       if (scenario.startsWith('portable')) {
         const { lancerScenarioPortable } = await import('./scenario-portable');
         void lancerScenarioPortable(scenario);
+      } else if (scenario === 'comptes') {
+        const { lancerScenarioComptes } = await import('./scenario-comptes');
+        void lancerScenarioComptes();
       } else if (scenario === 'mise-a-jour') {
         // Once connected (development key of the disposable server).
         while (!session.connexion) await new Promise((r) => setTimeout(r, 200));
@@ -92,7 +95,10 @@
 <svelte:window bind:innerWidth={largeur} onkeydown={surTouche} onmousedown={surBoutonSouris} onmouseup={surBoutonSouris} />
 
 <div class="flex h-full flex-col">
-  {#if session.verification}
+  {#if session.ajout}
+    <BarreFenetre />
+    <Connexion onconnecte={() => compteAjoute()} onannuler={() => (session.ajout = false)} />
+  {:else if session.verification}
     <BarreFenetre />
     <div class="flex flex-1 items-center justify-center"><LoadingSpinner size="giant" /></div>
   {:else if session.connexion}

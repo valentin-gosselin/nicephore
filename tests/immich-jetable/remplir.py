@@ -15,6 +15,8 @@ URL = sys.argv[1].rstrip("/")
 DONNEES = pathlib.Path(sys.argv[2])
 EMAIL = "test@nicephore.invalid"
 MOT_DE_PASSE = "nicephore-test"
+EMAIL_2 = "second@nicephore.invalid"
+MOT_DE_PASSE_2 = "nicephore-test-2"
 
 
 def appel(methode, chemin, corps=None, jeton=None, brut=None, entetes=None):
@@ -92,6 +94,19 @@ def main():
             mois = 1 + (i // 6)
             envoyer_photo(jeton, chemin, f"2025-{mois:02}-{1 + i % 27:02}T12:00:00.000Z")
         print("36 photos envoyées sur 6 mois")
+    # A second user with three photos of its own, for the multi-account
+    # scenario.
+    try:
+        appel("POST", "admin/users", {"email": EMAIL_2, "password": MOT_DE_PASSE_2, "name": "Second compte"}, jeton=jeton)
+        print("second utilisateur créé")
+    except urllib.error.HTTPError as e:
+        if e.code != 400:
+            raise
+    jeton_2 = appel("POST", "auth/login", {"email": EMAIL_2, "password": MOT_DE_PASSE_2})["accessToken"]
+    if not appel("POST", "search/metadata", {"size": 1}, jeton=jeton_2)["assets"]["items"]:
+        for i in range(3):
+            envoyer_photo(jeton_2, DONNEES / "images" / f"essai-{30 + i:02}.jpg", f"2024-0{i + 1}-15T12:00:00.000Z")
+        print("3 photos envoyées pour le second utilisateur")
     # API key for the in-app scenarios (the app reads IMMICH_API_KEY).
     fichier_cle = DONNEES / "cle-api"
     if not fichier_cle.exists():
@@ -100,6 +115,7 @@ def main():
     (DONNEES / "test.env").write_text(
         f"IMMICH_TEST_URL={URL}\nIMMICH_TEST_EMAIL={EMAIL}\nIMMICH_TEST_PASSWORD={MOT_DE_PASSE}\n"
         f"IMMICH_TEST_API_KEY={fichier_cle.read_text().strip()}\n"
+        f"IMMICH_TEST_EMAIL_2={EMAIL_2}\nIMMICH_TEST_PASSWORD_2={MOT_DE_PASSE_2}\n"
     )
     print(f"connexion écrite dans {DONNEES / 'test.env'}")
 

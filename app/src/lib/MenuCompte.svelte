@@ -1,14 +1,37 @@
 <script lang="ts">
   // Account avatar at the top right, like the web app: the profile picture
   // (or initials on the account color), opening a small menu.
-  import { mdiCogOutline, mdiLogout } from '@mdi/js';
+  import { mdiAccountPlusOutline, mdiCogOutline, mdiLock, mdiLogout } from '@mdi/js';
   import { goto } from '$app/navigation';
-  import { urlImage, type Connexion } from './api';
-  import { deconnecter } from './session.svelte';
+  import { comptes as listerComptes, urlImage, type CompteMemorise, type Connexion } from './api';
+  import { notifier } from './notifications.svelte';
+  import { basculerCompte, deconnecter, session } from './session.svelte';
 
   let { connexion }: { connexion: Connexion } = $props();
 
   let ouvert = $state(false);
+  let autres = $state<CompteMemorise[]>([]);
+
+  $effect(() => {
+    if (ouvert) listerComptes().then((c) => (autres = c.filter((x) => !x.actif))).catch(() => (autres = []));
+  });
+
+  const initialesDe = (nom: string) =>
+    nom
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((m) => m[0]?.toLocaleUpperCase('fr'))
+      .join('') || '?';
+
+  async function basculer(c: CompteMemorise) {
+    ouvert = false;
+    try {
+      await basculerCompte(c.cle);
+    } catch (e) {
+      notifier(`Changement de compte impossible : ${e}`, 'erreur');
+    }
+  }
   let racine: HTMLDivElement;
   const u = $derived(connexion.utilisateur);
 
@@ -25,14 +48,7 @@
     gray: '#616161',
     amber: '#ffc107',
   };
-  const initiales = $derived(
-    u.name
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((m) => m[0]?.toLocaleUpperCase('fr'))
-      .join('') || '?',
-  );
+  const initiales = $derived(initialesDe(u.name));
 
   function dehors(e: MouseEvent) {
     if (ouvert && !racine.contains(e.target as Node)) ouvert = false;
@@ -71,6 +87,29 @@
         <div class="truncate text-sm opacity-70">{u.email}</div>
         <div class="mt-1 truncate text-xs opacity-50" title={connexion.urlServeur}>{connexion.urlServeur} · Immich {connexion.version}</div>
       </div>
+      <div class="separateur"></div>
+      {#each autres as c (c.cle)}
+        <button type="button" class="entree" role="menuitem" title={c.urlServeur} onclick={() => basculer(c)}>
+          <span class="mini" style:background={couleurs[c.couleur ?? 'primary'] ?? couleurs.primary}>{initialesDe(c.nom)}</span>
+          <span class="min-w-0 flex-1">
+            <span class="block truncate">{c.nom || c.email || c.urlServeur}</span>
+            <span class="block truncate text-xs opacity-60">{c.email}</span>
+          </span>
+          {#if c.scelle}<svg viewBox="0 0 24 24" width="14" height="14" aria-label="Protégé par une phrase de passe" class="opacity-60"><path fill="currentColor" d={mdiLock} /></svg>{/if}
+        </button>
+      {/each}
+      <button
+        type="button"
+        class="entree"
+        role="menuitem"
+        onclick={() => {
+          ouvert = false;
+          session.ajout = true;
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={mdiAccountPlusOutline} /></svg>
+        Ajouter un compte
+      </button>
       <div class="separateur"></div>
       <button type="button" class="entree" role="menuitem" onclick={() => aller('/reglages')}>
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={mdiCogOutline} /></svg>
@@ -140,6 +179,18 @@
     border-radius: 10px;
     font-size: 14px;
     text-align: left;
+  }
+  .mini {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 9999px;
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
   }
   .entree:hover {
     background: color-mix(in oklab, currentColor 8%, transparent);

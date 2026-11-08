@@ -56,6 +56,8 @@ pub struct IdentifiantsBanc {
     url: String,
     email: String,
     mot_de_passe: String,
+    email2: String,
+    mot_de_passe2: String,
 }
 
 /// Login of the disposable test server (`IMMICH_TEST_*`, written by its
@@ -71,6 +73,8 @@ pub fn identifiants_banc() -> Option<IdentifiantsBanc> {
         url,
         email: std::env::var("IMMICH_TEST_EMAIL").ok()?,
         mot_de_passe: std::env::var("IMMICH_TEST_PASSWORD").ok()?,
+        email2: std::env::var("IMMICH_TEST_EMAIL_2").unwrap_or_default(),
+        mot_de_passe2: std::env::var("IMMICH_TEST_PASSWORD_2").unwrap_or_default(),
     })
 }
 

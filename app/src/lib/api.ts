@@ -290,3 +290,18 @@ export type VersionDisponible = { version: string; notes: string | null; date: s
 export const infosMiseAJour = () => invoke<InfosMiseAJour>('infos_mise_a_jour');
 export const chercherMiseAJour = () => invoke<VersionDisponible | null>('chercher_mise_a_jour');
 export const installerMiseAJour = () => invoke<void>('installer_mise_a_jour');
+
+// ---- Accounts ----
+export type CompteMemorise = {
+  cle: string;
+  urlServeur: string;
+  nom: string;
+  email: string;
+  couleur: string | null;
+  /** Portable mode: sealed with a passphrase. */
+  scelle: boolean;
+  actif: boolean;
+};
+export const comptes = () => invoke<CompteMemorise[]>('comptes');
+/** Null when the account is sealed and waits for its passphrase. */
+export const changerCompte = (cle: string) => invoke<Connexion | null>('changer_compte', { cle });

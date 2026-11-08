@@ -13,7 +13,7 @@
     type ModesConnexion,
   } from './api';
 
-  let { onconnecte }: { onconnecte: (c: Connexion) => void } = $props();
+  let { onconnecte, onannuler }: { onconnecte: (c: Connexion) => void; onannuler?: () => void } = $props();
 
   const CLE_SERVEUR = 'nicephore-dernier-serveur';
 
@@ -93,7 +93,7 @@
   <div class="w-full max-w-md space-y-6">
     <div class="flex items-center gap-3">
       <img src="/icone.svg" alt="" class="h-12 w-12" />
-      <Heading size="large">Nicéphore</Heading>
+      <Heading size="large">{onannuler ? 'Ajouter un compte' : 'Nicéphore'}</Heading>
     </div>
 
     {#if !modes}
@@ -170,6 +170,11 @@
           </button>
         {/if}
       </form>
+    {/if}
+    {#if onannuler}
+      <button type="button" class="w-full text-center text-sm opacity-70 hover:opacity-100" onclick={onannuler}>
+        Annuler, revenir au compte actuel
+      </button>
     {/if}
   </div>
 </div>
