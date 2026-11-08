@@ -51,6 +51,14 @@ pub struct Utilisateur {
     pub id: String,
     pub name: String,
     pub email: String,
+    /// Empty when the user has no profile picture.
+    #[serde(default, rename = "profileImagePath")]
+    pub image_profil: String,
+    /// Immich color name for the initials avatar (`primary`, `pink`...).
+    #[serde(default, rename = "avatarColor")]
+    pub couleur_avatar: Option<String>,
+    #[serde(default, rename = "profileChangedAt")]
+    pub profil_modifie_le: Option<String>,
 }
 
 /// One month of the timeline (`timeBucket` is `YYYY-MM-DD`, first day).
@@ -95,6 +103,8 @@ pub enum TailleImage {
     Pleine,
     /// Face thumbnail of a person (`/people/{id}/thumbnail`).
     Personne,
+    /// Profile picture of a user (`/users/{id}/profile-image`).
+    Profil,
 }
 
 impl TailleImage {
@@ -103,7 +113,7 @@ impl TailleImage {
             TailleImage::Vignette => "thumbnail",
             TailleImage::Apercu => "preview",
             TailleImage::Pleine => "fullsize",
-            TailleImage::Personne => "thumbnail",
+            TailleImage::Personne | TailleImage::Profil => "thumbnail",
         }
     }
 
@@ -113,6 +123,7 @@ impl TailleImage {
             "apercu" | "preview" => Some(TailleImage::Apercu),
             "pleine" | "fullsize" => Some(TailleImage::Pleine),
             "personne" => Some(TailleImage::Personne),
+            "profil" => Some(TailleImage::Profil),
             _ => None,
         }
     }
@@ -123,6 +134,7 @@ impl TailleImage {
             TailleImage::Apercu => "apercu",
             TailleImage::Pleine => "pleine",
             TailleImage::Personne => "personne",
+            TailleImage::Profil => "profil",
         }
     }
 }

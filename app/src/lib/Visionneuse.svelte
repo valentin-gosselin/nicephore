@@ -250,7 +250,7 @@
         <div class="progression" style:animation-duration="{DUREE_DIAPO}ms"></div>
       {/key}
     {/if}
-    <div class="barre absolute left-0 right-0 top-0 flex justify-between p-3">
+    <div class="barre absolute left-0 right-0 top-0 flex justify-between p-3" data-tauri-drag-region>
       <IconButton icon={mdiClose} aria-label="Fermer" variant="ghost" color="secondary" shape="round" onclick={() => onfermer(position)} />
       <div class="flex gap-1">
         <IconButton
@@ -283,7 +283,7 @@
   </div>
 
   {#if infos && asset}
-    <PanneauInfos id={asset.id} {onmodifie} />
+    <PanneauInfos id={asset.id} {onmodifie} onquitter={() => onfermer(position)} />
   {/if}
 </div>
 

@@ -3,7 +3,8 @@
   // rating, capture date, location and tags.
   import { LoadingSpinner } from '@immich/ui';
   import { mdiClose, mdiPencilOutline, mdiPlus, mdiStar, mdiStarOutline } from '@mdi/js';
-  import { etiqueter, infosAsset, modifierInfos, type ModificationInfos } from './api';
+  import { goto } from '$app/navigation';
+  import { etiqueter, infosAsset, modifierInfos, urlImage, type ModificationInfos } from './api';
   import { formaterDate, versLocal } from './dates';
   import DialogueDate from './DialogueDate.svelte';
   import DialogueLieu from './DialogueLieu.svelte';
@@ -11,7 +12,11 @@
   import { notifier } from './notifications.svelte';
   import TexteModifiable from './TexteModifiable.svelte';
 
-  let { id, onmodifie }: { id: string; onmodifie?: (date: boolean) => void } = $props();
+  let {
+    id,
+    onmodifie,
+    onquitter,
+  }: { id: string; onmodifie?: (date: boolean) => void; onquitter?: () => void } = $props();
 
   let infos = $state<Record<string, any> | null>(null);
   let erreur = $state<string | null>(null);
@@ -49,7 +54,15 @@
     exif.fileSizeInByte ? `${(exif.fileSizeInByte / 1_048_576).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo` : '',
   );
   const dimensions = $derived(exif.exifImageWidth ? `${exif.exifImageWidth} × ${exif.exifImageHeight}` : '');
-  const personnes = $derived(((infos?.people ?? []) as { name: string }[]).map((p) => p.name).filter(Boolean));
+  type Visage = { id: string; name: string; isHidden: boolean; updatedAt?: string };
+  const personnes = $derived(((infos?.people ?? []) as Visage[]).filter((p) => !p.isHidden));
+
+  /** Opens the page of a person shown in this photo (the viewer closes). */
+  function voirPersonne(e: MouseEvent, p: Visage) {
+    e.preventDefault();
+    onquitter?.();
+    void goto(`/personne?id=${p.id}&nom=${encodeURIComponent(p.name)}`);
+  }
   const tags = $derived(((infos?.tags ?? []) as { id: string; value: string }[]).map((t) => t.value));
   const note = $derived<number>(exif.rating ?? 0);
 
@@ -98,6 +111,24 @@
           onvalider={(v) => modifier({ description: v }, 'Description enregistrée')}
         />
       </div>
+      {#if personnes.length}
+        <div>
+          <dt>Personnes</dt>
+          <dd class="mt-1 grid grid-cols-3 gap-x-2 gap-y-3">
+            {#each personnes as p (p.id)}
+              <a
+                href={`/personne?id=${p.id}`}
+                class="personne"
+                title={p.name ? `Toutes les photos de ${p.name}` : 'Personne sans nom'}
+                onclick={(e) => voirPersonne(e, p)}
+              >
+                <img src={urlImage('personne', p.id, p.updatedAt ?? null)} alt="" loading="lazy" />
+                <span class:absent={!p.name}>{p.name || 'Sans nom'}</span>
+              </a>
+            {/each}
+          </dd>
+        </div>
+      {/if}
       <div>
         <dt>Note</dt>
         <dd><div class="flex gap-0.5" role="radiogroup" aria-label="Note">
@@ -157,7 +188,6 @@
           {#if reglages}<dd class="opacity-70">{reglages}</dd>{/if}
         </div>
       {/if}
-      {#if personnes.length}<div><dt>Personnes</dt><dd>{personnes.join(', ')}</dd></div>{/if}
     </dl>
   {/if}
 </aside>
@@ -226,6 +256,32 @@
   }
   .etoile.allumee {
     color: #f2b52e;
+  }
+  .personne {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    font-size: 12px;
+    text-align: center;
+  }
+  .personne img {
+    width: 56px;
+    height: 56px;
+    border-radius: 9999px;
+    object-fit: cover;
+    background: color-mix(in oklab, currentColor 10%, transparent);
+    transition: transform 120ms;
+  }
+  .personne:hover img {
+    transform: scale(1.06);
+  }
+  .personne span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .tag {
     display: inline-flex;

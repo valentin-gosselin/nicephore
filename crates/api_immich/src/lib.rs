@@ -644,6 +644,7 @@ impl ClientImmich {
         valider_id(id)?;
         let requete = match taille {
             TailleImage::Personne => self.http.get(self.url(&format!("people/{id}/thumbnail"))),
+            TailleImage::Profil => self.http.get(self.url(&format!("users/{id}/profile-image"))),
             _ => self.http.get(self.url(&format!("assets/{id}/thumbnail"))).query(&[("size", taille.parametre())]),
         };
         let reponse = requete.timeout(Duration::from_secs(60)).send().await?;

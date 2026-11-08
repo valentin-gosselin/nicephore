@@ -89,7 +89,7 @@
   });
 </script>
 
-<div class="flex h-full items-center justify-center p-6">
+<div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
   <div class="w-full max-w-md space-y-6">
     <div class="flex items-center gap-3">
       <img src="/icone.svg" alt="" class="h-12 w-12" />

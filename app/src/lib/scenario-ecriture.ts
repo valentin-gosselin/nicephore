@@ -289,6 +289,32 @@ export async function lancerScenarioEcriture() {
     }
     await capture('e7-fin');
 
+    // 13. Account menu at the top right.
+    (await element<HTMLButtonElement>('[aria-label^="Compte de"]'))?.click();
+    await attendre(500);
+    await verifier('menu du compte', !!document.querySelector('[role="menu"]') && (document.querySelector('[role="menu"]')?.textContent ?? '').includes('Réglages'));
+    await capture('e8-menu-compte');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await attendre(300);
+
+    // 14. Title bar drawn by the app: maximize, restore, minimize.
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const fenetre = getCurrentWindow();
+    await verifier('boutons de fenêtre dans l’en-tête', !!document.querySelector('header [aria-label="Fermer la fenêtre"]'));
+    await cliquer('Agrandir la fenêtre');
+    await attendre(800);
+    await verifier('fenêtre agrandie', (await fenetre.isMaximized()) && !!document.querySelector('[aria-label="Restaurer la fenêtre"]'));
+    await capture('e9-agrandie');
+    await cliquer('Restaurer la fenêtre');
+    await attendre(800);
+    await verifier('fenêtre restaurée', !(await fenetre.isMaximized()));
+    // Wayland does not tell an app it is minimized: only the call is checked.
+    const reduite = await fenetre.minimize().then(() => true, () => false);
+    await attendre(800);
+    await verifier('réduction acceptée', reduite);
+    await invoke('montrer_fenetre');
+    await attendre(800);
+
     await journal(`scénario terminé : ${reussites} réussites, ${echecs} échecs`);
   } catch (e) {
     await journal(`scénario interrompu : ${e}`);

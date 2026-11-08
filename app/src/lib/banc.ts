@@ -214,6 +214,19 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
           document.querySelector<HTMLButtonElement>('[aria-label^="Avancer"]')?.click();
           await attendre(1500);
           await journal(`navigation : retour vers ${apresRetour}, avance vers ${location.pathname}`);
+          // A photo of that person: faces in the info panel, clickable.
+          const nomPersonne = new URLSearchParams(location.search).get('nom') ?? '';
+          document.querySelector<HTMLElement>('.tuile .image-tuile')?.click();
+          await attendre(1500);
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }));
+          await attendre(2500);
+          const visages = [...document.querySelectorAll<HTMLAnchorElement>('.visionneuse a.personne')];
+          await journal(`visages dans les infos : ${visages.map((v) => v.textContent?.trim()).join(', ') || 'aucun'}`);
+          await capture('15b-infos-visages');
+          const lien = visages.find((v) => v.textContent?.trim() === nomPersonne) ?? visages[0];
+          lien?.click();
+          await attendre(2500);
+          await journal(`clic sur un visage : ${document.querySelector('.visionneuse') ? 'visionneuse encore ouverte' : 'visionneuse fermée'}, page ${location.pathname}${location.search.slice(0, 60)}`);
         }
       }
       if (chemin === '/albums') {

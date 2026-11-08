@@ -1,7 +1,15 @@
 // Thin wrappers around the Tauri commands exposed by the Rust core.
 import { invoke } from '@tauri-apps/api/core';
 
-export type Utilisateur = { id: string; name: string; email: string };
+export type Utilisateur = {
+  id: string;
+  name: string;
+  email: string;
+  /** Empty without a profile picture. */
+  profileImagePath: string;
+  avatarColor: string | null;
+  profileChangedAt: string | null;
+};
 /** Where the connection comes from: development variables, OS keyring, or this session only. */
 export type Origine = 'environnement' | 'trousseau' | 'coffre' | 'memoire';
 export type Connexion = {
@@ -195,7 +203,7 @@ export const nombresVilles = (villes: string[]) => invoke<Record<string, number>
 export const infosAsset = (id: string) => invoke<Record<string, any>>('infos_asset', { id });
 export const urlVideo = (id: string) => invoke<string>('url_video', { id });
 
-export type TailleImage = 'vignette' | 'apercu' | 'pleine' | 'personne';
+export type TailleImage = 'vignette' | 'apercu' | 'pleine' | 'personne' | 'profil';
 
 // Custom protocols are exposed as `http://<scheme>.localhost` on Windows.
 const baseImages = navigator.userAgent.includes('Windows')

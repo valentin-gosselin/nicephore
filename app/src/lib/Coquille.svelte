@@ -13,7 +13,10 @@
   import BarreLaterale from './BarreLaterale.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import BarreFenetre from './BarreFenetre.svelte';
+  import BoutonsFenetre from './BoutonsFenetre.svelte';
   import Connexion from './Connexion.svelte';
+  import MenuCompte from './MenuCompte.svelte';
   import Deverrouillage from './Deverrouillage.svelte';
   import Notifications from './Notifications.svelte';
   import { session, verifierSession } from './session.svelte';
@@ -90,9 +93,12 @@
 
 <div class="flex h-full flex-col">
   {#if session.verification}
+    <BarreFenetre />
     <div class="flex flex-1 items-center justify-center"><LoadingSpinner size="giant" /></div>
   {:else if session.connexion}
-    <header class="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 dark:border-gray-800">
+    <!-- The header is the title bar: empty areas move the window, a double
+         click maximizes it. -->
+    <header class="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 dark:border-gray-800" data-tauri-drag-region>
       <div class="flex">
         <IconButton
           icon={mdiArrowLeft}
@@ -113,9 +119,10 @@
           onclick={avance}
         />
       </div>
-      <img src="/icone.svg" alt="" class="h-7 w-7" />
-      <span class="text-lg font-semibold tracking-tight">Nicéphore</span>
-      <form class="recherche mx-auto flex w-full max-w-xl items-center" role="search" onsubmit={chercher}>
+      <img src="/icone.svg" alt="" class="pointer-events-none h-7 w-7" />
+      <span class="pointer-events-none select-none text-lg font-semibold tracking-tight">Nicéphore</span>
+      <span class="h-full flex-1" data-tauri-drag-region></span>
+      <form class="recherche flex w-full max-w-xl items-center" role="search" onsubmit={chercher}>
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" class="loupe"><path fill="currentColor" d={mdiMagnify} /></svg>
         <input
           bind:this={champRecherche}
@@ -130,7 +137,10 @@
           Nicéphore {versionDisponible} disponible
         </a>
       {/if}
-      <a href="/reglages" class="text-sm opacity-70 hover:opacity-100">{session.connexion.utilisateur.name}</a>
+      <span class="h-full flex-1" data-tauri-drag-region></span>
+      <MenuCompte connexion={session.connexion} />
+      <span class="mx-1 h-6 w-px bg-gray-300 dark:bg-gray-700"></span>
+      <BoutonsFenetre />
     </header>
     <div class="flex min-h-0 flex-1">
       <BarreLaterale {repliee} />
@@ -139,6 +149,7 @@
       </main>
     </div>
   {:else}
+    <BarreFenetre />
     {#if session.erreur}<div class="p-4"><Text color="danger">{session.erreur}</Text></div>{/if}
     {#if session.verrouille}
       <Deverrouillage

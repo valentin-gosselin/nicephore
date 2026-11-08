@@ -41,4 +41,7 @@ FIN
 update-desktop-database "$donnees/applications" >/dev/null 2>&1 || true
 touch "$donnees/icons/hicolor"
 command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true
+# Plasma and KWin keep icons in memory: ask them to read the theme again
+# (a new logo otherwise only shows after logging in again).
+dbus-send --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0 2>/dev/null || true
 echo "Lanceur installé : $donnees/applications/nicephore.desktop"
