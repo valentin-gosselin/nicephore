@@ -21,6 +21,14 @@ elif [ "${1:-}" = "--portable" ]; then
     portable=1
     shift
 fi
+# --mise-a-jour <AppImage>: in-app update scenario (see
+# scripts/essai-mise-a-jour.sh, which builds the versions and serves them).
+mise_a_jour=""
+if [ "${1:-}" = "--mise-a-jour" ]; then
+    jetable=1
+    mise_a_jour=1
+    shift
+fi
 binaire=${1:-"$racine/target/release/nicephore"}
 largeur=${2:-1600}
 hauteur=${3:-1000}
@@ -40,6 +48,9 @@ if [ -n "$jetable" ]; then
     . "$donnees_jetable/test.env"
     set +a
     export IMMICH_URL="$IMMICH_TEST_URL" IMMICH_API_KEY="$IMMICH_TEST_API_KEY" NICEPHORE_BANC_SCENARIO=ecriture
+fi
+if [ -n "$mise_a_jour" ]; then
+    export NICEPHORE_BANC_SCENARIO=mise-a-jour
 fi
 if [ -n "$portable" ]; then
     # No development key: the login screen is the way in.
@@ -71,7 +82,14 @@ cat > "$interne" <<FIN
 unset DISPLAY
 export GDK_BACKEND=wayland
 $config_privee
-exec "$binaire"
+if [ -n "$mise_a_jour" ]; then
+    # The update restarts Nicéphore: the session lasts while a copy runs.
+    "$binaire"
+    sleep 2
+    while pgrep -f "^$binaire" >/dev/null; do sleep 1; done
+else
+    exec "$binaire"
+fi
 FIN
 chmod +x "$interne"
 

@@ -10,6 +10,11 @@
     etatPrechargement,
     infosCache,
     infosPortable,
+    chercherMiseAJour,
+    infosMiseAJour,
+    installerMiseAJour,
+    type InfosMiseAJour,
+    type VersionDisponible,
     reglagesApp,
     viderCache,
     type EtatPrechargement,
@@ -27,6 +32,35 @@
   let vidage = $state(false);
   let reglages = $state<ReglagesAppVue | null>(null);
   let portable = $state<string | null>(null);
+  let maj = $state<InfosMiseAJour | null>(null);
+  let disponible = $state<VersionDisponible | null | undefined>(undefined);
+  let recherche = $state(false);
+  let installation = $state<{ recus: number; total: number | null } | null>(null);
+  let erreurMaj = $state<string | null>(null);
+
+  async function chercher() {
+    recherche = true;
+    erreurMaj = null;
+    try {
+      disponible = await chercherMiseAJour();
+    } catch (e) {
+      erreurMaj = String(e);
+    } finally {
+      recherche = false;
+    }
+  }
+
+  async function installer() {
+    installation = { recus: 0, total: null };
+    erreurMaj = null;
+    try {
+      // Nicéphore restarts on success.
+      await installerMiseAJour();
+    } catch (e) {
+      erreurMaj = String(e);
+      installation = null;
+    }
+  }
 
   async function changer(cle: keyof ReglagesApp, valeur: boolean) {
     if (!reglages) return;
@@ -117,6 +151,8 @@
     etatPrechargement().then((e) => (prechargement = e));
     reglagesApp().then((r) => (reglages = r));
     infosPortable().then((d) => (portable = d));
+    infosMiseAJour().then((m) => (maj = m));
+    const arretMaj = listen<{ recus: number; total: number | null }>('mise-a-jour', ({ payload }) => (installation = payload));
     let dernierRafraichissement = 0;
     const arret = listen<EtatPrechargement>('prechargement', ({ payload }) => {
       prechargement = payload;
@@ -126,7 +162,10 @@
         void rafraichirCache();
       }
     });
-    return () => void arret.then((f) => f());
+    return () => {
+      void arret.then((f) => f());
+      void arretMaj.then((f) => f());
+    };
   });
 </script>
 
@@ -239,6 +278,42 @@
       <Button variant="outline" loading={vidage} onclick={vider}>Vider le cache</Button>
     </section>
 
+    {#if maj}
+      <section class="space-y-3" aria-label="Mises à jour">
+        <Heading size="small">Mises à jour</Heading>
+        {#if !maj.possibles}
+          <Text size="small" color="muted">
+            Cette copie de Nicéphore {maj.versionActuelle} a été compilée localement : pas de mises à jour automatiques.
+          </Text>
+        {:else}
+          <div class="flex items-center gap-3">
+            <Text size="small" class="flex-1">
+              {#if disponible === undefined}Version {maj.versionActuelle}.{:else if disponible === null}Nicéphore {maj.versionActuelle}
+                est à jour.{:else}Nicéphore {disponible.version} est disponible (vous avez {maj.versionActuelle}).{/if}
+            </Text>
+            <Button variant="outline" size="small" loading={recherche} onclick={chercher}>Rechercher</Button>
+          </div>
+          {#if disponible}
+            {#if disponible.notes}<p class="notes whitespace-pre-line rounded-xl p-3 text-sm">{disponible.notes}</p>{/if}
+            {#if maj.installable}
+              {#if installation}
+                <ProgressBar progress={installation.total ? installation.recus / installation.total : 0} />
+                <Text size="small" color="muted">Téléchargement et vérification de la signature, puis redémarrage…</Text>
+              {:else}
+                <Button onclick={installer}>Installer et redémarrer</Button>
+              {/if}
+            {:else}
+              <Text size="small" color="muted">
+                {portable ? 'Remplacez le programme sur votre support' : 'Mettez à jour par votre gestionnaire de paquets (Discover, dnf)'}
+                avec la nouvelle version : <span class="break-all">{maj.pageDesVersions}</span>
+              </Text>
+            {/if}
+          {/if}
+        {/if}
+        {#if erreurMaj}<Text size="small" color="danger">{erreurMaj}</Text>{/if}
+      </section>
+    {/if}
+
     {#if portable}
       <section class="space-y-2" aria-label="Mode portable">
         <Heading size="small">Mode portable</Heading>
@@ -261,3 +336,9 @@
     </section>
   </div>
 </div>
+
+<style>
+  .notes {
+    background: color-mix(in oklab, currentColor 5%, transparent);
+  }
+</style>

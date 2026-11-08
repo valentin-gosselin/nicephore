@@ -6,6 +6,7 @@ mod banc;
 mod coffre;
 mod commandes_envoi;
 mod compte;
+mod mise_a_jour;
 mod portable;
 mod prechargement;
 mod proxy_video;
@@ -616,6 +617,8 @@ pub fn lancer() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(mise_a_jour::MisesAJour::default())
         .on_window_event(|fenetre, evenement| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = evenement
                 && fenetre.label() == "main"
@@ -716,6 +719,7 @@ pub fn lancer() {
                 zone,
                 portable,
             });
+            mise_a_jour::verifier_au_demarrage(app.handle().clone());
             // Started with the session: stay in the tray if uploads can
             // go on there, else show the window as usual.
             let etat = app.state::<Etat>();
@@ -783,6 +787,9 @@ pub fn lancer() {
             etat_prechargement,
             definir_prechargement,
             signaler_defilement,
+            mise_a_jour::infos_mise_a_jour,
+            mise_a_jour::chercher_mise_a_jour,
+            mise_a_jour::installer_mise_a_jour,
             commandes_envoi::regles_envoi,
             commandes_envoi::reglages_app,
             commandes_envoi::definir_reglages_app,

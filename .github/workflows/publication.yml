@@ -1,0 +1,82 @@
+# Builds and publishes a release when a tag v* is pushed: AppImage and rpm
+# (Linux), installer and portable zip (Windows), with signed update
+# artifacts and the latest.json manifest read by the in-app updater.
+#
+# Needs, in the repository settings:
+#   secret   TAURI_SIGNING_PRIVATE_KEY           update signing key (minisign)
+#   secret   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
+#   variable NICEPHORE_CLE_PUBLIQUE              the matching public key
+# The release is created as a draft, to be checked before publishing.
+name: Publication
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  publier:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported Ubuntu: the AppImage runs on newer systems.
+          - os: ubuntu-22.04
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Paquets système (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Dépendances de l'interface
+        working-directory: app
+        run: npm ci
+
+      - name: Construction et brouillon de version
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tagName: ${{ github.ref_name }}
+          releaseName: Nicéphore ${{ github.ref_name }}
+          releaseBody: Notes de version à écrire avant de publier.
+          releaseDraft: true
+          includeUpdaterJson: true
+          args: >-
+            --config {"plugins":{"updater":{"pubkey":"${{ vars.NICEPHORE_CLE_PUBLIQUE }}"}}}
+
+      - name: Version portable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $dossier = "Nicephore-portable"
+          New-Item -ItemType Directory -Force $dossier | Out-Null
+          Copy-Item target/release/nicephore.exe "$dossier/Nicephore.exe"
+          # The marker file that turns portable mode on.
+          New-Item -ItemType File -Force "$dossier/portable" | Out-Null
+          $zip = "Nicephore_${{ github.ref_name }}_portable_x64.zip"
+          Compress-Archive -Path $dossier -DestinationPath $zip -Force
+          gh release upload "${{ github.ref_name }}" $zip --clobber

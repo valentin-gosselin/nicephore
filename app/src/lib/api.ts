@@ -275,3 +275,10 @@ export type ReglagesAppVue = ReglagesApp & { demarrageAuto: boolean; zoneDisponi
 export const reglagesApp = () => invoke<ReglagesAppVue>('reglages_app');
 export const definirReglagesApp = (reglages: ReglagesApp) => invoke<void>('definir_reglages_app', { reglages });
 export const definirDemarrageAuto = (actif: boolean) => invoke<void>('definir_demarrage_auto', { actif });
+
+// ---- Updates ----
+export type InfosMiseAJour = { versionActuelle: string; possibles: boolean; installable: boolean; pageDesVersions: string };
+export type VersionDisponible = { version: string; notes: string | null; date: string | null };
+export const infosMiseAJour = () => invoke<InfosMiseAJour>('infos_mise_a_jour');
+export const chercherMiseAJour = () => invoke<VersionDisponible | null>('chercher_mise_a_jour');
+export const installerMiseAJour = () => invoke<void>('installer_mise_a_jour');

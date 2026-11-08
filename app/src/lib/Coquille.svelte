@@ -12,6 +12,7 @@
   import { lireCriteres, nomsPersonnes, urlRecherche } from './criteres-url';
   import BarreLaterale from './BarreLaterale.svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import Connexion from './Connexion.svelte';
   import Deverrouillage from './Deverrouillage.svelte';
   import Notifications from './Notifications.svelte';
@@ -61,8 +62,12 @@
   let largeur = $state(1280);
   const repliee = $derived(largeur < 960);
 
+  // A newer version found by the startup check.
+  let versionDisponible = $state<string | null>(null);
+
   onMount(() => {
     void verifierSession();
+    const arretVersion = listen<{ version: string }>('version-disponible', ({ payload }) => (versionDisponible = payload.version));
     // Portable mode scenario (scripts/banc.sh --portable): runs from the
     // login or unlock screen, before any timeline exists.
     invoke<boolean>('mode_banc').then(async (banc) => {
@@ -70,8 +75,14 @@
       if (scenario.startsWith('portable')) {
         const { lancerScenarioPortable } = await import('./scenario-portable');
         void lancerScenarioPortable(scenario);
+      } else if (scenario === 'mise-a-jour') {
+        // Once connected (development key of the disposable server).
+        while (!session.connexion) await new Promise((r) => setTimeout(r, 200));
+        const { lancerScenarioMiseAJour } = await import('./scenario-mise-a-jour');
+        void lancerScenarioMiseAJour();
       }
     });
+    return () => void arretVersion.then((f) => f());
   });
 </script>
 
@@ -114,6 +125,11 @@
           aria-label="Rechercher"
         />
       </form>
+      {#if versionDisponible}
+        <a href="/reglages" class="nouvelle shrink-0 rounded-full px-3 py-1 text-xs font-medium" onclick={() => (versionDisponible = null)}>
+          Nicéphore {versionDisponible} disponible
+        </a>
+      {/if}
       <a href="/reglages" class="text-sm opacity-70 hover:opacity-100">{session.connexion.utilisateur.name}</a>
     </header>
     <div class="flex min-h-0 flex-1">
@@ -139,6 +155,10 @@
 <Notifications />
 
 <style>
+  .nouvelle {
+    color: var(--immich-ui-primary-500);
+    background: color-mix(in oklab, var(--immich-ui-primary-500) 14%, transparent);
+  }
   .recherche {
     position: relative;
   }

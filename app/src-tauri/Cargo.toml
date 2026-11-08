@@ -31,6 +31,7 @@ serde_json = "1.0.154"
 tauri = { version = "2.12.5", features = ["tray-icon"] }
 tauri-plugin-dialog = "2.8.4"
 tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
 tokio = { version = "1.54.1", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
