@@ -11,7 +11,9 @@
   import { page } from '$app/state';
   import { lireCriteres, nomsPersonnes, urlRecherche } from './criteres-url';
   import BarreLaterale from './BarreLaterale.svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import Connexion from './Connexion.svelte';
+  import Deverrouillage from './Deverrouillage.svelte';
   import Notifications from './Notifications.svelte';
   import { session, verifierSession } from './session.svelte';
 
@@ -59,7 +61,18 @@
   let largeur = $state(1280);
   const repliee = $derived(largeur < 960);
 
-  onMount(() => void verifierSession());
+  onMount(() => {
+    void verifierSession();
+    // Portable mode scenario (scripts/banc.sh --portable): runs from the
+    // login or unlock screen, before any timeline exists.
+    invoke<boolean>('mode_banc').then(async (banc) => {
+      const scenario = banc ? await invoke<string>('scenario_banc') : '';
+      if (scenario.startsWith('portable')) {
+        const { lancerScenarioPortable } = await import('./scenario-portable');
+        void lancerScenarioPortable(scenario);
+      }
+    });
+  });
 </script>
 
 <svelte:window bind:innerWidth={largeur} onkeydown={surTouche} onmousedown={surBoutonSouris} onmouseup={surBoutonSouris} />
@@ -111,7 +124,15 @@
     </div>
   {:else}
     {#if session.erreur}<div class="p-4"><Text color="danger">{session.erreur}</Text></div>{/if}
-    <Connexion onconnecte={(c) => (session.connexion = c)} />
+    {#if session.verrouille}
+      <Deverrouillage
+        serveur={session.verrouille}
+        onconnecte={(c) => (session.connexion = c)}
+        onautrement={() => (session.verrouille = null)}
+      />
+    {:else}
+      <Connexion onconnecte={(c) => (session.connexion = c)} />
+    {/if}
   {/if}
 </div>
 

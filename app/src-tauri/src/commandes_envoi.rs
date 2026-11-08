@@ -84,6 +84,8 @@ pub struct ReglagesVue {
     demarrage_auto: bool,
     /// A tray icon could be created (otherwise closing quits).
     zone_disponible: bool,
+    /// Portable mode: no start with the session.
+    portable: bool,
 }
 
 #[tauri::command]
@@ -92,6 +94,7 @@ pub fn reglages_app(etat: State<'_, Etat>) -> ReglagesVue {
         reglages: etat.reglages.read().expect("verrou des réglages").clone(),
         demarrage_auto: reglages::demarrage_auto(),
         zone_disponible: etat.zone.is_some(),
+        portable: etat.portable.is_some(),
     }
 }
 
@@ -105,7 +108,10 @@ pub fn definir_reglages_app(etat: State<'_, Etat>, reglages: Reglages) -> Result
 }
 
 #[tauri::command]
-pub fn definir_demarrage_auto(actif: bool) -> Result<(), String> {
+pub fn definir_demarrage_auto(etat: State<'_, Etat>, actif: bool) -> Result<(), String> {
+    if actif && etat.portable.is_some() {
+        return Err("pas de démarrage avec la session en mode portable".into());
+    }
     reglages::definir_demarrage_auto(actif)
 }
 

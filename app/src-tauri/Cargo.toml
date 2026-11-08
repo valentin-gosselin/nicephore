@@ -14,11 +14,15 @@ tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
 api_immich = { path = "../../crates/api_immich" }
+argon2 = "0.6.0"
 axum = "0.8.9"
 bytes = "1.12.1"
 cache_vignettes = { path = "../../crates/cache_vignettes" }
+chacha20poly1305 = "0.11.0"
 envoi = { path = "../../crates/envoi" }
 futures-util = "0.3.34"
+getrandom = "0.4.3"
+hex = "0.4.3"
 keyring = "4.2.0"
 rand = "0.10.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["stream"] }

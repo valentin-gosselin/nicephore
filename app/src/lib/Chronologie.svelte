@@ -253,12 +253,13 @@
         pret = true;
         await tick();
         const banc = vue.id === 'photos' && (await invoke<boolean>('mode_banc'));
-        if (banc && (await invoke<string>('scenario_banc')) === 'ecriture') {
+        const scenario = banc ? await invoke<string>('scenario_banc') : '';
+        if (banc && scenario === 'ecriture') {
           if (!lancements.__scenarioLance) {
             lancements.__scenarioLance = true;
             void lancerScenarioEcriture();
           }
-        } else if (banc && !lancements.__bancLance) {
+        } else if (banc && scenario === '' && !lancements.__bancLance) {
           lancements.__bancLance = true;
           const touche = (key: string) => window.dispatchEvent(new KeyboardEvent('keydown', { key }));
           void lancerBanc(

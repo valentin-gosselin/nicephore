@@ -3,8 +3,10 @@
 
 mod alimentation;
 mod banc;
+mod coffre;
 mod commandes_envoi;
 mod compte;
+mod portable;
 mod prechargement;
 mod proxy_video;
 mod reglages;
@@ -41,6 +43,8 @@ enum Origine {
     Environnement,
     /// Remembered in the OS keyring.
     Trousseau,
+    /// Portable mode: kept next to the program, sealed with a passphrase.
+    Coffre,
     /// Typed in this session, not remembered.
     Memoire,
 }
@@ -62,6 +66,8 @@ pub struct Etat {
     reglages: Arc<RwLock<reglages::Reglages>>,
     /// Tray icon (absent when the desktop offers none).
     zone: Option<zone_notification::Zone>,
+    /// Portable mode: the `donnees` folder next to the program.
+    portable: Option<PathBuf>,
 }
 
 impl Etat {
@@ -123,7 +129,8 @@ async fn etat_connexion(etat: State<'_, Etat>) -> Result<Option<Connexion>, Stri
         let mut cherche = etat.compte_cherche.lock().await;
         if !*cherche && etat.client().is_err() {
             let dossier = etat.dossier_config.clone();
-            if let Ok(Some((url, auth))) = tokio::task::spawn_blocking(move || compte::charger(&dossier)).await {
+            let portable = etat.portable.is_some();
+            if let Ok(compte::Memorise::Pret(url, auth)) = tokio::task::spawn_blocking(move || compte::lire(&dossier, portable)).await {
                 let session = matches!(auth, Authentification::Session(_));
                 match ClientImmich::nouveau(&url, &auth) {
                     Ok(client) => etat.definir(Some(Arc::new(client)), Origine::Trousseau, session),
@@ -141,24 +148,78 @@ async fn etat_connexion(etat: State<'_, Etat>) -> Result<Option<Connexion>, Stri
     Ok(Some(connexion))
 }
 
+/// Portable mode: the server of the sealed account waiting for its
+/// passphrase, if any (and not connected yet).
+#[tauri::command]
+async fn compte_verrouille(etat: State<'_, Etat>) -> Result<Option<String>, String> {
+    if etat.client().is_ok() {
+        return Ok(None);
+    }
+    let dossier = etat.dossier_config.clone();
+    let portable = etat.portable.is_some();
+    Ok(match tokio::task::spawn_blocking(move || compte::lire(&dossier, portable)).await.map_err(|e| e.to_string())? {
+        compte::Memorise::Verrouille(url) => Some(url),
+        _ => None,
+    })
+}
+
+/// Opens the sealed account with its passphrase.
+#[tauri::command]
+async fn deverrouiller(etat: State<'_, Etat>, phrase: String) -> Result<Connexion, String> {
+    let dossier = etat.dossier_config.clone();
+    let (url, auth) = tokio::task::spawn_blocking(move || compte::deverrouiller(&dossier, &phrase))
+        .await
+        .map_err(|e| e.to_string())??;
+    let client = Arc::new(ClientImmich::nouveau(&url, &auth).map_err(|e| e.to_string())?);
+    let session = matches!(auth, Authentification::Session(_));
+    let connexion = verifier_connexion(&client, Origine::Coffre, session).await?;
+    etat.definir(Some(client), Origine::Coffre, session);
+    etat.precharger();
+    Ok(connexion)
+}
+
+/// Portable mode: its `donnees` folder.
+#[tauri::command]
+fn infos_portable(etat: State<'_, Etat>) -> Option<String> {
+    etat.portable.as_ref().map(|d| d.to_string_lossy().into_owned())
+}
+
 /// Login methods of a server, before any authentication.
 #[tauri::command]
 async fn modes_connexion(url: String) -> Result<ModesConnexion, String> {
     api_immich::modes_connexion(&url).await.map_err(|e| e.to_string())
 }
 
-/// Connects (and optionally remembers) with ready-made credentials.
-async fn connecter(etat: &Etat, url: &str, auth: Authentification, memoriser: bool) -> Result<Connexion, String> {
+/// Connects (and optionally remembers) with ready-made credentials. In
+/// portable mode, remembering needs a passphrase that seals the secret.
+async fn connecter(
+    etat: &Etat,
+    url: &str,
+    auth: Authentification,
+    memoriser: bool,
+    phrase: Option<String>,
+) -> Result<Connexion, String> {
+    let portable = etat.portable.is_some();
+    if memoriser && portable && phrase.as_deref().is_none_or(|p| p.chars().count() < coffre::LONGUEUR_MINIMALE) {
+        return Err(format!("phrase de passe d'au moins {} caractères requise", coffre::LONGUEUR_MINIMALE));
+    }
     let client = Arc::new(ClientImmich::nouveau(url, &auth).map_err(|e| e.to_string())?);
-    let origine = if memoriser { Origine::Trousseau } else { Origine::Memoire };
+    let origine = match (memoriser, portable) {
+        (false, _) => Origine::Memoire,
+        (true, false) => Origine::Trousseau,
+        (true, true) => Origine::Coffre,
+    };
     let session = matches!(auth, Authentification::Session(_));
     let connexion = verifier_connexion(&client, origine, session).await?;
     if memoriser {
         let dossier = etat.dossier_config.clone();
         let url = client.url_serveur();
-        tokio::task::spawn_blocking(move || compte::enregistrer(&dossier, &url, &auth))
-            .await
-            .map_err(|e| e.to_string())??;
+        tokio::task::spawn_blocking(move || match phrase.filter(|_| portable) {
+            Some(phrase) => compte::enregistrer_scelle(&dossier, &url, &auth, &phrase),
+            None => compte::enregistrer(&dossier, &url, &auth),
+        })
+        .await
+        .map_err(|e| e.to_string())??;
     }
     etat.definir(Some(client), origine, session);
     etat.precharger();
@@ -174,15 +235,22 @@ async fn se_connecter_mot_de_passe(
     email: String,
     mot_de_passe: String,
     memoriser: bool,
+    phrase: Option<String>,
 ) -> Result<Connexion, String> {
     let session = api_immich::ouvrir_session(&url, &email, &mot_de_passe).await.map_err(|e| e.to_string())?;
-    connecter(&etat, &url, Authentification::Session(session.access_token), memoriser).await
+    connecter(&etat, &url, Authentification::Session(session.access_token), memoriser, phrase).await
 }
 
 /// Connects with a server URL and an API key (advanced option).
 #[tauri::command]
-async fn se_connecter(etat: State<'_, Etat>, url: String, cle: String, memoriser: bool) -> Result<Connexion, String> {
-    connecter(&etat, &url, Authentification::CleApi(cle), memoriser).await
+async fn se_connecter(
+    etat: State<'_, Etat>,
+    url: String,
+    cle: String,
+    memoriser: bool,
+    phrase: Option<String>,
+) -> Result<Connexion, String> {
+    connecter(&etat, &url, Authentification::CleApi(cle), memoriser, phrase).await
 }
 
 /// Disconnects: revokes the session on the server (best effort), then
@@ -559,7 +627,27 @@ pub fn lancer() {
             }
         })
         .setup(|app| {
-            let dossier_cache = app.path().app_cache_dir()?.join("images");
+            let portable = portable::detecter();
+            let emplacements = match &portable {
+                Some(racine) => portable::Emplacements::portables(racine),
+                None => portable::Emplacements {
+                    config: app.path().app_config_dir()?,
+                    cache: app.path().app_cache_dir()?,
+                    donnees: app.path().app_data_dir()?,
+                    portable: None,
+                },
+            };
+            if let Some(racine) = &portable {
+                tracing::info!("mode portable : tout dans {}", racine.display());
+            }
+            // The window is created here (not from the configuration) so its
+            // web view profile follows portable mode.
+            let mut fenetre = tauri::WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?;
+            if let Some(profil) = emplacements.profil_web() {
+                fenetre = fenetre.data_directory(profil);
+            }
+            fenetre.build()?;
+            let dossier_cache = emplacements.cache.join("images");
             let cache = Arc::new(CacheVignettes::nouveau(dossier_cache));
             let depuis_env = client_depuis_environnement();
             let origine = if depuis_env.is_some() { Origine::Environnement } else { Origine::Memoire };
@@ -576,14 +664,14 @@ pub fn lancer() {
                     }
                 }
             });
-            let dossier_config = app.path().app_config_dir()?;
+            let dossier_config = emplacements.config.clone();
             let prechargement = Arc::new(prechargement::Prechargement::nouveau(&dossier_config, app.handle().clone()));
 
             // The upload database; a private one in benchmark mode, so a
             // benchmark never sees the user's rules.
             let chemin_base = match std::env::var_os("NICEPHORE_BANC_DOSSIER") {
-                Some(dossier) => PathBuf::from(dossier).join("envoi.sqlite"),
-                None => app.path().app_data_dir()?.join("envoi.sqlite"),
+                Some(dossier) if portable.is_none() => PathBuf::from(dossier).join("envoi.sqlite"),
+                _ => emplacements.donnees.join("envoi.sqlite"),
             };
             let (base, erreur_base_envoi) = match envoi::Base::ouvrir(&chemin_base) {
                 Ok(base) => (base, None),
@@ -626,6 +714,7 @@ pub fn lancer() {
                 erreur_base_envoi,
                 reglages,
                 zone,
+                portable,
             });
             // Started with the session: stay in the tray if uploads can
             // go on there, else show the window as usual.
@@ -649,6 +738,9 @@ pub fn lancer() {
         })
         .invoke_handler(tauri::generate_handler![
             etat_connexion,
+            compte_verrouille,
+            deverrouiller,
+            infos_portable,
             modes_connexion,
             se_connecter_mot_de_passe,
             se_connecter,
@@ -705,6 +797,7 @@ pub fn lancer() {
             commandes_envoi::echecs_envoi,
             commandes_envoi::reessayer_envoi,
             banc::dossier_photos_banc,
+            banc::identifiants_banc,
             banc::fermer_fenetre,
             banc::fenetre_visible,
             banc::montrer_fenetre,

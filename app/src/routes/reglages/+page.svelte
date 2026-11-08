@@ -9,6 +9,7 @@
     definirReglagesApp,
     etatPrechargement,
     infosCache,
+    infosPortable,
     reglagesApp,
     viderCache,
     type EtatPrechargement,
@@ -25,6 +26,7 @@
   let version = $state('');
   let vidage = $state(false);
   let reglages = $state<ReglagesAppVue | null>(null);
+  let portable = $state<string | null>(null);
 
   async function changer(cle: keyof ReglagesApp, valeur: boolean) {
     if (!reglages) return;
@@ -69,6 +71,7 @@
     const quoi = c.session ? 'Session ouverte avec e-mail et mot de passe' : 'Clé API';
     if (c.origine === 'environnement') return 'Clé API de développement (variables IMMICH_URL et IMMICH_API_KEY).';
     if (c.origine === 'trousseau') return `${quoi}, gardée dans le trousseau du système.`;
+    if (c.origine === 'coffre') return `${quoi}, gardée à côté de Nicéphore et chiffrée par votre phrase de passe.`;
     return `${quoi}, non mémorisée : il faudra se reconnecter au prochain lancement.`;
   }
 
@@ -113,6 +116,7 @@
     getVersion().then((v) => (version = v));
     etatPrechargement().then((e) => (prechargement = e));
     reglagesApp().then((r) => (reglages = r));
+    infosPortable().then((d) => (portable = d));
     let dernierRafraichissement = 0;
     const arret = listen<EtatPrechargement>('prechargement', ({ payload }) => {
       prechargement = payload;
@@ -172,13 +176,15 @@
       {@const r = reglages}
       <section class="space-y-4" aria-label="Envoi en arrière-plan">
         <Heading size="small">Envoi en arrière-plan</Heading>
-        <label class="flex items-center justify-between gap-6">
-          <span>
-            <Text>Lancer Nicéphore à l’ouverture de session</Text>
-            <Text size="small" color="muted">Il démarre discrètement dans la zone de notification pour envoyer vos dossiers.</Text>
-          </span>
-          <Switch checked={r.demarrageAuto} onCheckedChange={(v: boolean) => changerDemarrage(v)} />
-        </label>
+        {#if !r.portable}
+          <label class="flex items-center justify-between gap-6">
+            <span>
+              <Text>Lancer Nicéphore à l’ouverture de session</Text>
+              <Text size="small" color="muted">Il démarre discrètement dans la zone de notification pour envoyer vos dossiers.</Text>
+            </span>
+            <Switch checked={r.demarrageAuto} onCheckedChange={(v: boolean) => changerDemarrage(v)} />
+          </label>
+        {/if}
         {#each options as o (o.cle)}
           <label class="flex items-center justify-between gap-6">
             <span>
@@ -232,6 +238,18 @@
       {/if}
       <Button variant="outline" loading={vidage} onclick={vider}>Vider le cache</Button>
     </section>
+
+    {#if portable}
+      <section class="space-y-2" aria-label="Mode portable">
+        <Heading size="small">Mode portable</Heading>
+        <Text size="small">
+          Tout ce que Nicéphore garde (réglages, connexion chiffrée, dossiers envoyés, cache des images) est rangé à côté
+          de lui, rien sur cet ordinateur. Pour revenir au mode normal, retirez le fichier « portable » posé à côté du
+          programme.
+        </Text>
+        <Text size="small" color="muted" class="break-all">{portable}</Text>
+      </section>
+    {/if}
 
     <section class="space-y-2">
       <Heading size="small">À propos</Heading>

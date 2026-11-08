@@ -5,6 +5,7 @@
   import { Alert, Button, Field, Heading, Input, PasswordInput, Switch, Text } from '@immich/ui';
   import { onMount } from 'svelte';
   import {
+    infosPortable,
     modesConnexion,
     seConnecter,
     seConnecterMotDePasse,
@@ -23,6 +24,11 @@
   let cle = $state('');
   let avecCle = $state(false);
   let memoriser = $state(true);
+  /** Portable mode: the remembered connection is sealed with a passphrase. */
+  let portable = $state(false);
+  let phrase = $state('');
+  let phraseBis = $state('');
+  const phraseValide = $derived(!portable || !memoriser || ([...phrase].length >= 8 && phrase === phraseBis));
   let enCours = $state(false);
   let erreur = $state<string | null>(null);
 
@@ -59,8 +65,11 @@
     enCours = true;
     erreur = null;
     try {
+      const scellement = portable && memoriser ? phrase : undefined;
       onconnecte(
-        avecCle ? await seConnecter(url, cle, memoriser) : await seConnecterMotDePasse(url, email, motDePasse, memoriser),
+        avecCle
+          ? await seConnecter(url, cle, memoriser, scellement)
+          : await seConnecterMotDePasse(url, email, motDePasse, memoriser, scellement),
       );
     } catch (raison) {
       erreur = String(raison);
@@ -71,6 +80,7 @@
   }
 
   onMount(() => {
+    infosPortable().then((d) => (portable = !!d)).catch(() => {});
     try {
       url = localStorage.getItem(CLE_SERVEUR) ?? '';
     } catch {
@@ -125,18 +135,32 @@
           <span>
             <Text>Rester connecté</Text>
             <Text size="small" color="muted">
-              {avecCle ? 'La clé est gardée' : 'Seul le jeton de session est gardé'} dans le trousseau du système, jamais
-              votre mot de passe.
+              {#if portable}
+                {avecCle ? 'La clé est gardée' : 'Seul le jeton de session est gardé'} à côté de Nicéphore, chiffré par une
+                phrase de passe demandée à chaque lancement. Jamais votre mot de passe.
+              {:else}
+                {avecCle ? 'La clé est gardée' : 'Seul le jeton de session est gardé'} dans le trousseau du système, jamais
+                votre mot de passe.
+              {/if}
             </Text>
           </span>
           <Switch bind:checked={memoriser} />
         </label>
+        {#if portable && memoriser}
+          <Field label="Phrase de passe (8 caractères au moins)" required>
+            <PasswordInput bind:value={phrase} autocomplete="new-password" />
+          </Field>
+          <Field label="La même, pour vérifier" required>
+            <PasswordInput bind:value={phraseBis} autocomplete="new-password" />
+          </Field>
+          {#if phraseBis && phrase !== phraseBis}<Text size="small" color="danger">Les deux phrases diffèrent.</Text>{/if}
+        {/if}
         {#if erreur}<Alert color="danger" title="Connexion impossible">{erreur}</Alert>{/if}
         <Button
           type="submit"
           fullWidth
           loading={enCours}
-          disabled={avecCle ? !cle : !email || !motDePasse}
+          disabled={(avecCle ? !cle : !email || !motDePasse) || !phraseValide}
         >
           Se connecter
         </Button>

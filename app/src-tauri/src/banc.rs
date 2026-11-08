@@ -50,6 +50,30 @@ pub fn montrer_fenetre(app: tauri::AppHandle) {
     crate::zone_notification::montrer(&app);
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentifiantsBanc {
+    url: String,
+    email: String,
+    mot_de_passe: String,
+}
+
+/// Login of the disposable test server (`IMMICH_TEST_*`, written by its
+/// seeding script), for the portable scenario. Local servers only.
+#[tauri::command]
+pub fn identifiants_banc() -> Option<IdentifiantsBanc> {
+    dossier_banc()?;
+    let url = std::env::var("IMMICH_TEST_URL").ok()?;
+    if !(url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost")) {
+        return None;
+    }
+    Some(IdentifiantsBanc {
+        url,
+        email: std::env::var("IMMICH_TEST_EMAIL").ok()?,
+        mot_de_passe: std::env::var("IMMICH_TEST_PASSWORD").ok()?,
+    })
+}
+
 #[tauri::command]
 pub fn journal(message: String) {
     tracing::info!(target: "banc", "{message}");

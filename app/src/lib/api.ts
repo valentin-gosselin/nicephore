@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 export type Utilisateur = { id: string; name: string; email: string };
 /** Where the connection comes from: development variables, OS keyring, or this session only. */
-export type Origine = 'environnement' | 'trousseau' | 'memoire';
+export type Origine = 'environnement' | 'trousseau' | 'coffre' | 'memoire';
 export type Connexion = {
   urlServeur: string;
   version: string;
@@ -96,10 +96,16 @@ export type DetailMois = {
 
 export const etatConnexion = () => invoke<Connexion | null>('etat_connexion');
 export const modesConnexion = (url: string) => invoke<ModesConnexion>('modes_connexion', { url });
-export const seConnecterMotDePasse = (url: string, email: string, motDePasse: string, memoriser: boolean) =>
-  invoke<Connexion>('se_connecter_mot_de_passe', { url, email, motDePasse, memoriser });
-export const seConnecter = (url: string, cle: string, memoriser: boolean) =>
-  invoke<Connexion>('se_connecter', { url, cle, memoriser });
+/** `phrase`: portable mode only, seals the remembered connection. */
+export const seConnecterMotDePasse = (url: string, email: string, motDePasse: string, memoriser: boolean, phrase?: string) =>
+  invoke<Connexion>('se_connecter_mot_de_passe', { url, email, motDePasse, memoriser, phrase: phrase ?? null });
+export const seConnecter = (url: string, cle: string, memoriser: boolean, phrase?: string) =>
+  invoke<Connexion>('se_connecter', { url, cle, memoriser, phrase: phrase ?? null });
+/** Portable mode: server of the sealed connection waiting for its passphrase. */
+export const compteVerrouille = () => invoke<string | null>('compte_verrouille');
+export const deverrouiller = (phrase: string) => invoke<Connexion>('deverrouiller', { phrase });
+/** Portable mode: the folder holding everything, or null. */
+export const infosPortable = () => invoke<string | null>('infos_portable');
 export const seDeconnecter = () => invoke<void>('se_deconnecter');
 export const listeMois = (filtre: Filtre) => invoke<Mois[]>('liste_mois', { filtre });
 export const detailMois = (mois: string, filtre: Filtre) => invoke<DetailMois>('detail_mois', { mois, filtre });
@@ -265,7 +271,7 @@ export type ReglagesApp = {
   pauseReseauFacture: boolean;
   notifications: boolean;
 };
-export type ReglagesAppVue = ReglagesApp & { demarrageAuto: boolean; zoneDisponible: boolean };
+export type ReglagesAppVue = ReglagesApp & { demarrageAuto: boolean; zoneDisponible: boolean; portable: boolean };
 export const reglagesApp = () => invoke<ReglagesAppVue>('reglages_app');
 export const definirReglagesApp = (reglages: ReglagesApp) => invoke<void>('definir_reglages_app', { reglages });
 export const definirDemarrageAuto = (actif: boolean) => invoke<void>('definir_demarrage_auto', { actif });
