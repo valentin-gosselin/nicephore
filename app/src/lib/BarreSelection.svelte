@@ -10,13 +10,27 @@
     mdiDownload,
     mdiHeart,
     mdiHeartOutline,
+    mdiImageMinusOutline,
+    mdiImagePlusOutline,
     mdiSelectAll,
     mdiTrashCanOutline,
   } from '@mdi/js';
   import { listen } from '@tauri-apps/api/event';
   import { pictureDir } from '@tauri-apps/api/path';
   import { open } from '@tauri-apps/plugin-dialog';
-  import { definirArchive, definirFavori, mettreCorbeille, restaurerCorbeille, telecharger } from './api';
+  import { goto } from '$app/navigation';
+  import {
+    ajouterALAlbum,
+    creerAlbum,
+    definirArchive,
+    definirFavori,
+    mettreCorbeille,
+    restaurerCorbeille,
+    retirerDeLAlbum,
+    telecharger,
+    type Album,
+  } from './api';
+  import ChoixAlbum from './ChoixAlbum.svelte';
   import type { Chronologie } from './modele-chronologie.svelte';
   import { notifier, remplacer } from './notifications.svelte';
   import type { Selection } from './selection.svelte';
@@ -25,6 +39,7 @@
   let { vue, selection, chrono }: { vue: Vue; selection: Selection; chrono: Chronologie } = $props();
 
   let enCours = $state(false);
+  let choixAlbum = $state(false);
   const nombre = $derived(selection.taille);
   const pluriel = (n: number, mot: string) => `${n.toLocaleString('fr-FR')} ${mot}${n > 1 ? 's' : ''}`;
 
@@ -87,6 +102,49 @@
     });
   }
 
+  async function ajouterA(album: Album) {
+    choixAlbum = false;
+    const ids = selection.ids();
+    enCours = true;
+    try {
+      const bilan = await ajouterALAlbum(album.id, ids);
+      selection.vider();
+      const deja = bilan.dejaPresents ? ` (${bilan.dejaPresents} y étaient déjà)` : '';
+      notifier(`${pluriel(bilan.ajoutes, 'élément')} ajouté${bilan.ajoutes > 1 ? 's' : ''} à « ${album.albumName} »${deja}`, 'succes', {
+        libelle: 'Ouvrir',
+        executer: () => void goto(`/album?id=${album.id}`),
+      });
+    } catch (e) {
+      notifier(`Ajout impossible : ${e}`, 'erreur');
+    } finally {
+      enCours = false;
+    }
+  }
+
+  async function nouvelAlbum(nom: string) {
+    choixAlbum = false;
+    const ids = selection.ids();
+    enCours = true;
+    try {
+      const album = await creerAlbum(nom, '', ids);
+      selection.vider();
+      notifier(`Album « ${album.albumName} » créé avec ${pluriel(ids.length, 'élément')}`, 'succes', {
+        libelle: 'Ouvrir',
+        executer: () => void goto(`/album?id=${album.id}`),
+      });
+    } catch (e) {
+      notifier(`Création impossible : ${e}`, 'erreur');
+    } finally {
+      enCours = false;
+    }
+  }
+
+  const retirerDeLAlbumCourant = () =>
+    agir(
+      (ids) => retirerDeLAlbum(vue.filtre.album!, ids),
+      (n) => `${pluriel(n, 'élément')} retiré${n > 1 ? 's' : ''} de l’album (toujours dans la photothèque)`,
+    );
+
   const restaurer = () => agir(restaurerCorbeille, (n) => `${pluriel(n, 'élément')} restauré${n > 1 ? 's' : ''}`);
 
   async function telechargerSelection() {
@@ -143,6 +201,10 @@
       disabled={enCours}
       onclick={basculerFavori}
     />
+    <IconButton icon={mdiImagePlusOutline} aria-label="Ajouter à un album" variant="ghost" shape="round" disabled={enCours} onclick={() => (choixAlbum = true)} />
+    {#if vue.id === 'album' && vue.filtre.album}
+      <IconButton icon={mdiImageMinusOutline} aria-label="Retirer de l’album" variant="ghost" shape="round" disabled={enCours} onclick={retirerDeLAlbumCourant} />
+    {/if}
     <IconButton icon={mdiDownload} aria-label="Télécharger les originaux" variant="ghost" shape="round" disabled={enCours} onclick={telechargerSelection} />
     {#if vue.id === 'archive'}
       <IconButton icon={mdiArchiveArrowUpOutline} aria-label="Désarchiver" variant="ghost" shape="round" disabled={enCours} onclick={() => archiver(false)} />
@@ -152,6 +214,10 @@
     <IconButton icon={mdiTrashCanOutline} aria-label="Mettre à la corbeille (Suppr)" variant="ghost" color="danger" shape="round" disabled={enCours} onclick={corbeille} />
   {/if}
 </div>
+
+{#if choixAlbum}
+  <ChoixAlbum nombre={nombre} onchoisir={ajouterA} oncreer={nouvelAlbum} onfermer={() => (choixAlbum = false)} />
+{/if}
 
 <style>
   .barre {

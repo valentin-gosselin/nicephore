@@ -8,8 +8,9 @@ mod proxy_video;
 mod telechargement;
 
 use api_immich::{
-    Authentification, ClientImmich, CriteresRecherche, DetailMois, FiltreChronologie, Lieu, ModesConnexion,
-    ModificationAssets, Mois, PageResultats, Personne, TailleImage, Utilisateur,
+    Album, Authentification, BilanAlbum, ClientImmich, CriteresRecherche, DetailMois, FiltreChronologie, Lieu,
+    ModesConnexion, ModificationAlbum, ModificationAssets, ModificationPersonne, Mois, PageResultats, Personne,
+    TailleImage, Utilisateur,
 };
 use cache_vignettes::{CacheVignettes, ErreurCache};
 use serde::Serialize;
@@ -202,8 +203,74 @@ async fn lieux(etat: State<'_, Etat>) -> Result<Vec<Lieu>, String> {
 }
 
 #[tauri::command]
-async fn personnes(etat: State<'_, Etat>) -> Result<Vec<Personne>, String> {
-    etat.client()?.personnes().await.map_err(|e| e.to_string())
+async fn personnes(etat: State<'_, Etat>, avec_masquees: Option<bool>) -> Result<Vec<Personne>, String> {
+    etat.client()?.personnes(avec_masquees.unwrap_or(false)).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn personne(etat: State<'_, Etat>, id: String) -> Result<Personne, String> {
+    etat.client()?.personne(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn personnes_proches(etat: State<'_, Etat>, id: String) -> Result<Vec<Personne>, String> {
+    etat.client()?.personnes_proches(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn modifier_personne(
+    etat: State<'_, Etat>,
+    id: String,
+    modification: ModificationPersonne,
+) -> Result<Personne, String> {
+    etat.client()?.modifier_personne(&id, &modification).await.map_err(|e| e.to_string())
+}
+
+/// Folds `autres` into `cible` (irreversible): the UI asks for confirmation.
+#[tauri::command]
+async fn fusionner_personnes(etat: State<'_, Etat>, cible: String, autres: Vec<String>) -> Result<u64, String> {
+    etat.client()?.fusionner_personnes(&cible, &autres).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn albums(etat: State<'_, Etat>) -> Result<Vec<Album>, String> {
+    etat.client()?.albums().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn album(etat: State<'_, Etat>, id: String) -> Result<Album, String> {
+    etat.client()?.album(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn creer_album(
+    etat: State<'_, Etat>,
+    nom: String,
+    description: Option<String>,
+    ids: Vec<String>,
+) -> Result<Album, String> {
+    etat.client()?.creer_album(&nom, description.as_deref().unwrap_or(""), &ids).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn modifier_album(etat: State<'_, Etat>, id: String, modification: ModificationAlbum) -> Result<(), String> {
+    etat.client()?.modifier_album(&id, &modification).await.map_err(|e| e.to_string())
+}
+
+/// Deletes the album only; its photos stay in the library.
+#[tauri::command]
+async fn supprimer_album(etat: State<'_, Etat>, id: String) -> Result<(), String> {
+    etat.client()?.supprimer_album(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ajouter_a_l_album(etat: State<'_, Etat>, id: String, ids: Vec<String>) -> Result<BilanAlbum, String> {
+    etat.client()?.ajouter_a_l_album(&id, &ids).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn retirer_de_l_album(etat: State<'_, Etat>, id: String, ids: Vec<String>) -> Result<(), String> {
+    etat.client()?.retirer_de_l_album(&id, &ids).await.map_err(|e| e.to_string())
 }
 
 /// Number of photos per person, 8 requests at a time; failures are left out.
@@ -469,6 +536,17 @@ pub fn lancer() {
             rechercher,
             lieux,
             personnes,
+            personne,
+            personnes_proches,
+            modifier_personne,
+            fusionner_personnes,
+            albums,
+            album,
+            creer_album,
+            modifier_album,
+            supprimer_album,
+            ajouter_a_l_album,
+            retirer_de_l_album,
             nombres_personnes,
             nombres_villes,
             infos_asset,

@@ -173,6 +173,13 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
     await attendre(400);
     await journal(`sélection : ${c.nombreSelectionnes()} éléments (3 clics puis Maj+clic sur la ${Math.min(10, coches.length)}e coche visible)`);
     await capture('7-selection');
+    // The album picker opens on the selection, then closes without adding.
+    document.querySelector<HTMLButtonElement>('[aria-label="Ajouter à un album"]')?.click();
+    await attendre(1500);
+    await journal(`choix d'album : ${document.querySelectorAll('[role="dialog"] li').length} albums proposés`);
+    await capture('16-choix-album');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await attendre(300);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
     // Every view of the sidebar, read only.
@@ -183,6 +190,8 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
       ['/recherche?texte=concert', '12-recherche-concert'],
       ['/recherche?type=video&du=2025-01-01', '13-recherche-videos'],
       ['/explorer', '14-explorer'],
+      ['/albums', '17-albums'],
+      ['/personnes', '19-personnes'],
       ['/reglages', '11-reglages'],
     ]) {
       const debutVue = performance.now();
@@ -206,6 +215,34 @@ export async function lancerBanc(c: ControleBanc, debutChargement: number) {
           await attendre(1500);
           await journal(`navigation : retour vers ${apresRetour}, avance vers ${location.pathname}`);
         }
+      }
+      if (chemin === '/albums') {
+        await journal(`albums : ${document.querySelectorAll('a.album').length} affichés`);
+        document.querySelector<HTMLAnchorElement>('a.album')?.click();
+        await attendre(2500);
+        await journal(`page album : ${document.querySelector('main')?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 90)}`);
+        await capture('18-album');
+        // Click on the title: it becomes a field; Escape leaves it unchanged.
+        document.querySelector<HTMLButtonElement>('.texte.grand')?.click();
+        await attendre(400);
+        const champ = document.querySelector<HTMLInputElement>('input.champ.grand');
+        await journal(`titre de l'album modifiable : ${champ ? `oui (« ${champ.value} »)` : 'non'}`);
+        await capture('18b-album-titre');
+        champ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await attendre(300);
+        await journal(`après Échap : ${document.querySelector('input.champ.grand') ? 'champ encore ouvert' : 'titre rétabli'}`);
+      }
+      if (chemin === '/personnes') {
+        await journal(`personnes : ${document.querySelectorAll('a.personne').length} affichées`);
+        document.querySelector<HTMLAnchorElement>('a.personne')?.click();
+        await attendre(2000);
+        // Merge dialog with the most similar faces, closed without merging.
+        document.querySelector<HTMLButtonElement>('[aria-label="Fusionner avec d’autres fiches"]')?.click();
+        await attendre(2500);
+        await journal(`fusion : ${document.querySelectorAll('[role="dialog"] .candidat').length} visages proposés`);
+        await capture('20-fusion');
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        await attendre(300);
       }
       void debutVue;
     }

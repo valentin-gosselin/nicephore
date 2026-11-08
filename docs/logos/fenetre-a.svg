@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Nicéphore: a window after Niépce's "View from the Window at Le Gras"
+       (about 1827), its four panes in the warm primaries shared by photo
+       libraries. Own shape and own hues: not the Immich or Google logos. -->
+  <defs>
+    <linearGradient id="etain" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a3d41"/><stop offset="1" stop-color="#1e2023"/></linearGradient>
+    <clipPath id="plaque"><rect x="184" y="184" width="656" height="656" rx="76"/></clipPath>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#etain)"/>
+  <rect x="70" y="70" width="884" height="884" rx="202" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="12"/>
+  <g clip-path="url(#plaque)">
+    <rect x="184" y="184" width="328" height="328" fill="#e8503f"/>
+    <rect x="512" y="184" width="328" height="328" fill="#f2b52e"/>
+    <rect x="184" y="512" width="328" height="328" fill="#25ad6e"/>
+    <rect x="512" y="512" width="328" height="328" fill="#2f86e0"/>
+    <circle cx="644" cy="372" r="96" fill="#fff6e0"/>
+    <path d="M150 860 L150 715 L310 585 L470 715 L470 860 Z" fill="#f4f4f4"/>
+    <path d="M540 860 L540 700 L880 615 L880 860 Z" fill="#d9dadc"/>
+    <rect x="494" y="184" width="36" height="656" fill="#2a2c30"/>
+    <rect x="184" y="494" width="656" height="36" fill="#2a2c30"/>
+  </g>
+  <rect x="184" y="184" width="656" height="656" rx="76" fill="none" stroke="#d0d2d5" stroke-opacity="0.28" stroke-width="10"/>
+</svg>

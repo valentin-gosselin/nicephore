@@ -1,29 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- Nicéphore: a greyscale pewter plate framing rooftops under the sun, after
-       Niépce's "View from the Window at Le Gras" (heliography, about 1827). -->
+  <!-- Nicéphore: Niépce's "View from the Window at Le Gras" (about 1827) as a
+       leaning De Stijl grid. The left wing under its roof, the large lit roof
+       rising towards the tower, the tower with its pointed roof, three pieces
+       of sky. Every zone in colour, as a nod to the photo library family;
+       own shape and own hues, not the Immich or Google logos. -->
   <defs>
-    <linearGradient id="etain" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3a3d41"/>
-      <stop offset="1" stop-color="#1e2023"/>
-    </linearGradient>
-    <linearGradient id="ciel" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2a2c2f"/>
-      <stop offset="1" stop-color="#4a4d51"/>
-    </linearGradient>
-    <clipPath id="plaque">
-      <rect x="184" y="184" width="656" height="656" rx="76"/>
+    <clipPath id="tuile">
+      <rect x="64" y="64" width="896" height="896" rx="208"/>
     </clipPath>
   </defs>
-  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#etain)"/>
-  <rect x="70" y="70" width="884" height="884" rx="202" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="12"/>
-  <g clip-path="url(#plaque)">
-    <rect x="184" y="184" width="656" height="656" fill="url(#ciel)"/>
-    <circle cx="644" cy="372" r="96" fill="#ececec"/>
-    <path d="M150 860 L150 715 L310 585 L470 715 L470 860 Z" fill="#b4b7bb"/>
-    <path d="M540 860 L540 700 L880 615 L880 860 Z" fill="#7d8085"/>
-    <!-- Window mullions: the picture is a view from a window. -->
-    <rect x="494" y="184" width="36" height="656" fill="#5c5f63"/>
-    <rect x="184" y="494" width="656" height="36" fill="#5c5f63"/>
+  <g clip-path="url(#tuile)">
+    <polygon points="0,0 340,0 332,303 0,170" fill="#e86fa8"/>
+    <polygon points="0,170 332,303 321,692 0,780" fill="#e8503f"/>
+    <polygon points="0,780 321,692 312,1024 0,1024" fill="#25ad6e"/>
+    <polygon points="340,0 700,0 690,592 321,692" fill="#8ec3f0"/>
+    <polygon points="321,692 690,592 682,1024 312,1024" fill="#f2b52e"/>
+    <polygon points="700,0 1024,0 1024,330 840,215 693,380" fill="#f7d98c"/>
+    <polygon points="693,380 840,215 1024,330 1024,1024 682,1024" fill="#2f86e0"/>
+    <!-- Slanted lines end on the verticals' centre lines with butt caps;
+         the verticals are drawn last and cover the joints. -->
+    <g fill="none" stroke="#1b1c1f" stroke-width="30" stroke-linecap="butt" stroke-linejoin="miter">
+      <line x1="0" y1="780" x2="690" y2="592"/>
+      <line x1="0" y1="170" x2="332" y2="303"/>
+      <polyline points="693,380 840,215 1024,330"/>
+      <line x1="340" y1="0" x2="312" y2="1024"/>
+      <line x1="700" y1="0" x2="682" y2="1024"/>
+    </g>
   </g>
-  <rect x="184" y="184" width="656" height="656" rx="76" fill="none" stroke="#d0d2d5" stroke-opacity="0.28" stroke-width="10"/>
 </svg>

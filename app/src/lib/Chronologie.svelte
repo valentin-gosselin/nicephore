@@ -23,7 +23,12 @@
   import Visionneuse from './Visionneuse.svelte';
   import type { Vue } from './vues';
 
-  let { vue, modele, entete }: { vue: Vue; modele?: Chronologie; entete?: Snippet } = $props();
+  let {
+    vue,
+    modele,
+    entete,
+    titre,
+  }: { vue: Vue; modele?: Chronologie; entete?: Snippet; titre?: Snippet } = $props();
 
   const MARGE = 16;
   // A ready-made model (search results...) or the timeline of the view.
@@ -258,7 +263,7 @@
       <BarreSelection {vue} {selection} {chrono} />
     {:else}
       <div class="flex h-14 items-center gap-3 px-5">
-        <Heading size="small">{vue.titre}</Heading>
+        {#if titre}{@render titre()}{:else}<Heading size="small">{vue.titre}</Heading>{/if}
         {#if pret}
           <Text size="small" color="muted">
             {chrono.nombreTotal.toLocaleString('fr-FR')}{liste?.plusDeResultats ? '+' : ''}

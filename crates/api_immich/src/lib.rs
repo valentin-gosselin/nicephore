@@ -262,6 +262,164 @@ impl ClientImmich {
         Ok(lieux)
     }
 
+    /// `GET /people/{id}`.
+    pub async fn personne(&self, id: &str) -> Resultat<Personne> {
+        valider_id(id)?;
+        self.get_json(&format!("people/{id}"), &[]).await
+    }
+
+    /// People whose faces look most like this person's, closest first
+    /// (`GET /people?closestPersonId=`), to suggest merges.
+    pub async fn personnes_proches(&self, id: &str) -> Resultat<Vec<Personne>> {
+        valider_id(id)?;
+        let valeur: serde_json::Value = self
+            .get_json("people", &[("closestPersonId", id), ("size", "40"), ("withHidden", "false")])
+            .await?;
+        let mut proches: Vec<Personne> = serde_json::from_value(valeur["people"].clone())
+            .map_err(|e| Erreur::ReponseInattendue(e.to_string()))?;
+        proches.retain(|p| p.id != id);
+        Ok(proches)
+    }
+
+    /// `POST /people`: a person without faces (tests, manual tagging).
+    pub async fn creer_personne(&self, nom: &str) -> Resultat<Personne> {
+        let reponse = self
+            .http
+            .post(self.url("people"))
+            .json(&serde_json::json!({ "name": nom }))
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+        Ok(verifier(reponse).await?.json().await?)
+    }
+
+    /// `PUT /people/{id}`: name, favorite, hidden.
+    pub async fn modifier_personne(&self, id: &str, modification: &ModificationPersonne) -> Resultat<Personne> {
+        valider_id(id)?;
+        let reponse = self
+            .http
+            .put(self.url(&format!("people/{id}")))
+            .json(modification)
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+        Ok(verifier(reponse).await?.json().await?)
+    }
+
+    /// `POST /people/{cible}/merge`: folds `autres` into `cible`, which keeps
+    /// its name. Irreversible on the server.
+    pub async fn fusionner_personnes(&self, cible: &str, autres: &[String]) -> Resultat<u64> {
+        valider_id(cible)?;
+        valider_ids(autres)?;
+        if autres.iter().any(|id| id == cible) {
+            return Err(Erreur::Configuration("une personne ne peut pas fusionner avec elle-même".into()));
+        }
+        let reponse = self
+            .http
+            .post(self.url(&format!("people/{cible}/merge")))
+            .json(&serde_json::json!({ "ids": autres }))
+            .timeout(Duration::from_secs(120))
+            .send()
+            .await?;
+        let resultats: serde_json::Value = verifier(reponse).await?.json().await?;
+        // The response also lists the target itself: count the merged ones only.
+        Ok(resultats
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["success"].as_bool() == Some(true) && r["id"].as_str() != Some(cible))
+            .count() as u64)
+    }
+
+    /// Albums owned by the user, then albums shared with them.
+    pub async fn albums(&self) -> Resultat<Vec<Album>> {
+        let mut albums: Vec<Album> = self.get_json("albums", &[("isOwned", "true")]).await?;
+        for album in &mut albums {
+            album.possede = true;
+        }
+        let partages: Vec<Album> = self.get_json("albums", &[("isOwned", "false")]).await?;
+        albums.extend(partages);
+        Ok(albums)
+    }
+
+    /// `GET /albums/{id}` (the owner flag is not filled here).
+    pub async fn album(&self, id: &str) -> Resultat<Album> {
+        valider_id(id)?;
+        self.get_json(&format!("albums/{id}"), &[("withoutAssets", "true")]).await
+    }
+
+    /// `POST /albums`, optionally with initial assets.
+    pub async fn creer_album(&self, nom: &str, description: &str, ids: &[String]) -> Resultat<Album> {
+        if nom.trim().is_empty() {
+            return Err(Erreur::Configuration("nom d'album vide".into()));
+        }
+        if !ids.is_empty() {
+            valider_ids(ids)?;
+        }
+        let reponse = self
+            .http
+            .post(self.url("albums"))
+            .json(&serde_json::json!({ "albumName": nom.trim(), "description": description, "assetIds": ids }))
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        let mut album: Album = verifier(reponse).await?.json().await?;
+        album.possede = true;
+        Ok(album)
+    }
+
+    /// `PATCH /albums/{id}`: name, description.
+    pub async fn modifier_album(&self, id: &str, modification: &ModificationAlbum) -> Resultat<()> {
+        valider_id(id)?;
+        let corps = serde_json::to_value(modification).map_err(|e| Erreur::Configuration(e.to_string()))?;
+        self.envoyer(reqwest::Method::PATCH, &format!("albums/{id}"), &corps).await
+    }
+
+    /// `DELETE /albums/{id}`: deletes the album, never its photos.
+    pub async fn supprimer_album(&self, id: &str) -> Resultat<()> {
+        valider_id(id)?;
+        let reponse = self.http.delete(self.url(&format!("albums/{id}"))).timeout(Duration::from_secs(30)).send().await?;
+        verifier(reponse).await.map(|_| ())
+    }
+
+    /// `PUT /albums/{id}/assets`.
+    pub async fn ajouter_a_l_album(&self, id: &str, ids: &[String]) -> Resultat<BilanAlbum> {
+        valider_id(id)?;
+        valider_ids(ids)?;
+        let reponse = self
+            .http
+            .put(self.url(&format!("albums/{id}/assets")))
+            .json(&serde_json::json!({ "ids": ids }))
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        let resultats: serde_json::Value = verifier(reponse).await?.json().await?;
+        let mut bilan = BilanAlbum::default();
+        for r in resultats.as_array().into_iter().flatten() {
+            match (r["success"].as_bool(), r["error"].as_str()) {
+                (Some(true), _) => bilan.ajoutes += 1,
+                (_, Some("duplicate")) => bilan.deja_presents += 1,
+                _ => bilan.echecs += 1,
+            }
+        }
+        Ok(bilan)
+    }
+
+    /// `DELETE /albums/{id}/assets`: removes from the album, keeps the photos.
+    pub async fn retirer_de_l_album(&self, id: &str, ids: &[String]) -> Resultat<()> {
+        valider_id(id)?;
+        valider_ids(ids)?;
+        let corps = serde_json::json!({ "ids": ids });
+        let reponse = self
+            .http
+            .delete(self.url(&format!("albums/{id}/assets")))
+            .json(&corps)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        verifier(reponse).await.map(|_| ())
+    }
+
     /// `GET /people/{id}/statistics`: number of assets where the person appears.
     pub async fn nombre_photos_personne(&self, id: &str) -> Resultat<u64> {
         valider_id(id)?;
@@ -282,13 +440,14 @@ impl ClientImmich {
         Ok(valeur["total"].as_u64().unwrap_or(0))
     }
 
-    /// `GET /people`: every visible person, all pages.
-    pub async fn personnes(&self) -> Resultat<Vec<Personne>> {
+    /// `GET /people`: every person, all pages (hidden ones on request).
+    pub async fn personnes(&self, avec_masquees: bool) -> Resultat<Vec<Personne>> {
+        let masquees = if avec_masquees { "true" } else { "false" };
         let mut personnes = Vec::new();
         for page in 1..=50u32 {
             let page_texte = page.to_string();
             let valeur: serde_json::Value = self
-                .get_json("people", &[("withHidden", "false"), ("size", "500"), ("page", &page_texte)])
+                .get_json("people", &[("withHidden", masquees), ("size", "500"), ("page", &page_texte)])
                 .await?;
             let lot: Vec<Personne> = serde_json::from_value(valeur["people"].clone())
                 .map_err(|e| Erreur::ReponseInattendue(e.to_string()))?;
@@ -395,6 +554,8 @@ async fn verifier(reponse: reqwest::Response) -> Resultat<reqwest::Response> {
         401 => Erreur::CleRefusee,
         403 => Erreur::PermissionManquante(message),
         404 => Erreur::Introuvable,
+        // Immich answers 400 "Not found or no ... access" for missing items.
+        400 if message.starts_with("Not found") => Erreur::Introuvable,
         code => Erreur::Http { statut: code, message },
     })
 }
@@ -520,7 +681,7 @@ mod tests_serveur {
         assert!(page.assets.iter().all(|a| !a.is_image));
         let lieux = c.lieux().await.unwrap();
         println!("lieux : {}", lieux.len());
-        let personnes = c.personnes().await.unwrap();
+        let personnes = c.personnes(false).await.unwrap();
         println!("personnes : {}, dont nommées : {}", personnes.len(), personnes.iter().filter(|p| !p.name.is_empty()).count());
         if let Some(p) = personnes.first() {
             let filtre = FiltreChronologie { personne: Some(p.id.clone()), ..Default::default() };
@@ -531,6 +692,17 @@ mod tests_serveur {
         }
         if let Some(l) = lieux.first() {
             println!("ville {} : {} photos", l.ville, c.nombre_photos_ville(&l.ville).await.unwrap());
+        }
+        if let Some(p) = personnes.iter().find(|p| !p.name.is_empty()) {
+            let proches = c.personnes_proches(&p.id).await.unwrap();
+            println!("proches de {} : {} (dont nommées {})", p.name, proches.len(), proches.iter().filter(|x| !x.name.is_empty()).count());
+        }
+        let albums = c.albums().await.unwrap();
+        println!("albums : {} dont {} possédés", albums.len(), albums.iter().filter(|a| a.possede).count());
+        if let Some(a) = albums.first() {
+            let filtre = FiltreChronologie { album: Some(a.id.clone()), ..Default::default() };
+            let total: u64 = c.liste_mois(&filtre).await.unwrap().iter().map(|m| u64::from(m.count)).sum();
+            println!("album {} : {} annoncés, {} dans la chronologie", a.album_name, a.asset_count, total);
         }
     }
 

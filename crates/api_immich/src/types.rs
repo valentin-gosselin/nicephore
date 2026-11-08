@@ -144,6 +144,9 @@ pub struct FiltreChronologie {
     /// Only the assets where this person appears.
     #[serde(default)]
     pub personne: Option<String>,
+    /// Only the assets of this album.
+    #[serde(default)]
+    pub album: Option<String>,
 }
 
 impl FiltreChronologie {
@@ -165,8 +168,12 @@ impl FiltreChronologie {
             crate::valider_id(personne)?;
             parametres.push(("personId", personne.clone()));
         }
+        if let Some(album) = &self.album {
+            crate::valider_id(album)?;
+            parametres.push(("albumId", album.clone()));
+        }
         // Partner assets are only allowed on the plain main timeline.
-        if visibilite == "timeline" && !self.favori && self.personne.is_none() {
+        if visibilite == "timeline" && !self.favori && self.personne.is_none() && self.album.is_none() {
             parametres.push(("withPartners", "true".into()));
         }
         Ok(parametres)
@@ -308,5 +315,66 @@ pub struct Personne {
     #[serde(default)]
     pub is_favorite: bool,
     #[serde(default)]
+    pub is_hidden: bool,
+    #[serde(default)]
+    pub birth_date: Option<String>,
+    #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// Fields changed on a person (`PUT /people/{id}`); unset fields are untouched.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModificationPersonne {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_favorite: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_hidden: Option<bool>,
+}
+
+/// An album as listed by `/albums`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Album {
+    pub id: String,
+    pub album_name: String,
+    #[serde(default)]
+    pub description: String,
+    pub asset_count: u64,
+    #[serde(default)]
+    pub album_thumbnail_asset_id: Option<String>,
+    #[serde(default)]
+    pub start_date: Option<String>,
+    #[serde(default)]
+    pub end_date: Option<String>,
+    #[serde(default)]
+    pub shared: bool,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub last_modified_asset_timestamp: Option<String>,
+    /// Owned by the current user (false: shared with them). Filled by the client.
+    #[serde(default)]
+    pub possede: bool,
+}
+
+/// Fields changed on an album (`PATCH /albums/{id}`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModificationAlbum {
+    #[serde(skip_serializing_if = "Option::is_none", rename = "albumName")]
+    pub nom: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Outcome of adding assets to an album.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BilanAlbum {
+    pub ajoutes: u64,
+    pub deja_presents: u64,
+    pub echecs: u64,
 }

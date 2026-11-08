@@ -1,10 +1,13 @@
+<img src="docs/images/icone.png" alt="" width="96" align="right">
+
 # Nicéphore
 
 Unofficial desktop client for [Immich](https://immich.app), the self-hosted photo and video
 management server. Not affiliated with or endorsed by the Immich project.
 
 Named after Nicéphore Niépce, who took the oldest surviving photograph, a view from his window
-at Le Gras (about 1827). The icon is a nod to it.
+at Le Gras (about 1827). The icon redraws that photo as a leaning De Stijl grid: the wing on
+the left, the large lit roof rising towards the tower, and the sky, each zone in colour.
 
 Status: early development. Browsing works (timeline, favorites, archive, trash, viewer, video,
 multi-selection with bulk actions); sync is not there yet.

@@ -17,7 +17,13 @@ export type Connexion = {
 export type ModesConnexion = { passwordLogin: boolean; oauth: boolean; urlServeur: string };
 
 /** Which assets a timeline shows. */
-export type Filtre = { visibilite?: 'timeline' | 'archive'; favori?: boolean; corbeille?: boolean; personne?: string };
+export type Filtre = {
+  visibilite?: 'timeline' | 'archive';
+  favori?: boolean;
+  corbeille?: boolean;
+  personne?: string;
+  album?: string;
+};
 
 /** Asset of a search result, reduced to what the grid needs. */
 export type AssetResume = {
@@ -47,7 +53,31 @@ export type CriteresRecherche = {
   archive?: boolean;
 };
 export type Lieu = { ville: string; asset: AssetResume };
-export type Personne = { id: string; name: string; isFavorite: boolean; updatedAt: string | null };
+export type Personne = {
+  id: string;
+  name: string;
+  isFavorite: boolean;
+  isHidden: boolean;
+  birthDate: string | null;
+  updatedAt: string | null;
+};
+export type ModificationPersonne = { name?: string; isFavorite?: boolean; isHidden?: boolean };
+
+export type Album = {
+  id: string;
+  albumName: string;
+  description: string;
+  assetCount: number;
+  albumThumbnailAssetId: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  shared: boolean;
+  updatedAt: string | null;
+  lastModifiedAssetTimestamp: string | null;
+  /** Owned by the user (false: shared with them). */
+  possede: boolean;
+};
+export type BilanAlbum = { ajoutes: number; dejaPresents: number; echecs: number };
 export type Mois = { timeBucket: string; count: number };
 
 /** Columnar month description: index `i` of every array describes asset `i`. */
@@ -103,7 +133,23 @@ export const signalerDefilement = () => invoke<void>('signaler_defilement');
 export const rechercher = (criteres: CriteresRecherche, page: number) =>
   invoke<PageResultats>('rechercher', { criteres, page });
 export const lieux = () => invoke<Lieu[]>('lieux');
-export const personnes = () => invoke<Personne[]>('personnes');
+export const personnes = (avecMasquees = false) => invoke<Personne[]>('personnes', { avecMasquees });
+export const personne = (id: string) => invoke<Personne>('personne', { id });
+export const personnesProches = (id: string) => invoke<Personne[]>('personnes_proches', { id });
+export const modifierPersonne = (id: string, modification: ModificationPersonne) =>
+  invoke<Personne>('modifier_personne', { id, modification });
+export const fusionnerPersonnes = (cible: string, autres: string[]) =>
+  invoke<number>('fusionner_personnes', { cible, autres });
+
+export const albums = () => invoke<Album[]>('albums');
+export const album = (id: string) => invoke<Album>('album', { id });
+export const creerAlbum = (nom: string, description: string, ids: string[]) =>
+  invoke<Album>('creer_album', { nom, description, ids });
+export const modifierAlbum = (id: string, modification: { nom?: string; description?: string }) =>
+  invoke<void>('modifier_album', { id, modification });
+export const supprimerAlbum = (id: string) => invoke<void>('supprimer_album', { id });
+export const ajouterALAlbum = (id: string, ids: string[]) => invoke<BilanAlbum>('ajouter_a_l_album', { id, ids });
+export const retirerDeLAlbum = (id: string, ids: string[]) => invoke<void>('retirer_de_l_album', { id, ids });
 export const nombresPersonnes = (ids: string[]) => invoke<Record<string, number>>('nombres_personnes', { ids });
 export const nombresVilles = (villes: string[]) => invoke<Record<string, number>>('nombres_villes', { villes });
 export const infosAsset = (id: string) => invoke<Record<string, any>>('infos_asset', { id });

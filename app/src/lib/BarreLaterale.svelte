@@ -25,8 +25,8 @@
         { libelle: 'Photos', icone: mdiImageMultipleOutline, chemin: '/' },
         { libelle: 'Explorer', icone: mdiCompassOutline, chemin: '/explorer' },
         { libelle: 'Carte', icone: mdiMapOutline, bientot: 'La carte arrive au lot 4' },
-        { libelle: 'Personnes', icone: mdiAccountMultipleOutline, bientot: 'Les personnes arrivent au lot 3' },
-        { libelle: 'Albums', icone: mdiImageAlbum, bientot: 'Les albums arrivent au lot 3' },
+        { libelle: 'Personnes', icone: mdiAccountMultipleOutline, chemin: '/personnes' },
+        { libelle: 'Albums', icone: mdiImageAlbum, chemin: '/albums' },
       ],
     },
     {
@@ -40,7 +40,9 @@
   ];
 
   const actif = (chemin: string) =>
-    page.url.pathname === chemin || (chemin === '/explorer' && page.url.pathname === '/personne');
+    page.url.pathname === chemin ||
+    (chemin === '/personnes' && page.url.pathname === '/personne') ||
+    (chemin === '/albums' && page.url.pathname === '/album');
 </script>
 
 {#snippet lien(entree: Entree)}

@@ -1,7 +1,7 @@
 // The timeline views of the sidebar and what each one allows.
 import type { Filtre } from './api';
 
-export type IdVue = 'photos' | 'favoris' | 'archive' | 'corbeille' | 'recherche' | 'personne';
+export type IdVue = 'photos' | 'favoris' | 'archive' | 'corbeille' | 'recherche' | 'personne' | 'album';
 
 export type Vue = {
   id: IdVue;
