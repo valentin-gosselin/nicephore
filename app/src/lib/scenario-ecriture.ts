@@ -122,17 +122,21 @@ export async function lancerScenarioEcriture() {
     const restants = [...document.querySelectorAll('a.album')].filter((a) => (a.textContent ?? '').includes(nomAlbum));
     await verifier('album supprimé, retour à la liste', location.pathname === '/albums' && restants.length === 0, location.pathname);
 
-    // 6. Favorites: add two, then remove them all from the Favorites view.
+    // 6. Favorites: add two, then remove them all from the Favorites view
+    // (counts compared, the test server may hold leftovers of earlier runs).
+    const compte = () => Number(entete().match(/(\d[\d\s\u202f]*) élément/)?.[1].replace(/\D/g, '') ?? 0);
+    await aller('/favoris');
+    const favorisAvant = compte();
     await aller('/');
     await selectionner(2);
     await cliquer('Ajouter aux favoris');
     await aller('/favoris');
-    await verifier('deux favoris ajoutés', entete().includes('2 éléments'), entete());
+    await verifier('deux favoris ajoutés', compte() === favorisAvant + 2, `${favorisAvant} puis ${compte()}`);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true }));
     await attendre(400);
     await cliquer('Retirer des favoris');
     await attendre(1200);
-    await verifier('favoris retirés', !entete().includes('2 éléments'), entete());
+    await verifier('favoris retirés', compte() === 0, entete());
 
     // 7. Trash, then undo from the toast.
     await aller('/');
@@ -150,7 +154,6 @@ export async function lancerScenarioEcriture() {
 
     // 8. Archive, then unarchive from the Archive view (counts compared,
     // the test server may hold leftovers of earlier runs).
-    const compte = () => Number(entete().match(/(\d[\d\s\u202f]*) élément/)?.[1].replace(/\D/g, '') ?? 0);
     await aller('/archive');
     const archiveAvant = compte();
     await aller('/');
@@ -162,7 +165,60 @@ export async function lancerScenarioEcriture() {
     await cliquer('Désarchiver');
     await attendre(1200);
     await verifier('élément désarchivé', compte() === archiveAvant, `${compte()}`);
-    await capture('e3-fin');
+    await capture('e3-archive');
+
+    // 9. Editing in the viewer's info panel.
+    await aller('/');
+    (await element<HTMLButtonElement>('.tuile .image-tuile'))?.click();
+    await attendre(1500);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i' }));
+    await attendre(1500);
+    const panneau = () => document.querySelector('.visionneuse .panneau')?.textContent?.replace(/\s+/g, ' ') ?? '';
+    (await element<HTMLButtonElement>('.visionneuse .panneau .texte'))?.click();
+    await attendre(300);
+    const champ = await element<HTMLInputElement>('.visionneuse .panneau input.champ');
+    saisir(champ, 'Décrite par le banc');
+    champ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await attendre(1800);
+    await verifier('description modifiée dans le panneau', panneau().includes('Décrite par le banc'));
+    (await bouton('4 étoiles'))?.click();
+    await attendre(1800);
+    await verifier('note de 4 étoiles', document.querySelectorAll('.visionneuse .etoile.allumee').length === 4);
+    (await bouton('4 étoiles'))?.click();
+    await attendre(1800);
+    await verifier('note retirée', document.querySelectorAll('.visionneuse .etoile.allumee').length === 0);
+    (await element<HTMLButtonElement>('.visionneuse .panneau .tag.ajout'))?.click();
+    saisir(await element<HTMLInputElement>('[role="dialog"] input'), 'Banc');
+    (await element<HTMLButtonElement>('[role="dialog"] button[type="submit"]'))?.click();
+    await attendre(2000);
+    await verifier('tag ajouté', panneau().includes('Banc'), panneau().slice(0, 120));
+    (await bouton('Retirer le tag Banc'))?.click();
+    await attendre(2000);
+    await verifier('tag retiré', !panneau().includes('Retirer le tag Banc') && !document.querySelector('[aria-label="Retirer le tag Banc"]'));
+    (await element<HTMLButtonElement>('.visionneuse .panneau .modifiable'))?.click();
+    const champDate = await element<HTMLInputElement>('[role="dialog"] input[type="datetime-local"]');
+    saisir(champDate, '2020-06-15T14:30');
+    (await element<HTMLButtonElement>('[role="dialog"] button[type="submit"]'))?.click();
+    await attendre(3500);
+    await verifier('date modifiée', panneau().includes('15 juin 2020'), panneau().slice(0, 160));
+    await capture('e4-infos');
+    (await element<HTMLButtonElement>('.visionneuse [aria-label="Ajouter aux favoris"]'))?.click();
+    await attendre(1200);
+    await verifier('favori depuis la visionneuse', !!document.querySelector('.visionneuse [aria-label="Retirer des favoris"]'));
+    document.querySelector<HTMLButtonElement>('.visionneuse [aria-label="Retirer des favoris"]')?.click();
+    await attendre(1000);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await attendre(2500);
+    await verifier('la photo redatée reste dans la chronologie', entete() === avant, `${avant} puis ${entete()}`);
+
+    // 10. A tag on a whole selection.
+    await selectionner(2);
+    await cliquer('Ajouter un tag');
+    saisir(await element<HTMLInputElement>('[role="dialog"] input'), 'Lot banc');
+    (await element<HTMLButtonElement>('[role="dialog"] button[type="submit"]'))?.click();
+    await attendre(1800);
+    await verifier('tag en lot', notifications().some((t) => t.includes('Lot banc') && t.includes('2 éléments')), notifications().join(' | ').slice(0, 160));
+    await capture('e5-fin');
 
     await journal(`scénario terminé : ${reussites} réussites, ${echecs} échecs`);
   } catch (e) {

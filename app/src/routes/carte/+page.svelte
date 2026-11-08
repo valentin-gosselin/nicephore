@@ -5,12 +5,7 @@
   // with the usual grid, viewer and selection.
   import { IconButton, LoadingSpinner, Text } from '@immich/ui';
   import { mdiClose } from '@mdi/js';
-  import { LngLatBounds, Map as Carte, NavigationControl, setWorkerUrl, type GeoJSONSource } from 'maplibre-gl';
-  import 'maplibre-gl/dist/maplibre-gl.css';
-  // MapLibre only guesses its worker's address on http(s) pages; Tauri
-  // serves the UI from tauri://localhost, so the bundled file is named here.
-  import urlWorker from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-  setWorkerUrl(urlWorker);
+  import { LngLatBounds, Map as Carte, NavigationControl, type GeoJSONSource } from '../../lib/maplibre';
   import { invoke } from '@tauri-apps/api/core';
   import { onMount, tick } from 'svelte';
   import { assetsParIds, marqueurs as chargerMarqueurs, stylesCarte, type Marqueur, type StylesCarte } from '../../lib/api';

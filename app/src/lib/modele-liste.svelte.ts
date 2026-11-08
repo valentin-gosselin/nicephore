@@ -66,6 +66,11 @@ export class ChronologieListe extends Chronologie {
     return super.voisin(position, sens);
   }
 
+  /** A flat list has no month index: run the search again. */
+  override actualiserMois() {
+    return this.rafraichir();
+  }
+
   /** After an action (trash, archive...): run the search again. */
   override async rafraichir() {
     const section = this.sections[0];

@@ -10,8 +10,11 @@
     mdiDownload,
     mdiHeart,
     mdiHeartOutline,
+    mdiCalendarEditOutline,
     mdiImageMinusOutline,
     mdiImagePlusOutline,
+    mdiMapMarkerOutline,
+    mdiTagPlusOutline,
     mdiSelectAll,
     mdiTrashCanOutline,
   } from '@mdi/js';
@@ -24,13 +27,19 @@
     creerAlbum,
     definirArchive,
     definirFavori,
+    etiqueter,
     mettreCorbeille,
+    modifierInfos,
     restaurerCorbeille,
     retirerDeLAlbum,
     telecharger,
     type Album,
   } from './api';
   import ChoixAlbum from './ChoixAlbum.svelte';
+  import { fuseauLocal, versLocal } from './dates';
+  import DialogueDate from './DialogueDate.svelte';
+  import DialogueLieu from './DialogueLieu.svelte';
+  import DialogueTag from './DialogueTag.svelte';
   import type { Chronologie } from './modele-chronologie.svelte';
   import { notifier, remplacer } from './notifications.svelte';
   import type { Selection } from './selection.svelte';
@@ -40,6 +49,7 @@
 
   let enCours = $state(false);
   let choixAlbum = $state(false);
+  let dialogue = $state<'date' | 'lieu' | 'tag' | null>(null);
   const nombre = $derived(selection.taille);
   const pluriel = (n: number, mot: string) => `${n.toLocaleString('fr-FR')} ${mot}${n > 1 ? 's' : ''}`;
 
@@ -145,6 +155,53 @@
       (n) => `${pluriel(n, 'élément')} retiré${n > 1 ? 's' : ''} de l’album (toujours dans la photothèque)`,
     );
 
+  async function changerDate(date: string, fuseau: string) {
+    dialogue = null;
+    const ids = selection.ids();
+    enCours = true;
+    try {
+      await modifierInfos(ids, { date, fuseau });
+      selection.vider();
+      notifier(`Date de ${pluriel(ids.length, 'élément')} modifiée`, 'succes');
+      // The photos move to another place in the timeline.
+      setTimeout(() => chrono.actualiserMois().catch(() => {}), 1200);
+    } catch (e) {
+      notifier(`Date impossible : ${e}`, 'erreur');
+    } finally {
+      enCours = false;
+    }
+  }
+
+  async function changerLieu(latitude: number, longitude: number) {
+    dialogue = null;
+    const ids = selection.ids();
+    enCours = true;
+    try {
+      await modifierInfos(ids, { latitude, longitude });
+      selection.vider();
+      notifier(`Lieu de ${pluriel(ids.length, 'élément')} enregistré`, 'succes');
+    } catch (e) {
+      notifier(`Lieu impossible : ${e}`, 'erreur');
+    } finally {
+      enCours = false;
+    }
+  }
+
+  async function ajouterTag(nom: string) {
+    dialogue = null;
+    const ids = selection.ids();
+    enCours = true;
+    try {
+      await etiqueter(nom, ids);
+      selection.vider();
+      notifier(`Tag « ${nom} » ajouté à ${pluriel(ids.length, 'élément')}`, 'succes');
+    } catch (e) {
+      notifier(`Tag impossible : ${e}`, 'erreur');
+    } finally {
+      enCours = false;
+    }
+  }
+
   const restaurer = () => agir(restaurerCorbeille, (n) => `${pluriel(n, 'élément')} restauré${n > 1 ? 's' : ''}`);
 
   async function telechargerSelection() {
@@ -205,6 +262,9 @@
     {#if vue.id === 'album' && vue.filtre.album}
       <IconButton icon={mdiImageMinusOutline} aria-label="Retirer de l’album" variant="ghost" shape="round" disabled={enCours} onclick={retirerDeLAlbumCourant} />
     {/if}
+    <IconButton icon={mdiCalendarEditOutline} aria-label="Modifier la date" variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'date')} />
+    <IconButton icon={mdiMapMarkerOutline} aria-label="Modifier le lieu" variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'lieu')} />
+    <IconButton icon={mdiTagPlusOutline} aria-label="Ajouter un tag" variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'tag')} />
     <IconButton icon={mdiDownload} aria-label="Télécharger les originaux" variant="ghost" shape="round" disabled={enCours} onclick={telechargerSelection} />
     {#if vue.id === 'archive'}
       <IconButton icon={mdiArchiveArrowUpOutline} aria-label="Désarchiver" variant="ghost" shape="round" disabled={enCours} onclick={() => archiver(false)} />
@@ -214,6 +274,20 @@
     <IconButton icon={mdiTrashCanOutline} aria-label="Mettre à la corbeille (Suppr)" variant="ghost" color="danger" shape="round" disabled={enCours} onclick={corbeille} />
   {/if}
 </div>
+
+{#if dialogue === 'date'}
+  <DialogueDate
+    nombre={nombre}
+    initiale={versLocal(new Date().toISOString(), fuseauLocal())}
+    fuseauInitial={fuseauLocal()}
+    onvalider={changerDate}
+    onfermer={() => (dialogue = null)}
+  />
+{:else if dialogue === 'lieu'}
+  <DialogueLieu nombre={nombre} latitude={null} longitude={null} onvalider={changerLieu} onfermer={() => (dialogue = null)} />
+{:else if dialogue === 'tag'}
+  <DialogueTag nombre={nombre} onvalider={ajouterTag} onfermer={() => (dialogue = null)} />
+{/if}
 
 {#if choixAlbum}
   <ChoixAlbum nombre={nombre} onchoisir={ajouterA} oncreer={nouvelAlbum} onfermer={() => (choixAlbum = false)} />

@@ -37,23 +37,31 @@ async fn favoris_archive_et_corbeille() {
     let ids = premiers(&c, 3).await;
     let principal = total(&c, &FiltreChronologie::default()).await;
 
-    c.modifier_assets(&ids, &ModificationAssets { favori: Some(true), ..Default::default() }).await.unwrap();
-    assert_eq!(total(&c, &FiltreChronologie { favori: true, ..Default::default() }).await, 3);
+    let favoris = FiltreChronologie { favori: true, ..Default::default() };
+    let favoris_avant = total(&c, &favoris).await;
     c.modifier_assets(&ids, &ModificationAssets { favori: Some(false), ..Default::default() }).await.unwrap();
-    assert_eq!(total(&c, &FiltreChronologie { favori: true, ..Default::default() }).await, 0);
+    let base = total(&c, &favoris).await;
+    c.modifier_assets(&ids, &ModificationAssets { favori: Some(true), ..Default::default() }).await.unwrap();
+    assert_eq!(total(&c, &favoris).await, base + 3);
+    c.modifier_assets(&ids, &ModificationAssets { favori: Some(false), ..Default::default() }).await.unwrap();
+    assert_eq!(total(&c, &favoris).await, base);
+    let _ = favoris_avant;
 
+    // Counts are compared before and after: earlier runs may leave items.
     let archive = FiltreChronologie { visibilite: Some("archive".into()), ..Default::default() };
+    let archive_avant = total(&c, &archive).await;
     c.modifier_assets(&ids[..2], &ModificationAssets { visibilite: Some("archive".into()), ..Default::default() }).await.unwrap();
-    assert_eq!(total(&c, &archive).await, 2);
+    assert_eq!(total(&c, &archive).await, archive_avant + 2);
     assert_eq!(total(&c, &FiltreChronologie::default()).await, principal - 2);
     c.modifier_assets(&ids[..2], &ModificationAssets { visibilite: Some("timeline".into()), ..Default::default() }).await.unwrap();
-    assert_eq!(total(&c, &archive).await, 0);
+    assert_eq!(total(&c, &archive).await, archive_avant);
 
     let corbeille = FiltreChronologie { corbeille: true, ..Default::default() };
+    let corbeille_avant = total(&c, &corbeille).await;
     c.mettre_a_la_corbeille(&ids[..1]).await.unwrap();
-    assert_eq!(total(&c, &corbeille).await, 1);
+    assert_eq!(total(&c, &corbeille).await, corbeille_avant + 1);
     c.restaurer(&ids[..1]).await.unwrap();
-    assert_eq!(total(&c, &corbeille).await, 0);
+    assert_eq!(total(&c, &corbeille).await, corbeille_avant);
     assert_eq!(total(&c, &FiltreChronologie::default()).await, principal);
     println!("favoris, archive, corbeille et restauration : ok sur {principal} éléments");
 }
@@ -135,4 +143,50 @@ async fn original_et_vignettes() {
     let vignette = c.image(&id, TailleImage::Vignette).await.unwrap();
     assert!(!vignette.octets.is_empty());
     println!("original de {} octets, vignette de {} octets : ok", octets.len(), vignette.octets.len());
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn edition_des_infos_et_tags() {
+    let c = client().await;
+    let ids = premiers(&c, 2).await;
+    let id = ids[0].clone();
+
+    let infos = ModificationAssets {
+        description: Some("Écrit par les tests".into()),
+        note: Some(Some(4)),
+        latitude: Some(48.1113),
+        longitude: Some(-1.68),
+        date: Some("2021-07-14T10:30:00.000+02:00".into()),
+        fuseau: Some("Europe/Paris".into()),
+        ..Default::default()
+    };
+    c.modifier_assets(std::slice::from_ref(&id), &infos).await.unwrap();
+    // Location and date are applied by a background job on the server.
+    let mut lu = serde_json::Value::Null;
+    for _ in 0..20 {
+        lu = c.infos_asset(&id).await.unwrap();
+        if lu["exifInfo"]["latitude"].as_f64().is_some() && lu["exifInfo"]["dateTimeOriginal"].as_str().unwrap_or("").starts_with("2021-07-14") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
+    assert_eq!(lu["exifInfo"]["description"], "Écrit par les tests");
+    assert_eq!(lu["exifInfo"]["rating"], 4);
+    assert!((lu["exifInfo"]["latitude"].as_f64().unwrap() - 48.1113).abs() < 0.001, "{}", lu["exifInfo"]);
+    assert!(lu["exifInfo"]["dateTimeOriginal"].as_str().unwrap().starts_with("2021-07-14"), "{}", lu["exifInfo"]);
+
+    let sans_note = ModificationAssets { note: Some(None), ..Default::default() };
+    c.modifier_assets(std::slice::from_ref(&id), &sans_note).await.unwrap();
+    assert!(c.infos_asset(&id).await.unwrap()["exifInfo"]["rating"].is_null());
+
+    let tag = c.tag_nomme("Essai Nicéphore").await.unwrap();
+    assert_eq!(c.tag_nomme("Essai Nicéphore").await.unwrap().id, tag.id, "upsert sans doublon");
+    c.etiqueter(&tag.id, &ids, false).await.unwrap();
+    let tags = |v: serde_json::Value| v["tags"].as_array().cloned().unwrap_or_default().iter().filter_map(|t| t["id"].as_str().map(str::to_string)).collect::<Vec<_>>();
+    assert!(tags(c.infos_asset(&id).await.unwrap()).contains(&tag.id));
+    c.etiqueter(&tag.id, &ids, true).await.unwrap();
+    assert!(!tags(c.infos_asset(&id).await.unwrap()).contains(&tag.id));
+    assert!(c.tags().await.unwrap().iter().any(|t| t.id == tag.id));
+    println!("édition : description, note, lieu, date, retrait de note, tags : ok");
 }

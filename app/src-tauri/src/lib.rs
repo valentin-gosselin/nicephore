@@ -10,7 +10,7 @@ mod telechargement;
 use api_immich::{
     Album, AssetResume, Authentification, BilanAlbum, ClientImmich, CriteresRecherche, DetailMois,
     FiltreChronologie, Lieu, Marqueur, ModesConnexion, ModificationAlbum, ModificationAssets, ModificationPersonne,
-    Mois, PageResultats, Personne, Souvenir, StylesCarte, TailleImage, Utilisateur,
+    Mois, PageResultats, Personne, Souvenir, StylesCarte, Tag, TailleImage, Utilisateur,
 };
 use cache_vignettes::{CacheVignettes, ErreurCache};
 use serde::Serialize;
@@ -346,6 +346,27 @@ async fn definir_archive(etat: State<'_, Etat>, ids: Vec<String>, archive: bool)
     etat.client()?.modifier_assets(&ids, &modification).await.map_err(|e| e.to_string())
 }
 
+/// Description, rating, date, location of one or many assets.
+#[tauri::command]
+async fn modifier_infos(etat: State<'_, Etat>, ids: Vec<String>, modification: ModificationAssets) -> Result<(), String> {
+    etat.client()?.modifier_assets(&ids, &modification).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn tags(etat: State<'_, Etat>) -> Result<Vec<Tag>, String> {
+    etat.client()?.tags().await.map_err(|e| e.to_string())
+}
+
+/// Adds (or with `retirer` removes) a tag by name on assets; the tag is
+/// created when missing.
+#[tauri::command]
+async fn etiqueter(etat: State<'_, Etat>, nom: String, ids: Vec<String>, retirer: bool) -> Result<Tag, String> {
+    let client = etat.client()?;
+    let tag = client.tag_nomme(&nom).await.map_err(|e| e.to_string())?;
+    client.etiqueter(&tag.id, &ids, retirer).await.map_err(|e| e.to_string())?;
+    Ok(tag)
+}
+
 #[tauri::command]
 async fn mettre_corbeille(etat: State<'_, Etat>, ids: Vec<String>) -> Result<(), String> {
     etat.client()?.mettre_a_la_corbeille(&ids).await.map_err(|e| e.to_string())
@@ -583,6 +604,9 @@ pub fn lancer() {
             definir_favori,
             definir_archive,
             mettre_corbeille,
+            modifier_infos,
+            tags,
+            etiqueter,
             restaurer_corbeille,
             telecharger,
             url_video,

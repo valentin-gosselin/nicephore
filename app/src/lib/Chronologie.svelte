@@ -7,6 +7,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { lancerBanc } from './banc';
   import { lancerScenarioEcriture } from './scenario-ecriture';
+  import { notifier } from './notifications.svelte';
 
   // Benchmarks start once per app run, not on every visit of Photos.
   const lancements = globalThis as { __bancLance?: boolean; __scenarioLance?: boolean };
@@ -163,6 +164,21 @@
     ouverte = { section: tuile.section, index: tuile.index };
   }
 
+  /** After an edit in the viewer: a new date moves photos between months. */
+  // A new date moves the photo to another month: reload the loaded months,
+  // but only once the viewer is closed, so its position stays valid.
+  let datesModifiees = false;
+
+  function rafraichirCharges() {
+    chrono.actualiserMois().catch((e) => notifier(`Actualisation impossible : ${e}`, 'erreur'));
+  }
+
+  function apresModification(date: boolean) {
+    if (!date) return;
+    if (ouverte) datesModifiees = true;
+    else rafraichirCharges();
+  }
+
   /** Opens the viewer on the first item, as a slideshow (memories). */
   export function lancerDiaporama() {
     const premiere = chrono.sections.findIndex((s) => s.assets.length > 0);
@@ -196,6 +212,12 @@
 
   function fermer(position: Position) {
     ouverte = null;
+    if (datesModifiees) {
+      datesModifiees = false;
+      rafraichirCharges();
+      conteneur.focus();
+      return;
+    }
     // Bring the last viewed photo into view if it is off screen.
     const y = chrono.hautAsset(position);
     if (y != null && (y < defilement || y > defilement + hauteurVue - 100)) {
@@ -368,7 +390,7 @@
 </div>
 
 {#if ouverte}
-  <Visionneuse {chrono} depart={ouverte} onfermer={fermer} {diaporama} />
+  <Visionneuse {chrono} depart={ouverte} onfermer={fermer} {diaporama} onmodifie={apresModification} />
 {/if}
 
 <style>

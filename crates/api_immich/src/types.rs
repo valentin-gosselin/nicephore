@@ -1,5 +1,10 @@
 use bytes::Bytes;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Tells "absent" (`None`) from "present and null" (`Some(None)`).
+fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Option<i32>>, D::Error> {
+    Ok(Some(Option::<i32>::deserialize(d)?))
+}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Ping {
@@ -181,14 +186,41 @@ impl FiltreChronologie {
 }
 
 /// Fields changed by a bulk update (`PUT /assets`); unset fields are untouched.
+/// Field names are French on the UI side and Immich's on the server side.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ModificationAssets {
-    #[serde(skip_serializing_if = "Option::is_none", rename = "isFavorite")]
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "isFavorite"))]
     pub favori: Option<bool>,
     /// `timeline` or `archive`.
-    #[serde(skip_serializing_if = "Option::is_none", rename = "visibility")]
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "visibility"))]
     pub visibilite: Option<String>,
+    /// Capture date with its offset, e.g. `2024-05-01T12:00:00.000+02:00`.
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "dateTimeOriginal"))]
+    pub date: Option<String>,
+    /// IANA time zone of the capture (`Europe/Paris`).
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "timeZone"))]
+    pub fuseau: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latitude: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub longitude: Option<f64>,
+    /// 1 to 5 stars, -1 rejected; `Some(None)` removes the rating.
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "rating"), default, deserialize_with = "present")]
+    pub note: Option<Option<i32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// A tag (`/tags`); `value` is the full path of nested tags (`Voyages/Italie`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub value: String,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 /// Login methods of a server (`GET /server/features`, public).

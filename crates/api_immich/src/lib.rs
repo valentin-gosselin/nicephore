@@ -519,6 +519,36 @@ impl ClientImmich {
         self.envoyer(reqwest::Method::PUT, "assets", &corps).await
     }
 
+    /// `GET /tags`: every tag of the user.
+    pub async fn tags(&self) -> Resultat<Vec<Tag>> {
+        self.get_json("tags", &[]).await
+    }
+
+    /// `PUT /tags` (upsert): the tag of that name, created if missing.
+    pub async fn tag_nomme(&self, nom: &str) -> Resultat<Tag> {
+        let nom = nom.trim();
+        if nom.is_empty() {
+            return Err(Erreur::Configuration("nom de tag vide".into()));
+        }
+        let reponse = self
+            .http
+            .put(self.url("tags"))
+            .json(&serde_json::json!({ "tags": [nom] }))
+            .timeout(Duration::from_secs(30))
+            .send()
+            .await?;
+        let tags: Vec<Tag> = verifier(reponse).await?.json().await?;
+        tags.into_iter().next().ok_or_else(|| Erreur::ReponseInattendue("tag non créé".into()))
+    }
+
+    /// `PUT /tags/{id}/assets` or `DELETE` for `retirer`.
+    pub async fn etiqueter(&self, tag: &str, ids: &[String], retirer: bool) -> Resultat<()> {
+        valider_id(tag)?;
+        valider_ids(ids)?;
+        let methode = if retirer { reqwest::Method::DELETE } else { reqwest::Method::PUT };
+        self.envoyer(methode, &format!("tags/{tag}/assets"), &serde_json::json!({ "ids": ids })).await
+    }
+
     /// `DELETE /assets` without `force`: moves assets to the Immich trash
     /// (recoverable). Permanent deletion is deliberately not exposed.
     pub async fn mettre_a_la_corbeille(&self, ids: &[String]) -> Resultat<()> {
@@ -683,9 +713,20 @@ mod tests {
 
     #[test]
     fn modification_serialisee_au_format_immich() {
-        let m = ModificationAssets { favori: Some(true), visibilite: None };
+        let m = ModificationAssets { favori: Some(true), ..Default::default() };
         assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({ "isFavorite": true }));
         assert!(valider_ids(&[]).is_err());
+        // From the UI: French names in, Immich names out; a null rating is
+        // kept (it removes the stars), an absent one is left out.
+        let m: ModificationAssets =
+            serde_json::from_value(serde_json::json!({ "note": null, "date": "2024-05-01T12:00:00.000+02:00", "fuseau": "Europe/Paris" }))
+                .unwrap();
+        assert_eq!(
+            serde_json::to_value(&m).unwrap(),
+            serde_json::json!({ "rating": null, "dateTimeOriginal": "2024-05-01T12:00:00.000+02:00", "timeZone": "Europe/Paris" })
+        );
+        let sans_note: ModificationAssets = serde_json::from_value(serde_json::json!({ "description": "x" })).unwrap();
+        assert_eq!(serde_json::to_value(&sans_note).unwrap(), serde_json::json!({ "description": "x" }));
     }
 
     #[test]

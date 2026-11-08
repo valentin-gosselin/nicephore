@@ -1,8 +1,20 @@
 <script lang="ts">
   import { IconButton, LoadingSpinner } from '@immich/ui';
-  import { mdiChevronLeft, mdiChevronRight, mdiClose, mdiFullscreen, mdiInformationOutline, mdiPause, mdiPlay } from '@mdi/js';
+  import {
+    mdiChevronLeft,
+    mdiChevronRight,
+    mdiClose,
+    mdiFullscreen,
+    mdiHeart,
+    mdiHeartOutline,
+    mdiInformationOutline,
+    mdiPause,
+    mdiPlay,
+    mdiTrashCanOutline,
+  } from '@mdi/js';
   import { onMount } from 'svelte';
-  import { urlImage, urlVideo } from './api';
+  import { definirFavori, mettreCorbeille, restaurerCorbeille, urlImage, urlVideo } from './api';
+  import { notifier } from './notifications.svelte';
   import type { Chronologie, Position } from './modele-chronologie.svelte';
   import PanneauInfos from './PanneauInfos.svelte';
 
@@ -11,7 +23,15 @@
     depart,
     onfermer,
     diaporama = false,
-  }: { chrono: Chronologie; depart: Position; onfermer: (p: Position) => void; diaporama?: boolean } = $props();
+    onmodifie,
+  }: {
+    chrono: Chronologie;
+    depart: Position;
+    onfermer: (p: Position) => void;
+    diaporama?: boolean;
+    /** Something changed on the server (true: a date, the timeline must regroup). */
+    onmodifie?: (date: boolean) => void;
+  } = $props();
 
   /** Time each photo stays on screen during a slideshow. */
   const DUREE_DIAPO = 5000;
@@ -33,6 +53,11 @@
   let glisse: { x: number; y: number } | null = null;
 
   const asset = $derived(chrono.asset(position));
+  // The favorite flag is changed in place and announced by the revision.
+  const favori = $derived.by(() => {
+    void chrono.revision;
+    return chrono.asset(position)?.favori ?? false;
+  });
   // Two levels: a screen-sized preview first, full resolution only once zoomed.
   const veutPleine = $derived(echelle > 1.25);
 
@@ -65,6 +90,44 @@
     return !!suivante;
   }
 
+  async function basculerFavori() {
+    const courant = asset;
+    if (!courant) return;
+    const nouveau = !favori;
+    try {
+      await definirFavori([courant.id], nouveau);
+      chrono.marquerFavoris(new Set([courant.id]), nouveau);
+      notifier(nouveau ? 'Ajouté aux favoris' : 'Retiré des favoris', 'succes');
+    } catch (e) {
+      notifier(`Favori impossible : ${e}`, 'erreur');
+    }
+  }
+
+  async function corbeille() {
+    const courant = asset;
+    if (!courant) return;
+    try {
+      await mettreCorbeille([courant.id]);
+      await chrono.rafraichir([position.section]);
+      notifier('Mis à la corbeille', 'info', {
+        libelle: 'Annuler',
+        executer: async () => {
+          await restaurerCorbeille([courant.id]);
+          await chrono.rafraichir([position.section]);
+          onmodifie?.(false);
+        },
+      });
+      // The next photo took its place; at the end, step back or close.
+      if (!chrono.asset(position)) {
+        const precedente = await chrono.voisin(position, -1);
+        if (precedente) position = precedente;
+        else onfermer(position);
+      }
+    } catch (e) {
+      notifier(`Corbeille impossible : ${e}`, 'erreur');
+    }
+  }
+
   $effect(() => {
     if (!lecture || !asset?.image || !apercuCharge) return;
     const minuteur = setTimeout(() => void aller(1), DUREE_DIAPO);
@@ -82,6 +145,7 @@
     else if (e.key === 'i') infos = !infos;
     else if (e.key === 'f') basculerPleinEcran();
     else if (e.key === 'd') lecture = !lecture;
+    else if (e.key === 'Delete') void corbeille();
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -198,6 +262,15 @@
           onclick={() => (lecture = !lecture)}
         />
         <IconButton icon={mdiFullscreen} aria-label="Plein écran (F)" variant="ghost" color="secondary" shape="round" onclick={basculerPleinEcran} />
+        <IconButton
+          icon={favori ? mdiHeart : mdiHeartOutline}
+          aria-label={favori ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          variant="ghost"
+          color="secondary"
+          shape="round"
+          onclick={basculerFavori}
+        />
+        <IconButton icon={mdiTrashCanOutline} aria-label="Mettre à la corbeille (Suppr)" variant="ghost" color="secondary" shape="round" onclick={corbeille} />
         <IconButton icon={mdiInformationOutline} aria-label="Infos (I)" variant="ghost" color="secondary" shape="round" onclick={() => (infos = !infos)} />
       </div>
     </div>
@@ -210,7 +283,7 @@
   </div>
 
   {#if infos && asset}
-    <PanneauInfos id={asset.id} />
+    <PanneauInfos id={asset.id} {onmodifie} />
   {/if}
 </div>
 

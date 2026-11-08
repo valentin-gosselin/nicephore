@@ -106,6 +106,23 @@ export const detailMois = (mois: string, filtre: Filtre) => invoke<DetailMois>('
 export const definirFavori = (ids: string[], favori: boolean) => invoke<void>('definir_favori', { ids, favori });
 export const definirArchive = (ids: string[], archive: boolean) => invoke<void>('definir_archive', { ids, archive });
 export const mettreCorbeille = (ids: string[]) => invoke<void>('mettre_corbeille', { ids });
+
+/** Changes to the information of assets; absent fields are left as they are. */
+export type ModificationInfos = {
+  description?: string;
+  /** 1 to 5 stars, -1 rejected, null to remove. */
+  note?: number | null;
+  /** ISO with offset. */
+  date?: string;
+  fuseau?: string;
+  latitude?: number;
+  longitude?: number;
+};
+export const modifierInfos = (ids: string[], modification: ModificationInfos) =>
+  invoke<void>('modifier_infos', { ids, modification });
+export type Tag = { id: string; name: string; value: string; color: string | null };
+export const tags = () => invoke<Tag[]>('tags');
+export const etiqueter = (nom: string, ids: string[], retirer = false) => invoke<Tag>('etiqueter', { nom, ids, retirer });
 export const restaurerCorbeille = (ids: string[]) => invoke<void>('restaurer_corbeille', { ids });
 
 export type Bilan = { reussis: number; echecs: string[]; dossier: string };

@@ -177,7 +177,7 @@ export class Chronologie {
   afficherFrise = true;
   private enCours = 0;
   private attente: number[] = [];
-  private promesses = new Map<number, Promise<void>>();
+  private promesses = new Map<Section, Promise<void>>();
   /** Called after a month changed height, so the view can keep its anchor. */
   surChangement: (() => void) | null = null;
 
@@ -314,9 +314,9 @@ export class Chronologie {
   }
 
   chargerSection(index: number): Promise<void> {
-    const existante = this.promesses.get(index);
-    if (existante) return existante;
     const section = this.sections[index];
+    const existante = section && this.promesses.get(section);
+    if (existante) return existante;
     if (!section || section.etat === 'charge') return Promise.resolve();
     section.etat = 'chargement';
     this.enCours++;
@@ -331,13 +331,13 @@ export class Chronologie {
       })
       .finally(() => {
         this.enCours--;
-        this.promesses.delete(index);
+        this.promesses.delete(section);
         this.disposerSection(section);
         this.recalculer();
         this.surChangement?.();
         this.pomper();
       });
-    this.promesses.set(index, promesse);
+    this.promesses.set(section, promesse);
     return promesse;
   }
 
@@ -450,6 +450,22 @@ export class Chronologie {
   marquerFavoris(ids: Set<string>, favori: boolean) {
     for (const section of this.sections) for (const a of section.assets) if (ids.has(a.id)) a.favori = favori;
     this.revision++;
+  }
+
+  /** Reads the month index again after dates changed: a month may appear
+   * or vanish. Known months keep their state, loaded ones are reloaded. */
+  async actualiserMois() {
+    const mois = await listeMois(this.filtre);
+    const anciennes = new Map(this.sections.map((s) => [s.cle, s]));
+    this.sections = mois.map((m) => {
+      const section = anciennes.get(m.timeBucket);
+      if (!section) return new Section(m);
+      section.nombre = m.count;
+      return section;
+    });
+    this.attente = [];
+    for (const section of this.sections) if (section.etat !== 'charge') this.disposerSection(section);
+    await this.rafraichir(this.sections.flatMap((s, i) => (s.etat === 'charge' ? [i] : [])));
   }
 
   /** Reloads months after a change on the server, keeping the old layout
