@@ -59,3 +59,14 @@ nuage de l'appli mobile et un bouton pour envoyer tout de suite.
 - Vérifié : extraction sur la structure synthétique et sur le vrai ARW (lecture seule) ; banc
   `--fichier` 11/11 (fenêtre 535 × 850 pour une photo 1067 × 1600, RAW fabriqué avec orientation 6
   affiché par son aperçu et pivoté, barre compacte) ; non-régression complète verte.
+
+## La fenêtre suit chaque photo, flèches au survol (09/11)
+
+- Dans la visionneuse de l'ordinateur, la fenêtre se remet aux proportions de chaque nouvelle photo
+  (d'un portrait à un paysage, c'est la fenêtre qui change, pas la photo qui rétrécit), sauf si
+  elle est agrandie ou en plein écran. Elle garde son centre là où le système le permet (pas sous
+  Wayland, où KWin seul place les fenêtres).
+- Flèches précédente et suivante visibles seulement au survol de la photo (ou au clavier), dans
+  cette visionneuse comme dans celle de la photothèque.
+- Vérifié : banc `--fichier` 12/12 (535 × 850 pour la photo en hauteur, puis 1203 × 850 en passant
+  à la photo en largeur) ; visionneuse de la photothèque sans régression.

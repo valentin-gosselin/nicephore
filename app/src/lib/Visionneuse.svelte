@@ -344,10 +344,15 @@
     padding: 8px;
     color: white;
     background: rgb(0 0 0 / 0.25);
-    opacity: 0.6;
-    transition: opacity 120ms;
+    opacity: 0;
+    transition: opacity 150ms;
   }
-  .fleche:hover {
+  /* Arrows only while the pointer is over the photo (or on keyboard focus). */
+  .visionneuse:hover .fleche,
+  .fleche:focus-visible {
+    opacity: 0.6;
+  }
+  .visionneuse .fleche:hover {
     opacity: 1;
   }
 </style>

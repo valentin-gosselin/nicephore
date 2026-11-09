@@ -5,7 +5,14 @@
   import { Button, IconButton, LoadingSpinner } from '@immich/ui';
   import { mdiChevronLeft, mdiChevronRight, mdiCloudCheckOutline, mdiCloudOffOutline, mdiCloudUploadOutline } from '@mdi/js';
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-  import { availableMonitors, currentMonitor, getCurrentWindow, LogicalSize, primaryMonitor } from '@tauri-apps/api/window';
+  import {
+    availableMonitors,
+    currentMonitor,
+    getCurrentWindow,
+    LogicalPosition,
+    LogicalSize,
+    primaryMonitor,
+  } from '@tauri-apps/api/window';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import {
@@ -37,8 +44,14 @@
   const compact = $derived(zoneL > 0 && zoneL < 760);
 
   /** Window sized to the photo (within the screen), centred, then shown. */
+  /**
+   * Window sized to each photo (within the screen), like a photo viewer:
+   * from portrait to landscape, the window changes, not the photo. Opened
+   * from outside, it is centred then shown; afterwards it keeps its centre
+   * (where the system lets an app move its window: not under Wayland).
+   */
   async function ajuster(largeur: number, hauteur: number) {
-    if (!ajusterFenetre) return;
+    const premiere = ajusterFenetre;
     ajusterFenetre = false;
     const fenetre = getCurrentWindow();
     try {
@@ -48,14 +61,30 @@
         const maxL = (ecran.size.width / ecran.scaleFactor) * 0.9;
         const maxH = (ecran.size.height / ecran.scaleFactor) * 0.85 - BARRE;
         const r = Math.min(1, maxL / largeur, maxH / hauteur);
-        await fenetre.setSize(new LogicalSize(Math.max(480, Math.round(largeur * r)), Math.max(360, Math.round(hauteur * r) + BARRE)));
-        await fenetre.center();
+        const l = Math.max(480, Math.round(largeur * r));
+        const h = Math.max(360, Math.round(hauteur * r) + BARRE);
+        if (premiere) {
+          await fenetre.setSize(new LogicalSize(l, h));
+          await fenetre.center();
+        } else {
+          const echelle = await fenetre.scaleFactor();
+          const position = (await fenetre.outerPosition()).toLogical(echelle);
+          const avant = (await fenetre.outerSize()).toLogical(echelle);
+          await fenetre.setSize(new LogicalSize(l, h));
+          const ecranX = ecran.position.x / ecran.scaleFactor;
+          const ecranY = ecran.position.y / ecran.scaleFactor;
+          const x = Math.max(ecranX, position.x + avant.width / 2 - l / 2);
+          const y = Math.max(ecranY, position.y + avant.height / 2 - h / 2);
+          await fenetre.setPosition(new LogicalPosition(Math.round(x), Math.round(y))).catch(() => {});
+        }
       }
     } catch (e) {
       await invoke('journal', { message: `taille de fenêtre : ${e}` }).catch(() => {});
     } finally {
-      await fenetre.show();
-      await fenetre.setFocus();
+      if (premiere) {
+        await fenetre.show();
+        await fenetre.setFocus();
+      }
     }
   }
 
@@ -166,7 +195,7 @@
     <BoutonsFenetre />
   </div>
 
-  <div class="relative min-h-0 flex-1 overflow-hidden" bind:clientWidth={zoneL} bind:clientHeight={zoneH}>
+  <div class="zone relative min-h-0 flex-1 overflow-hidden" bind:clientWidth={zoneL} bind:clientHeight={zoneH}>
     {#if erreur}
       <p class="p-8 text-center text-red-400">{erreur}</p>
     {:else if !fichier}
@@ -263,9 +292,15 @@
     justify-content: center;
     border-radius: 9999px;
     background: rgb(0 0 0 / 0.35);
+    opacity: 0;
+    transition: opacity 150ms;
+  }
+  /* Arrows only while the pointer is over the photo (or on keyboard focus). */
+  .zone:hover .fleche,
+  .fleche:focus-visible {
     opacity: 0.7;
   }
-  .fleche:hover {
+  .zone .fleche:hover {
     opacity: 1;
   }
 </style>

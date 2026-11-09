@@ -56,6 +56,11 @@ export async function lancerScenarioFichier() {
     const raw = await quand(() => location.search.includes('d-raw') && (document.querySelector<HTMLImageElement>('img.apercu-raw')?.naturalWidth ?? 0) > 0, 150);
     await verifier('aperçu du RAW affiché', raw && texte().includes('Aperçu du RAW (1067 × 1600)'), texte().slice(0, 160));
     await verifier('aperçu pivoté selon le RAW', document.querySelector<HTMLElement>('img.apercu-raw')?.style.transform.includes('rotate(90deg)') ?? false);
+    // From portrait to landscape (the RAW, rotated), the window follows.
+    await attendre(800);
+    const paysage = (await fenetre.innerSize()).toLogical(await fenetre.scaleFactor());
+    const rapportPaysage = paysage.width / (paysage.height - 48);
+    await verifier('la fenêtre passe en paysage avec la photo', Math.abs(rapportPaysage - 1600 / 1067) < 0.05, `${Math.round(paysage.width)} × ${Math.round(paysage.height)}`);
     await capture('f4-raw');
   } catch (e) {
     await journal(`scénario interrompu : ${e}`);
