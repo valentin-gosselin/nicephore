@@ -141,6 +141,11 @@ elif [ -n "$portable" ]; then
     } >>"$sortie/sortie.txt"
 else
     lancer
+    # A virtual folder must never stay mounted after the app.
+    if mount | grep -q "$sortie"; then
+        echo "banc: ÉCHEC : un montage reste dans $sortie" >>"$sortie/sortie.txt"
+        mount | grep "$sortie" | awk '{print $3}' | xargs -r -n1 fusermount3 -uz
+    fi
 fi
 rm -f "$interne"
 

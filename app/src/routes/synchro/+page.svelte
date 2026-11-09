@@ -2,12 +2,16 @@
   // "Envoi" page: folders of this computer sent to Immich, engine progress
   // and the log of what was done.
   import { Button, Heading, IconButton, ProgressBar, Switch, Text } from '@immich/ui';
-  import { mdiDeleteOutline, mdiFolderArrowUpOutline, mdiFolderDownloadOutline, mdiFolderSyncOutline, mdiFolderPlusOutline, mdiPause, mdiPlay, mdiRefresh } from '@mdi/js';
+  import { mdiDeleteOutline, mdiFolderEyeOutline, mdiFolderArrowUpOutline, mdiFolderDownloadOutline, mdiFolderSyncOutline, mdiFolderPlusOutline, mdiPause, mdiPlay, mdiRefresh } from '@mdi/js';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import {
     activerRegleEnvoi,
     ajouterDouble,
+    ajouterVirtuel,
+    dossiersVirtuels,
+    retirerVirtuel,
+    type DossierVirtuel,
     ajouterReception,
     confirmerSuppressions,
     definirMiroir,
@@ -67,6 +71,18 @@
     }
   }
   const dateCourte = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  let virtuels = $state<DossierVirtuel[]>([]);
+
+  async function retirerDossierVirtuel(d: DossierVirtuel) {
+    try {
+      await retirerVirtuel(d.id);
+      notifier(`« ${nomDossier(d.point)} » n’affiche plus la sélection.`, 'succes');
+      await rafraichir();
+    } catch (e) {
+      notifier(String(e), 'erreur');
+    }
+  }
 
   let enAttente = $state<{ regle: RegleEnvoi; liste: SuppressionEnAttente[] } | null>(null);
 
@@ -185,12 +201,14 @@
       regles = [];
     }
     journal = await journalEnvoi(60).catch(() => []);
+    virtuels = await dossiersVirtuels().catch(() => []);
   }
 
   async function ajouter(demande: Demande) {
     try {
       if (demande.sens === 'montante') await ajouterRegleEnvoi(demande.dossier, demande.cible);
       else if (demande.sens === 'double') await ajouterDouble(demande.dossier, demande.album, demande.nouvelAlbum, demande.miroir);
+      else if (demande.sens === 'virtuel') await ajouterVirtuel(demande.dossier, demande.selection, demande.rangement);
       else await ajouterReception(demande.dossier, demande.selection, demande.rangement);
       notifier(`« ${nomDossier(demande.dossier)} » ajouté : la synchro commence.`, 'succes');
       await rafraichir();
@@ -388,6 +406,38 @@
         </li>
       {/each}
     </ul>
+
+    {#if virtuels.length}
+      <section class="space-y-3">
+        <Heading size="small">Dossiers virtuels</Heading>
+        <ul class="space-y-3">
+          {#each virtuels as d (d.id)}
+            <li class="regle space-y-2 rounded-2xl p-4">
+              <div class="flex items-center gap-3">
+                <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="shrink-0 opacity-70"><path fill="currentColor" d={mdiFolderEyeOutline} /></svg>
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-semibold">{nomDossier(d.point)}</div>
+                  <div class="truncate text-xs opacity-60" title={d.point}>{d.point}</div>
+                </div>
+                <IconButton
+                  icon={mdiDeleteOutline}
+                  aria-label={`Retirer le dossier virtuel ${nomDossier(d.point)}`}
+                  variant="ghost"
+                  color="secondary"
+                  shape="round"
+                  onclick={() => retirerDossierVirtuel(d)}
+                />
+              </div>
+              <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                <span class="opacity-70">Montre {libelleSelection(d.selection)}{d.rangement === 'anneeMois' ? ', par année et mois' : ''}</span>
+                {#if d.monte}<span class="compteurs">{pluriel(d.fichiers, 'fichier')} visible{d.fichiers > 1 ? 's' : ''}, téléchargé{d.fichiers > 1 ? 's' : ''} à l’ouverture</span>{/if}
+              </div>
+              {#if d.erreur}<p class="text-sm text-red-500">{d.erreur}</p>{/if}
+            </li>
+          {/each}
+        </ul>
+      </section>
+    {/if}
 
     {#if journal.length}
       <section class="space-y-2">

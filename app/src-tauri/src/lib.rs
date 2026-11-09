@@ -12,6 +12,7 @@ mod prechargement;
 mod proxy_video;
 mod reglages;
 mod telechargement;
+mod virtuels;
 mod zone_notification;
 
 use api_immich::{
@@ -72,6 +73,10 @@ pub struct Etat {
     zone: Option<zone_notification::Zone>,
     /// Portable mode: the `donnees` folder next to the program.
     portable: Option<PathBuf>,
+    virtuels: virtuels::Virtuels,
+    /// Originals downloaded through the virtual folders.
+    originaux: Arc<virtuel::CacheOriginaux>,
+    app: tauri::AppHandle,
 }
 
 impl Etat {
@@ -135,6 +140,7 @@ impl Etat {
                 *self.erreur_base_envoi.write().expect("verrou de l'erreur") = Some(e.to_string());
             }
         }
+        self.virtuels.activer(&self.app, &cle);
         *self.compte_envoi.write().expect("verrou du compte d'envoi") = Some(cle);
     }
 
@@ -347,6 +353,9 @@ async fn se_deconnecter(etat: State<'_, Etat>) -> Result<(), String> {
     etat.prechargement.arreter();
     let dossier = etat.dossier_config.clone();
     tokio::task::spawn_blocking(move || compte::oublier_actif(&dossier)).await.map_err(|e| e.to_string())??;
+    // The virtual folders and upload database of this account close too.
+    etat.virtuels.oublier();
+    *etat.compte_envoi.write().expect("verrou du compte d'envoi") = None;
     etat.definir(None, Origine::Memoire, false);
     *etat.compte_cherche.lock().await = false;
     Ok(())
@@ -749,6 +758,7 @@ pub fn lancer() {
                 }
             });
             let dossier_config = emplacements.config.clone();
+            let dossier_originaux = emplacements.cache.join("originaux");
             let prechargement = Arc::new(prechargement::Prechargement::nouveau(&dossier_config, app.handle().clone()));
 
             // Each account has its upload database, opened once connected.
@@ -788,7 +798,11 @@ pub fn lancer() {
                 reglages,
                 zone,
                 portable,
+                virtuels: virtuels::Virtuels::default(),
+                originaux: Arc::new(virtuel::CacheOriginaux::nouveau(dossier_originaux, virtuels::BUDGET_ORIGINAUX)),
+                app: app.handle().clone(),
             });
+            virtuels::actualiser_regulierement(app.handle().clone());
             mise_a_jour::verifier_au_demarrage(app.handle().clone());
             // Started with the session: stay in the tray if uploads can
             // go on there, else show the window as usual.
@@ -862,6 +876,11 @@ pub fn lancer() {
             mise_a_jour::infos_mise_a_jour,
             mise_a_jour::chercher_mise_a_jour,
             mise_a_jour::installer_mise_a_jour,
+            virtuels::virtuels,
+            virtuels::ajouter_virtuel,
+            virtuels::retirer_virtuel,
+            virtuels::cache_originaux,
+            virtuels::vider_cache_originaux,
             commandes_envoi::regles_envoi,
             commandes_envoi::estimer_dossier,
             commandes_envoi::ajouter_reception,
@@ -897,6 +916,14 @@ pub fn lancer() {
             banc::quitter,
             banc::stats_images
         ])
-        .run(tauri::generate_context!())
-        .expect("erreur au lancement de l'application");
+        .build(tauri::generate_context!())
+        .expect("erreur au lancement de l'application")
+        .run(|app, evenement| {
+            // Virtual folders are unmounted cleanly on the way out.
+            if let tauri::RunEvent::Exit = evenement
+                && let Some(etat) = app.try_state::<Etat>()
+            {
+                etat.virtuels.demonter_tout();
+            }
+        });
 }

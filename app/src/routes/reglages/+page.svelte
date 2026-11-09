@@ -8,6 +8,8 @@
     definirPrechargement,
     definirReglagesApp,
     etatPrechargement,
+    cacheOriginaux,
+    viderCacheOriginaux,
     infosCache,
     infosPortable,
     chercherMiseAJour,
@@ -27,6 +29,7 @@
   import { choisirTheme, theme, type ChoixTheme } from '../../lib/theme.svelte';
 
   let cache = $state<InfosCache | null>(null);
+  let originaux = $state<{ octets: number; fichiers: number; budget: number } | null>(null);
   let prechargement = $state<EtatPrechargement | null>(null);
   let version = $state('');
   let vidage = $state(false);
@@ -119,6 +122,7 @@
 
   async function rafraichirCache() {
     cache = await infosCache().catch(() => null);
+    originaux = await cacheOriginaux().catch(() => null);
   }
 
   async function basculerPrechargement(actif: boolean) {
@@ -275,7 +279,20 @@
         </Text>
         <Text size="small" color="muted" class="break-all">{cache.dossier}</Text>
       {/if}
-      <Button variant="outline" loading={vidage} onclick={vider}>Vider le cache</Button>
+      {#if originaux && originaux.fichiers}
+        <Text size="small">
+          Originaux ouverts depuis les dossiers virtuels : {mo(originaux.octets)} ({nombre(originaux.fichiers)} fichiers, au
+          plus {mo(originaux.budget)}).
+        </Text>
+      {/if}
+      <div class="flex gap-2">
+        <Button variant="outline" loading={vidage} onclick={vider}>Vider le cache</Button>
+        {#if originaux && originaux.fichiers}
+          <Button variant="outline" onclick={async () => { await viderCacheOriginaux(); await rafraichirCache(); }}>
+            Vider les originaux
+          </Button>
+        {/if}
+      </div>
     </section>
 
     {#if maj}

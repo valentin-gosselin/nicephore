@@ -351,3 +351,20 @@ export const definirMiroir = (regle: number, miroir: boolean) => invoke<void>('d
 export const suppressionsEnAttente = (regle: number) => invoke<SuppressionEnAttente[]>('suppressions_en_attente', { regle });
 export const confirmerSuppressions = (regle: number) => invoke<number>('confirmer_suppressions', { regle });
 export const refuserSuppressions = (regle: number) => invoke<number>('refuser_suppressions', { regle });
+
+// ---- Virtual folders ----
+export type DossierVirtuel = {
+  id: number;
+  point: string;
+  selection: Selection;
+  rangement: Rangement;
+  monte: boolean;
+  fichiers: number;
+  erreur: string | null;
+};
+export const dossiersVirtuels = () => invoke<DossierVirtuel[]>('virtuels');
+export const ajouterVirtuel = (point: string, selection: Selection, rangement: Rangement) =>
+  invoke<void>('ajouter_virtuel', { point, selection, rangement });
+export const retirerVirtuel = (id: number) => invoke<void>('retirer_virtuel', { id });
+export const cacheOriginaux = () => invoke<OccupationCache>('cache_originaux');
+export const viderCacheOriginaux = () => invoke<void>('vider_cache_originaux');

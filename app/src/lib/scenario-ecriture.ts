@@ -303,6 +303,20 @@ export async function lancerScenarioEcriture() {
       (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus synchroniser'))?.click();
       await attendre(1500);
 
+      // 11d. Virtual folder: February 2025 shown without downloading.
+      const pointVirtuel = await invoke<string | null>('dossier_banc_vide', { nom: 'virtuel' });
+      await invoke('ajouter_virtuel', { point: pointVirtuel, selection: periode, rangement: 'anneeMois' });
+      type VueVirtuel = { monte: boolean; fichiers: number; erreur: string | null };
+      const vv = (await invoke<VueVirtuel[]>('virtuels'))[0];
+      await verifier('dossier virtuel monté avec ses fichiers', !!vv?.monte && vv.fichiers === attendu.fichiers, JSON.stringify(vv));
+      await aller('/albums');
+      await aller('/synchro');
+      await verifier('dossier virtuel affiché', page().includes('Dossiers virtuels') && page().includes('visibles'));
+      await capture('e6e-virtuel');
+      (await element<HTMLButtonElement>('[aria-label^="Retirer le dossier virtuel"]'))?.click();
+      await attendre(1500);
+      await verifier('dossier virtuel retiré', (await invoke<VueVirtuel[]>('virtuels')).length === 0);
+
       // 12. Background: settings, then closing the window into the tray
       // while a folder is sent.
       await aller('/reglages');

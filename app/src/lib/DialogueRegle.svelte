@@ -3,7 +3,8 @@
   export type Demande =
     | { sens: 'montante'; dossier: string; cible: CibleEnvoi }
     | { sens: 'descendante'; dossier: string; selection: SelectionServeur; rangement: RangementReception }
-    | { sens: 'double'; dossier: string; album: string | null; nouvelAlbum: string | null; miroir: boolean };
+    | { sens: 'double'; dossier: string; album: string | null; nouvelAlbum: string | null; miroir: boolean }
+    | { sens: 'virtuel'; dossier: string; selection: SelectionServeur; rangement: RangementReception };
 </script>
 
 <script lang="ts">
@@ -89,7 +90,7 @@
 
   // What would be sent from the folder.
   $effect(() => {
-    if (sens === 'descendante') return;
+    if (sens === 'descendante' || sens === 'virtuel') return;
     const choisi = dossier;
     estimationEnvoi = null;
     erreurEstimation = null;
@@ -103,7 +104,7 @@
 
   // What would be received, and the room for it.
   $effect(() => {
-    if (sens !== 'descendante') return;
+    if (sens !== 'descendante' && sens !== 'virtuel') return;
     const s = selection;
     const d = dossier;
     const cle = JSON.stringify([s, d]);
@@ -136,7 +137,9 @@
         ? !!estimationEnvoi && estimationEnvoi.fichiers > 0 && (genre !== 'album' || !!albumChoisi)
         : sens === 'double'
           ? !!estimationEnvoi && (albumDouble === 'nouveau' || !!albums?.some((a) => a.id === albumDouble))
-          : !!selection && !!estimationReception && estimationReception.fichiers > 0 && !placeManque),
+          : sens === 'virtuel'
+            ? !!selection && !!estimationReception && estimationReception.fichiers > 0
+            : !!selection && !!estimationReception && estimationReception.fichiers > 0 && !placeManque),
   );
   const nomDossier = $derived(dossier?.split(/[\\/]/).filter(Boolean).pop() ?? '');
 
@@ -167,7 +170,7 @@
           : { sens, dossier, album: albumDouble, nouvelAlbum: null, miroir };
     } else {
       if (!selection) return;
-      demande = { sens, dossier, selection, rangement };
+      demande = sens === 'virtuel' ? { sens, dossier, selection, rangement } : { sens, dossier, selection, rangement };
     }
     enCours = true;
     const ok = await onvalider(demande);
@@ -190,6 +193,11 @@
       sens: 'descendante',
       titre: 'Recevoir des photos d’Immich dans un dossier',
       detail: 'Un album, une personne, les favoris, une période ou toute la photothèque, copiés sur cet ordinateur.',
+    },
+    {
+      sens: 'virtuel',
+      titre: 'Voir une sélection sans la télécharger',
+      detail: 'Fichiers virtuels : les photos apparaissent dans un dossier vide et ne sont téléchargées qu’à l’ouverture.',
     },
     {
       sens: 'double',
@@ -247,7 +255,13 @@
 
     <div class="space-y-1">
       <Text size="small" color="muted">
-        {sens === 'montante' ? 'Dossier à envoyer' : sens === 'double' ? 'Dossier à garder identique à l’album' : 'Dossier où recevoir'}
+        {sens === 'montante'
+          ? 'Dossier à envoyer'
+          : sens === 'double'
+            ? 'Dossier à garder identique à l’album'
+            : sens === 'virtuel'
+              ? 'Dossier vide où voir les photos'
+              : 'Dossier où recevoir'}
       </Text>
       <div class="flex items-center gap-3">
         <span class="chemin min-w-0 flex-1 truncate" title={dossier ?? ''}>{dossier ?? 'Aucun dossier choisi'}</span>
@@ -295,7 +309,7 @@
       {/if}
     {:else}
       <fieldset class="flex flex-wrap gap-2">
-        <legend class="mb-1 text-sm opacity-60">Quoi recevoir</legend>
+        <legend class="mb-1 text-sm opacity-60">{sens === 'virtuel' ? 'Quoi montrer' : 'Quoi recevoir'}</legend>
         {#each selections as o (o.genre)}
           <label class="pastille" class:choisie={quoi === o.genre}>
             <input type="radio" name="quoi" value={o.genre} bind:group={quoi} class="sr-only" />
@@ -366,6 +380,11 @@
         {/if}
         {#if estimationEnvoi.illisibles}<span class="mt-1 block opacity-70">{estimationEnvoi.illisibles} élément(s) illisible(s) ignoré(s).</span>{/if}
       </div>
+    {:else if sens === 'virtuel' && estimationReception}
+      <div class="estimation rounded-xl p-3 text-sm">
+        <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong> visibles dans le dossier,
+        sans rien télécharger : un fichier n’arrive qu’au moment où un programme l’ouvre.
+      </div>
     {:else if sens === 'descendante' && estimationReception}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={grosseReception || placeManque}>
         {#if estimationReception.fichiers === 0}
@@ -387,6 +406,9 @@
       {#if sens === 'montante'}
         Rien n’est jamais supprimé : ni les fichiers de ce dossier, ni les photos sur le serveur. Les photos déjà présentes
         sur le serveur ne sont pas renvoyées.
+      {:else if sens === 'virtuel'}
+        Lecture seule : rien ne peut être modifié ni effacé dans ce dossier. Les photos ouvertes restent dans un cache
+        (20 Go au plus), à vider dans les Réglages.
       {:else if sens === 'double'}
         Rien n’est jamais effacé définitivement : au pire une photo quitte l’album ou va dans la corbeille. Un fichier
         modifié d’un côté est gardé en double plutôt qu’écrasé.
@@ -402,6 +424,8 @@
           {estimationEnvoi && estimationEnvoi.fichiers > 0 ? `Envoyer ${volume(estimationEnvoi.octets)}` : 'Envoyer'}
         {:else if sens === 'double'}
           Synchroniser
+        {:else if sens === 'virtuel'}
+          Afficher dans le dossier
         {:else}
           {estimationReception && estimationReception.fichiers > 0 ? `Recevoir ${volume(estimationReception.octets)}` : 'Recevoir'}
         {/if}
