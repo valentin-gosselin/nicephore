@@ -4,6 +4,7 @@
     | { sens: 'montante'; dossier: string; cible: CibleEnvoi }
     | { sens: 'descendante'; dossier: string; selection: SelectionServeur; rangement: RangementReception }
     | { sens: 'double'; dossier: string; album: string | null; nouvelAlbum: string | null; miroir: boolean }
+    | { sens: 'doubleBibliotheque'; dossier: string; cible: CibleEnvoi; selection: SelectionServeur; dossierRecus: string }
     | { sens: 'virtuel'; dossier: string; selection: SelectionServeur; rangement: RangementReception }
   ) & { sansRaw: boolean };
 </script>
@@ -32,7 +33,7 @@
 
   let { onvalider, onfermer }: { onvalider: (d: Demande) => Promise<boolean>; onfermer: () => void } = $props();
 
-  let sens = $state<Demande['sens']>('montante');
+  let sens = $state<Exclude<Demande['sens'], 'doubleBibliotheque'>>('montante');
   let dossier = $state<string | null>(null);
   let enCours = $state(false);
 
@@ -45,7 +46,12 @@
   let du = $state('');
   let au = $state('');
   let rangement = $state<Rangement>('plat');
-  // Two-way.
+  // Two-way: with the whole library (or since a date), or with an album.
+  let avec = $state<'bibliotheque' | 'album'>('bibliotheque');
+  let genreDouble = $state<'bibliotheque' | 'albumParDossier'>('bibliotheque');
+  let depuis = $state('');
+  let dansSousDossier = $state(true);
+  const SOUS_DOSSIER = 'Depuis Immich';
   let albumDouble = $state<string>('nouveau');
   let miroir = $state(false);
   let avecRaw = $state(true);
@@ -89,6 +95,8 @@
     if (quoi === 'periode') return du || au ? { genre: 'periode', du: du || null, au: au || null } : null;
     return { genre: quoi } as Selection;
   });
+  const avecBibliotheque = $derived(sens === 'double' && avec === 'bibliotheque');
+  const selectionDouble = $derived<Selection>(depuis ? { genre: 'periode', du: depuis, au: null } : { genre: 'bibliotheque' });
 
   // What would be sent from the folder.
   $effect(() => {
@@ -105,17 +113,17 @@
   });
 
   // What would be received, and the room for it.
+  const selectionRecue = $derived(sens === 'descendante' || sens === 'virtuel' ? selection : avecBibliotheque ? selectionDouble : null);
   $effect(() => {
-    if (sens !== 'descendante' && sens !== 'virtuel') return;
-    const s = selection;
+    const s = selectionRecue;
     const d = dossier;
     const cle = JSON.stringify([s, d]);
     estimationReception = null;
-    erreurEstimation = null;
     if (!s) return;
+    erreurEstimation = null;
     estimationEnCours = true;
     estimerReception(s, d)
-      .then((e) => cle === JSON.stringify([selection, dossier]) && (estimationReception = e))
+      .then((e) => cle === JSON.stringify([selectionRecue, dossier]) && (estimationReception = e))
       .catch((e) => (erreurEstimation = String(e)))
       .finally(() => (estimationEnCours = false));
   });
@@ -132,12 +140,22 @@
   const placeManque = $derived(
     !!estimationReception && estimationReception.libre != null && estimationReception.octets + MARGE > estimationReception.libre,
   );
+  /** Two ways with the library: at least what the folder does not hold
+      already must fit (the exact part is known once the folder is read). */
+  const auMoinsARecevoir = $derived(
+    estimationReception && estimationEnvoi ? Math.max(0, estimationReception.octets - estimationEnvoi.octets) : 0,
+  );
+  const placeManqueDouble = $derived(
+    !!estimationReception && estimationReception.libre != null && auMoinsARecevoir + MARGE > estimationReception.libre,
+  );
 
   const pret = $derived(
     !!dossier &&
       (sens === 'montante'
         ? !!estimationEnvoi && estimationEnvoi.fichiers > 0 && (genre !== 'album' || !!albumChoisi)
-        : sens === 'double'
+        : sens === 'double' && avec === 'bibliotheque'
+          ? !!estimationEnvoi && !!estimationReception && !placeManqueDouble
+          : sens === 'double'
           ? !!estimationEnvoi && (albumDouble === 'nouveau' || !!albums?.some((a) => a.id === albumDouble))
           : sens === 'virtuel'
             ? !!selection && !!estimationReception && estimationReception.fichiers > 0
@@ -165,6 +183,15 @@
         cible = { genre };
       }
       demande = { sens, dossier, cible, sansRaw: false };
+    } else if (sens === 'double' && avec === 'bibliotheque') {
+      demande = {
+        sens: 'doubleBibliotheque',
+        dossier,
+        cible: { genre: genreDouble },
+        selection: selectionDouble,
+        dossierRecus: dansSousDossier ? SOUS_DOSSIER : '',
+        sansRaw: false,
+      };
     } else if (sens === 'double') {
       demande =
         albumDouble === 'nouveau'
@@ -207,8 +234,8 @@
     },
     {
       sens: 'double',
-      titre: 'Garder un dossier et un album identiques',
-      detail: 'Ce qui arrive dans le dossier part dans l’album, ce qui arrive dans l’album vient dans le dossier.',
+      titre: 'Synchroniser dans les deux sens',
+      detail: 'Avec toute la photothèque ou avec un album : ce qui manque d’un côté arrive de l’autre, sans doublon.',
     },
   ];
   const ciblesEnvoi: { genre: Cible['genre']; titre: string; detail: string }[] = [
@@ -264,7 +291,9 @@
         {sens === 'montante'
           ? 'Dossier à envoyer'
           : sens === 'double'
-            ? 'Dossier à garder identique à l’album'
+            ? avec === 'bibliotheque'
+              ? 'Dossier de photos de cet ordinateur'
+              : 'Dossier à garder identique à l’album'
             : sens === 'virtuel'
               ? 'Dossier vide où voir les photos'
               : 'Dossier où recevoir'}
@@ -276,6 +305,51 @@
     </div>
 
     {#if sens === 'double'}
+      <fieldset class="flex flex-wrap gap-2">
+        <legend class="mb-1 text-sm opacity-60">Avec quoi</legend>
+        <label class="pastille" class:choisie={avec === 'bibliotheque'}>
+          <input type="radio" name="avec" value="bibliotheque" bind:group={avec} class="sr-only" /> Toute la photothèque
+        </label>
+        <label class="pastille" class:choisie={avec === 'album'}>
+          <input type="radio" name="avec" value="album" bind:group={avec} class="sr-only" /> Un album
+        </label>
+      </fieldset>
+    {/if}
+
+    {#if avecBibliotheque}
+      <fieldset class="space-y-2">
+        <legend class="mb-1 text-sm opacity-60">Où vont les photos du dossier</legend>
+        {#each ciblesEnvoi.filter((o) => o.genre !== 'album') as o (o.genre)}
+          <label class="option" class:choisie={genreDouble === o.genre}>
+            <input type="radio" name="cible-double" value={o.genre} bind:group={genreDouble} />
+            <span>
+              <span class="block font-medium">{o.titre}</span>
+              <span class="block text-sm opacity-70">{o.detail}</span>
+            </span>
+          </label>
+        {/each}
+      </fieldset>
+      <fieldset class="flex flex-wrap items-center gap-2 text-sm">
+        <legend class="mb-1 text-sm opacity-60">Quoi recevoir du serveur</legend>
+        <label class="pastille" class:choisie={!depuis}>
+          <input type="radio" name="depuis" checked={!depuis} onchange={() => (depuis = '')} class="sr-only" /> Toute la photothèque
+        </label>
+        <label class="flex items-center gap-2">
+          Seulement depuis le <input type="date" class="champ" bind:value={depuis} aria-label="Depuis le" />
+        </label>
+      </fieldset>
+      <fieldset class="space-y-2">
+        <legend class="mb-1 text-sm opacity-60">Où ranger les photos reçues</legend>
+        <label class="ligne" class:choisie={dansSousDossier}>
+          <input type="radio" name="sous-dossier" checked={dansSousDossier} onchange={() => (dansSousDossier = true)} />
+          <span>Dans un sous-dossier « {SOUS_DOSSIER} », par année et mois</span>
+        </label>
+        <label class="ligne" class:choisie={!dansSousDossier}>
+          <input type="radio" name="sous-dossier" checked={!dansSousDossier} onchange={() => (dansSousDossier = false)} />
+          <span>Directement dans le dossier, par année et mois</span>
+        </label>
+      </fieldset>
+    {:else if sens === 'double'}
       <fieldset class="space-y-2">
         <legend class="mb-1 text-sm opacity-60">Album</legend>
         <label class="ligne" class:choisie={albumDouble === 'nouveau'}>
@@ -365,7 +439,26 @@
       </div>
     {:else if erreurEstimation}
       <Text size="small" color="danger">{erreurEstimation}</Text>
-    {:else if sens === 'double' && estimationEnvoi}
+    {:else if avecBibliotheque && estimationEnvoi && estimationReception}
+      <div class="estimation rounded-xl p-3 text-sm" class:gros={placeManqueDouble || auMoinsARecevoir > GROS_OCTETS}>
+        <span class="block">
+          Dans le dossier : <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>, envoyées
+          sur le serveur sauf celles qui y sont déjà.
+        </span>
+        <span class="mt-1 block">
+          Sur le serveur : <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong>.
+          Celles qui ne sont pas déjà dans le dossier arriveront {dansSousDossier ? `dans « ${SOUS_DOSSIER} »` : 'dans le dossier'} :
+          entre {volume(auMoinsARecevoir)} et {volume(estimationReception.octets)}{estimationReception.libre != null
+            ? ` (${volume(estimationReception.libre)} libres sur ce disque)`
+            : ''}.
+        </span>
+        {#if placeManqueDouble}
+          <span class="mt-1 block">Pas assez de place sur ce disque : choisissez une date de début, ou libérez de la place.</span>
+        {:else if auMoinsARecevoir > GROS_OCTETS}
+          <span class="mt-1 block">C’est une grosse réception : elle prendra ce volume ici et du temps. La pause l’arrête aussitôt.</span>
+        {/if}
+      </div>
+    {:else if sens === 'double' && avec === 'album' && estimationEnvoi}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={grosEnvoi}>
         Dans le dossier : <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>, envoyées
         dans l’album (sauf celles déjà sur le serveur). Les photos de l’album absentes du dossier y seront copiées.
@@ -421,6 +514,11 @@
         Le dossier reste accessible même Nicéphore fermé (un petit service sans fenêtre le sert, lancé avec la session).
         Lecture seule : rien ne peut être modifié ni effacé dans ce dossier. Les photos ouvertes restent dans un cache
         (20 Go au plus), à vider dans les Réglages.
+      {:else if avecBibliotheque}
+        Rien n’est jamais supprimé ni écrasé, d’un côté comme de l’autre. Une photo est reconnue à son contenu, où qu’elle soit
+        dans le dossier et quel que soit son nom : elle n’est ni renvoyée ni retéléchargée. Une photo reçue que vous effacez
+        ou déplacez ici n’est pas retéléchargée ; une photo supprimée sur le serveur reste ici. Un fichier modifié ici part
+        comme une nouvelle photo (l’ancienne reste sur le serveur).
       {:else if sens === 'double'}
         Rien n’est jamais effacé définitivement : au pire une photo quitte l’album ou va dans la corbeille. Un fichier
         modifié d’un côté est gardé en double plutôt qu’écrasé.

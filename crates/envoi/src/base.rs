@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{Erreur, Resultat, maintenant_ms};
 
 /// Current schema version (`PRAGMA user_version`).
-const VERSION: i32 = 4;
+const VERSION: i32 = 5;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE regles (
@@ -97,6 +97,10 @@ CREATE TABLE suppressions (
 
 /// Version 4: RAW files may be left out of a rule.
 const SCHEMA_V4: &str = "ALTER TABLE regles ADD COLUMN sans_raw INTEGER NOT NULL DEFAULT 0;";
+
+/// Version 5: two-way rules with the whole library put what they receive
+/// in a sub-folder of their own (empty: the folder itself).
+const SCHEMA_V5: &str = "ALTER TABLE regles ADD COLUMN dossier_recus TEXT NOT NULL DEFAULT '';";
 
 /// A deletion seen on one side, to repeat on the other (two-way rules
 /// with mirrored deletions).
@@ -227,6 +231,8 @@ pub struct Regle {
     pub miroir: bool,
     /// RAW files (DNG, ARW, CR2...) left out, both ways.
     pub sans_raw: bool,
+    /// Sub-folder where received files go (empty: the folder itself).
+    pub dossier_recus: String,
     pub actif: bool,
     pub cree_le: i64,
 }
@@ -377,6 +383,9 @@ impl Base {
         if depuis < 4 {
             self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"))?;
         }
+        if depuis < 5 {
+            self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V5} PRAGMA user_version = 5; COMMIT;"))?;
+        }
         Ok(())
     }
 
@@ -385,7 +394,7 @@ impl Base {
     pub fn regles(&self) -> Resultat<Vec<Regle>> {
         let mut requete = self
             .cnx
-            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement, miroir, sans_raw FROM regles ORDER BY dossier")?;
+            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement, miroir, sans_raw, dossier_recus FROM regles ORDER BY dossier")?;
         let lignes = requete.query_map([], |r| {
             let cible = match r.get::<_, String>(2)?.as_str() {
                 "album" => Cible::Album {
@@ -411,6 +420,7 @@ impl Base {
                 rangement,
                 miroir: r.get(10)?,
                 sans_raw: r.get(11)?,
+                dossier_recus: r.get(12)?,
                 actif: r.get(5)?,
                 cree_le: r.get(6)?,
             })
@@ -443,12 +453,42 @@ impl Base {
         self.regle(regle.id)
     }
 
+    /// Adds a two-way rule between a folder and the library (or part of
+    /// it): the folder is sent like an upload rule (`cible`: library or one
+    /// album per folder), and the photos of `selection` found nowhere in the
+    /// folder are received into `dossier_recus`, by year and month.
+    /// Deletions are never mirrored with the library.
+    pub fn ajouter_double_bibliotheque(
+        &self,
+        dossier: &Path,
+        cible: &Cible,
+        selection: &api_immich::Selection,
+        dossier_recus: &str,
+    ) -> Resultat<Regle> {
+        if matches!(cible, Cible::Album { .. }) {
+            return Err(Erreur::Regle("avec un album, utilisez le double sens avec cet album".into()));
+        }
+        if matches!(selection, api_immich::Selection::Album { .. }) {
+            return Err(Erreur::Regle("un album se synchronise avec le double sens avec cet album".into()));
+        }
+        let dossier_recus = dossier_recus.trim();
+        if dossier_recus == "." || dossier_recus == ".." || dossier_recus.contains(['/', '\\', '<', '>', ':', '"', '|', '?', '*']) || dossier_recus.starts_with('.') {
+            return Err(Erreur::Regle("le sous-dossier des photos reçues doit être un simple nom".into()));
+        }
+        let regle = self.ajouter(dossier, Sens::Double, cible, Some(selection), Rangement::AnneeMois)?;
+        self.cnx.execute("UPDATE regles SET dossier_recus = ?2 WHERE id = ?1", params![regle.id, dossier_recus])?;
+        self.regle(regle.id)
+    }
+
     pub fn definir_sans_raw(&self, regle: i64, sans_raw: bool) -> Resultat<()> {
         let n = self.cnx.execute("UPDATE regles SET sans_raw = ?2 WHERE id = ?1", params![regle, sans_raw])?;
         if n == 0 { Err(Erreur::RegleInconnue) } else { Ok(()) }
     }
 
     pub fn definir_miroir(&self, regle: i64, miroir: bool) -> Resultat<()> {
+        if miroir && !matches!(self.regle(regle)?.cible, Cible::Album { .. }) {
+            return Err(Erreur::Regle("les suppressions ne se répercutent qu'avec un album".into()));
+        }
         self.cnx.execute("UPDATE regles SET miroir = ?2 WHERE id = ?1", params![regle, miroir])?;
         if !miroir {
             self.cnx.execute("DELETE FROM suppressions WHERE regle = ?1", params![regle])?;
@@ -457,6 +497,20 @@ impl Base {
     }
 
     /// Files of a two-way rule sent or found on the server: (asset, path).
+    /// A file just received by a two-way rule, recorded as already on the
+    /// server: the next scan of the folder neither hashes nor sends it, and
+    /// it joins no album (it came from the server).
+    pub fn noter_fichier_recu(&self, regle: i64, chemin: &str, taille: u64, modifie_ms: i64, sha1: &str, asset_id: &str) -> Resultat<()> {
+        self.cnx.execute(
+            "INSERT INTO fichiers (regle, chemin, taille, modifie_ms, sha1, etat, asset_id, album_fait, maj_le)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'present', ?6, 1, ?7)
+             ON CONFLICT (regle, chemin) DO UPDATE SET taille = ?3, modifie_ms = ?4, sha1 = ?5, etat = 'present',
+                 asset_id = ?6, album_fait = 1, essais = 0, prochain_essai = 0, erreur = NULL, maj_le = ?7",
+            params![regle, chemin, taille as i64, modifie_ms, sha1, asset_id, maintenant_ms()],
+        )?;
+        Ok(())
+    }
+
     pub fn fichiers_lies(&self, regle: i64) -> Resultat<Vec<(String, String)>> {
         let mut requete = self.cnx.prepare(
             "SELECT asset_id, chemin FROM fichiers WHERE regle = ?1 AND etat IN ('envoye', 'present') AND asset_id IS NOT NULL",
@@ -760,7 +814,10 @@ impl Base {
                 EtatFichier::Ignore => bilan.ignores += n,
             }
         }
-        let mut requete = self.cnx.prepare("SELECT regle, etat, COUNT(*) FROM recus GROUP BY regle, etat")?;
+        // Local files linked to their server copy (two-way rules) were not
+        // received: they are left out.
+        let mut requete =
+            self.cnx.prepare("SELECT regle, etat, COUNT(*) FROM recus WHERE NOT (etat = 'recu' AND sha1 = '') GROUP BY regle, etat")?;
         let lignes = requete.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as u64)))?;
         for ligne in lignes {
             let (regle, etat, n) = ligne?;
@@ -854,10 +911,15 @@ impl Base {
     }
 
     /// Downloads again what was deleted here or given up.
+    /// Two-way rules only retry failures: what was deleted or moved here
+    /// stays so (their entries may be local files of the user).
     pub fn recevoir_de_nouveau(&self, regle: i64) -> Resultat<usize> {
+        let etats = if self.regle(regle)?.sens == Sens::Double { "('echec')" } else { "('retire_ici', 'echec')" };
         Ok(self.cnx.execute(
-            "UPDATE recus SET etat = 'attente', essais = 0, prochain_essai = 0, erreur = NULL
-             WHERE regle = ?1 AND etat IN ('retire_ici', 'echec')",
+            &format!(
+                "UPDATE recus SET etat = 'attente', essais = 0, prochain_essai = 0, erreur = NULL
+                 WHERE regle = ?1 AND etat IN {etats}"
+            ),
             params![regle],
         )?)
     }
@@ -990,6 +1052,38 @@ mod tests {
             .ajouter_reception(Path::new("/recu"), &api_immich::Selection::Favoris, Rangement::AnneeMois)
             .unwrap();
         assert_eq!((r.sens, r.rangement, r.selection), (Sens::Descendante, Rangement::AnneeMois, Some(api_immich::Selection::Favoris)));
+    }
+
+    #[test]
+    fn double_sens_avec_la_phototheque() {
+        let base = Base::en_memoire().unwrap();
+        let tout = api_immich::Selection::Bibliotheque;
+        let album = Cible::Album { id: "a".into(), nom: "A".into() };
+        assert!(base.ajouter_double_bibliotheque(Path::new("/p"), &album, &tout, "Depuis Immich").is_err());
+        for mauvais in ["../ailleurs", "a/b", ".cache", "a:b"] {
+            assert!(base.ajouter_double_bibliotheque(Path::new("/p"), &Cible::Bibliotheque, &tout, mauvais).is_err(), "{mauvais}");
+        }
+        let r = base.ajouter_double_bibliotheque(Path::new("/p"), &Cible::AlbumParDossier, &tout, " Depuis Immich ").unwrap();
+        assert_eq!((r.sens, r.rangement, r.dossier_recus.as_str(), r.miroir), (Sens::Double, Rangement::AnneeMois, "Depuis Immich", false));
+        assert!(base.definir_miroir(r.id, true).is_err(), "jamais de suppressions répercutées avec la photothèque");
+
+        // A local file linked to its server copy is not counted as received;
+        // a received file is, and is recorded as known for the next scan.
+        base.lier_recu(r.id, "x", "mes/x.jpg").unwrap();
+        base.noter_fichier_recu(r.id, "Depuis Immich/2025/02/y.jpg", 10, 1_000, "abc", "y").unwrap();
+        let asset = api_immich::AssetDistant {
+            id: "y".into(),
+            nom_fichier: "y.jpg".into(),
+            sha1: "abc".into(),
+            taille: Some(10),
+            date_locale: "2025-02-01T12:00:00".into(),
+            modifie_le: String::new(),
+        };
+        base.noter_recu_present(r.id, &asset, "Depuis Immich/2025/02/y.jpg").unwrap();
+        let bilan = base.bilans().unwrap().remove(&r.id).unwrap();
+        assert_eq!((bilan.recus, bilan.presents), (1, 1));
+        assert!(base.sans_album(r.id).unwrap().is_empty(), "un fichier reçu ne rejoint pas d'album");
+        assert!(base.a_verifier(r.id).unwrap().is_empty());
     }
 
     #[test]

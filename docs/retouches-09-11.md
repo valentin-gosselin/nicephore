@@ -39,3 +39,25 @@
 - Le banc lance un hôte de zone minimal sur son bus privé (`examples/hote-zone.rs`) qui relit ce
   qu'un panneau verrait. Vérifié : banc `--jetable` 59/59 et `--fichier` 14/14, avec titre, quatre
   tailles d'images et menu lus par l'hôte.
+
+## Deux sens avec toute la photothèque
+
+- Le double sens ne reliait un dossier qu'à un album. Il peut désormais relier un dossier de
+  l'ordinateur à toute la photothèque (ou à ce qui a été pris depuis une date) : le dossier part
+  sur le serveur comme un envoi (photothèque seule ou un album par sous-dossier), et les photos
+  du serveur absentes du dossier descendent dans un sous-dossier « Depuis Immich » (ou directement
+  dans le dossier), par année et mois.
+- Pas de doublon : une photo est reconnue à son contenu (SHA-1), où qu'elle soit dans le dossier
+  et quel que soit son nom. Elle n'est ni renvoyée ni retéléchargée. Les photos reçues sont notées
+  comme connues : elles ne sont ni ré-analysées au passage suivant, ni rangées dans des albums.
+- Rien n'est supprimé ni écrasé : pas de suppressions répercutées avec la photothèque (refusé par
+  le moteur). Une photo reçue effacée ou déplacée ici n'est pas retéléchargée ; « recevoir de
+  nouveau » ne reprend que les échecs pour un double sens.
+- Tant qu'un fichier du dossier est en cours d'écriture, la réception attend le passage suivant :
+  sinon sa copie du serveur pourrait descendre en double.
+- Avant d'ajouter : nombre et volume du dossier, du serveur, et place nécessaire (au moins ce que
+  le dossier n'a pas déjà) ; refus si le disque ne suffit pas.
+- Schéma de la base : version 5 (colonne `dossier_recus`), sauvegarde automatique avant migration.
+- Vérifié : test d'intégration `double_sens_avec_la_phototheque` (copie renommée au fond d'un
+  sous-dossier non retéléchargée, nouvelle photo envoyée seule, pas d'album pour les reçues, fichier
+  déplacé ni retéléchargé ni renvoyé), suite jetable du moteur 13/13, banc `--jetable` 62/62.

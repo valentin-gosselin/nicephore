@@ -8,6 +8,7 @@
   import {
     activerRegleEnvoi,
     ajouterDouble,
+    ajouterDoubleBibliotheque,
     ajouterVirtuel,
     dossiersVirtuels,
     retirerVirtuel,
@@ -218,6 +219,8 @@
     try {
       const r = demande.sansRaw;
       if (demande.sens === 'montante') await ajouterRegleEnvoi(demande.dossier, demande.cible, r);
+      else if (demande.sens === 'doubleBibliotheque')
+        await ajouterDoubleBibliotheque(demande.dossier, demande.cible, demande.selection, demande.dossierRecus, r);
       else if (demande.sens === 'double') await ajouterDouble(demande.dossier, demande.album, demande.nouvelAlbum, demande.miroir, r);
       else if (demande.sens === 'virtuel') await ajouterVirtuel(demande.dossier, demande.selection, demande.rangement, r);
       else await ajouterReception(demande.dossier, demande.selection, demande.rangement, r);
@@ -368,7 +371,29 @@
               onclick={() => (aRetirer = regle)}
             />
           </div>
-          {#if regle.sens === 'double'}
+          {#if regle.sens === 'double' && regle.cible.genre !== 'album'}
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span class="opacity-70">
+                Synchronisé avec {regle.selection?.genre === 'periode' ? 'les photos ' : ''}{libelleSelection(regle.selection)}{regle.cible.genre === 'albumParDossier' ? ', un album par dossier' : ''}{regle.dossierRecus
+                  ? `, reçues dans « ${regle.dossierRecus} »`
+                  : ''}
+              </span>
+              <span class="compteurs">
+                {pluriel(regle.bilan.envoyes, 'envoyé')} · {pluriel(regle.bilan.recus, 'reçu')}{#if regle.bilan.aRecevoir}
+                  · {nombre(regle.bilan.aRecevoir)} à recevoir{/if}
+              </span>
+              {#if regle.bilan.echecs + regle.bilan.ignores}
+                <button class="lien text-red-500" onclick={() => voirEchecs(regle)}>
+                  {pluriel(regle.bilan.echecs + regle.bilan.ignores, 'fichier')} non envoyé{regle.bilan.echecs + regle.bilan.ignores > 1 ? 's' : ''}
+                </button>
+              {/if}
+              {#if regle.bilan.echecsReception}
+                <button class="lien" onclick={() => recevoirEncore(regle)}>
+                  {pluriel(regle.bilan.echecsReception, 'fichier')} en échec : recevoir de nouveau
+                </button>
+              {/if}
+            </div>
+          {:else if regle.sens === 'double'}
             {@const attente = etat?.confirmations?.[regle.id] ?? 0}
             <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
               <span class="opacity-70">Identique à l’album « {regle.cible.genre === 'album' ? regle.cible.nom : ''} »</span>

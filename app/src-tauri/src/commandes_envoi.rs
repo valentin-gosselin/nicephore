@@ -223,6 +223,32 @@ pub async fn ajouter_double(
     Ok(regle)
 }
 
+/// Adds a two-way rule between a folder and the library (or a period of
+/// it): the folder is sent (`cible`: library or one album per folder), and
+/// the photos of `selection` found nowhere in the folder come down into the
+/// sub-folder `dossier_recus` (empty: the folder itself), by year and month.
+#[tauri::command]
+pub fn ajouter_double_bibliotheque(
+    etat: State<'_, Etat>,
+    dossier: String,
+    cible: Cible,
+    selection: api_immich::Selection,
+    dossier_recus: String,
+    sans_raw: Option<bool>,
+) -> Result<Regle, String> {
+    if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
+        return Err(e);
+    }
+    let chemin = Path::new(&dossier);
+    if !chemin.is_absolute() || !chemin.is_dir() {
+        return Err("choisissez un dossier existant".into());
+    }
+    let regle = etat.envoi.base().ajouter_double_bibliotheque(chemin, &cible, &selection, &dossier_recus).map_err(erreur)?;
+    let regle = appliquer_sans_raw(&etat, regle, sans_raw)?;
+    etat.envoi.regles_changees();
+    Ok(regle)
+}
+
 /// RAW files left out from the start (before the first pass).
 fn appliquer_sans_raw(etat: &Etat, regle: Regle, sans_raw: Option<bool>) -> Result<Regle, String> {
     if sans_raw != Some(true) {

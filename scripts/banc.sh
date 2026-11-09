@@ -106,7 +106,7 @@ elif [ -n "$portable" ]; then
 elif [ -n "$jetable" ]; then
     # Photos for the upload scenario: variants of a seeded photo (new
     # checksums), one copy already on the server, one file to skip.
-    python3 -I "$racine/tests/immich-jetable/dossier-envoi.py" "$donnees_jetable/images" "$sortie/photos"
+    python3 -I "$racine/tests/immich-jetable/dossier-envoi.py" "$donnees_jetable/images" "$sortie/photos" "$sortie/deuxbib"
 fi
 
 # The write scenario gets its own config directory: settings it toggles

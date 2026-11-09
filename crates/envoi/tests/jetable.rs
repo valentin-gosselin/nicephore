@@ -525,6 +525,84 @@ async fn double_sens_sans_miroir() {
 
 #[tokio::test]
 #[ignore = "serveur Immich jetable"]
+async fn double_sens_avec_la_phototheque() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let images = PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/nicephore-immich-jetable/images");
+    // February 2025 stands for the library (the seeded essai-06 to essai-11).
+    let selection = Selection::Periode { du: Some("2025-02-01".into()), au: Some("2025-02-28".into()) };
+    let attendus = c.assets_de_selection(&selection).await.unwrap();
+    assert!(attendus.iter().any(|a| a.nom_fichier == "essai-07.jpg"), "essai-07 en février 2025");
+
+    // The folder has its own layout: one photo of the server, renamed, deep
+    // in a folder of its own, and a new one.
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join(format!("Images {jeton}"));
+    ecrire(&racine.join("2025/Anniversaire/ma-copie.jpg"), &std::fs::read(images.join("essai-07.jpg")).unwrap(), 3_600);
+    ecrire(&racine.join("nouvelle.jpg"), &variante(&photo_du_serveur(), &format!("nouvelle {jeton}")), 3_600);
+    patienter().await;
+
+    let moteur = moteur();
+    let regle = moteur
+        .base()
+        .ajouter_double_bibliotheque(&racine, &Cible::AlbumParDossier, &selection, "Depuis Immich")
+        .unwrap()
+        .id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    moteur.passage().await.unwrap();
+
+    // Up: only the new photo. Down: the others of the selection, in the
+    // received folder by year and month; the copy already here is not.
+    assert_eq!(journal(&moteur, "envoye"), 1);
+    assert_eq!(journal(&moteur, "recu"), attendus.len() - 1, "la photo déjà ici, sous un autre nom, ne redescend pas");
+    let fevrier = racine.join("Depuis Immich/2025/02");
+    let recus: Vec<String> = std::fs::read_dir(&fevrier).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert_eq!(recus.len(), attendus.len() - 1, "{recus:?}");
+    assert!(!recus.iter().any(|n| n == "essai-07.jpg"), "{recus:?}");
+    for a in attendus.iter().filter(|a| a.nom_fichier != "essai-07.jpg") {
+        assert_eq!(sha1_fichier(&fevrier.join(&a.nom_fichier)), a.sha1, "{}", a.nom_fichier);
+    }
+    // Albums for the folders of the user only, not for what came down.
+    assert!(moteur.base().album_dossier(regle, "2025/Anniversaire").unwrap().is_some());
+    assert!(moteur.base().album_dossier(regle, "Depuis Immich/2025/02").unwrap().is_none());
+    assert_eq!(journal(&moteur, "album_cree"), 2, "un album pour Anniversaire, un pour la racine");
+
+    // Next pass: the received files are known, neither hashed, sent back
+    // nor received again.
+    patienter().await;
+    moteur.passage().await.unwrap();
+    assert_eq!((journal(&moteur, "envoye"), journal(&moteur, "recu"), journal(&moteur, "album_cree")), (1, attendus.len() - 1, 2));
+    let bilan = compter(&moteur, regle);
+    assert_eq!((bilan.recus as usize, bilan.a_recevoir, bilan.en_attente), (attendus.len() - 1, 0, 0), "{bilan:?}");
+    assert_eq!(
+        (bilan.retires_serveur, journal(&moteur, "retire_du_serveur")),
+        (0, 0),
+        "la nouvelle photo, hors de la période, n'est pas « retirée du serveur »"
+    );
+
+    // Moved by the user into a folder of theirs: neither received again nor
+    // sent again.
+    let un = &recus[0];
+    std::fs::create_dir_all(racine.join("2025/Rangées")).unwrap();
+    std::fs::rename(fevrier.join(un), racine.join("2025/Rangées").join(un)).unwrap();
+    patienter().await;
+    moteur.passage().await.unwrap();
+    assert!(!fevrier.join(un).exists(), "pas retéléchargée");
+    assert_eq!(journal(&moteur, "envoye"), 1, "pas renvoyée");
+
+    // Cleanup: only what this test sent, and its albums.
+    let envoyes: Vec<String> =
+        moteur.base().journal(1_000).unwrap().into_iter().filter(|e| e.action == "envoye").filter_map(|e| e.asset_id).collect();
+    c.mettre_a_la_corbeille(&envoyes).await.unwrap();
+    let albums: Vec<String> =
+        moteur.base().journal(1_000).unwrap().into_iter().filter(|e| e.action == "album_cree").filter_map(|e| e.asset_id).collect();
+    for id in albums {
+        c.supprimer_album(&id).await.unwrap();
+    }
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
 async fn double_sens_avec_miroir_et_garde_fous() {
     let c = client().await;
     let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());

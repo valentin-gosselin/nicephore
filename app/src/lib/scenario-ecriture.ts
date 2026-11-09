@@ -313,6 +313,47 @@ export async function lancerScenarioEcriture() {
       (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus synchroniser'))?.click();
       await attendre(1500);
 
+      // 11c bis. Two ways with the library (February 2025 standing for
+      // it): the dialog, then a folder holding a renamed copy of a server
+      // photo and a new one (prepared by banc.sh).
+      (await element<HTMLButtonElement>('button', (b) => b.textContent?.includes('Ajouter un dossier') ?? false))?.click();
+      (await element<HTMLInputElement>('input[name="sens"][value="double"]'))?.click();
+      await attendre(500);
+      await verifier(
+        'deux sens : photothèque proposée par défaut',
+        !!document.querySelector<HTMLInputElement>('input[name="avec"][value="bibliotheque"]')?.checked &&
+          boite().includes('Où ranger les photos reçues') &&
+          boite().includes('Depuis Immich') &&
+          boite().includes('reconnue à son contenu'),
+        boite().slice(0, 300),
+      );
+      await capture('e6d0-boite-deux-sens');
+      (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Annuler'))?.click();
+      await attendre(500);
+      const deuxBib = await invoke<string | null>('dossier_banc_vide', { nom: 'deuxbib' });
+      const fevrier = await invoke<{ fichiers: number }>('estimer_reception', { selection: periode, dossier: deuxBib });
+      await invoke('ajouter_double_bibliotheque', {
+        dossier: deuxBib,
+        cible: { genre: 'bibliotheque' },
+        selection: periode,
+        dossierRecus: 'Depuis Immich',
+      });
+      type VueBib = { sens: string; cible: { genre: string }; bilan: { envoyes: number; presents: number; recus: number; aRecevoir: number; retiresServeur: number } };
+      const bib = async () => (await invoke<VueBib[]>('regles_envoi')).find((r) => r.sens === 'double' && r.cible.genre !== 'album');
+      for (let i = 0; i < 80 && ((await bib())?.bilan.recus ?? 0) < fevrier.fichiers - 1; i++) await attendre(500);
+      await attendre(1500);
+      const vueBib = await bib();
+      await verifier(
+        'deux sens photothèque : la nouvelle part, la copie renommée ne redescend pas',
+        vueBib?.bilan.envoyes === 1 && vueBib.bilan.recus === fevrier.fichiers - 1 && vueBib.bilan.aRecevoir === 0 && vueBib.bilan.retiresServeur === 0,
+        JSON.stringify(vueBib?.bilan),
+      );
+      await verifier('deux sens photothèque affiché', page().includes('Synchronisé avec') && page().includes('reçues dans « Depuis Immich »'), page().slice(0, 300));
+      await capture('e6d1-deux-sens-phototheque');
+      (await element<HTMLButtonElement>('[aria-label^="Ne plus synchroniser"]'))?.click();
+      (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus synchroniser'))?.click();
+      await attendre(1500);
+
       // 11d. Virtual folder: February 2025 shown without downloading.
       const pointVirtuel = await invoke<string | null>('dossier_banc_vide', { nom: 'virtuel' });
       await invoke('ajouter_virtuel', { point: pointVirtuel, selection: periode, rangement: 'anneeMois' });

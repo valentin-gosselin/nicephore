@@ -246,6 +246,8 @@ export type RegleEnvoi = {
   miroir: boolean;
   /** RAW files left out. */
   sansRaw: boolean;
+  /** Sub-folder of received files (two ways with the library). */
+  dossierRecus: string;
   actif: boolean;
   creeLe: number;
   bilan: BilanEnvoi;
@@ -350,6 +352,8 @@ export const recevoirDeNouveau = (regle: number) => invoke<number>('recevoir_de_
 export type SuppressionEnAttente = { cote: 'ici' | 'serveur'; assetId: string; chemin: string; vuLe: number; confirme: boolean };
 export const ajouterDouble = (dossier: string, album: string | null, nouvelAlbum: string | null, miroir: boolean, sansRaw = false) =>
   invoke<RegleEnvoi>('ajouter_double', { dossier, album, nouvelAlbum, miroir, sansRaw });
+export const ajouterDoubleBibliotheque = (dossier: string, cible: Cible, selection: Selection, dossierRecus: string, sansRaw = false) =>
+  invoke<RegleEnvoi>('ajouter_double_bibliotheque', { dossier, cible, selection, dossierRecus, sansRaw });
 export const definirSansRaw = (regle: number, sansRaw: boolean) => invoke<void>('definir_sans_raw', { regle, sansRaw });
 export const definirMiroir = (regle: number, miroir: boolean) => invoke<void>('definir_miroir', { regle, miroir });
 export const suppressionsEnAttente = (regle: number) => invoke<SuppressionEnAttente[]>('suppressions_en_attente', { regle });

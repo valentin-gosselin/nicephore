@@ -707,6 +707,11 @@ impl Moteur {
         if self.interrompu(generation) {
             return Ok(None);
         }
+        // A file still being written here was not looked up yet: receiving
+        // now could bring a second copy of it. Next pass.
+        if revoir_envoi.is_some() {
+            return Ok(revoir_envoi);
+        }
         // Sent (or found on the server) files are the local copies of their
         // album photos.
         {
@@ -830,9 +835,17 @@ impl Moteur {
         // What changed since the last pass. With mirrored deletions, a file
         // gone on one side becomes a candidate deletion on the other.
         let mut candidats: Vec<(String, String, String)> = Vec::new();
+        // Two ways with the library: a local file of the user linked to its
+        // server copy may simply lie outside the selection (before its start
+        // date): not "removed from the server", just not concerned.
+        let avec_bibliotheque = regle.sens == crate::Sens::Double && !matches!(regle.cible, Cible::Album { .. });
         {
             let base = self.base();
             for (asset_id, recu) in &connus {
+                if avec_bibliotheque && recu.sha1.is_empty() && !ids.contains(asset_id.as_str()) {
+                    base.oublier_recu(regle.id, asset_id)?;
+                    continue;
+                }
                 // Left-out RAW files are not "gone": never deleted nor re-sent.
                 if regle.sans_raw && analyse::est_raw(&recu.chemin) {
                     continue;
@@ -871,7 +884,7 @@ impl Moteur {
             .iter()
             .enumerate()
             .filter_map(|(i, a)| {
-                let relatif = chemin_naturel(regle.rangement, a);
+                let relatif = chemin_naturel(regle, a);
                 let absolu = analyse::absolu(&racine, &relatif);
                 let meme_taille = std::fs::metadata(&absolu).is_ok_and(|m| a.taille.is_none_or(|t| t == m.len()));
                 meme_taille.then_some((i, absolu, relatif))
@@ -899,7 +912,7 @@ impl Moteur {
                     base.noter_recu_present(regle.id, asset, relatif)?;
                     continue;
                 }
-                let dossier = sous_dossier(regle.rangement, &asset.date_locale);
+                let dossier = sous_dossier_regle(regle, &asset.date_locale);
                 let chemin = nom_libre(&racine, &dossier, &asset.nom_fichier, &asset.id, &mut pris);
                 base.reserver_recu(regle.id, asset, &chemin)?;
             }
@@ -1061,9 +1074,18 @@ impl Moteur {
             let _ = tokio::fs::remove_file(&partiel).await;
             return echec(format!("mise en place impossible : {e}"), fichier.essais);
         }
+        let meta = std::fs::metadata(&cible).ok();
         let base = self.base();
         base.changer_etat_recu(regle.id, &fichier.asset_id, EtatRecu::Recu)?;
         base.journaliser(Some(regle.id), Some(&fichier.chemin), "recu", None, Some(&fichier.asset_id))?;
+        // Two ways, the folder is also scanned for sending: the received
+        // file is known there already.
+        if regle.sens == crate::Sens::Double
+            && let Some(meta) = meta
+        {
+            let modifie = meta.modified().map(analyse_ms).unwrap_or(0);
+            base.noter_fichier_recu(regle.id, &fichier.chemin, meta.len(), modifie, &fichier.sha1, &fichier.asset_id)?;
+        }
         Ok(())
     }
 }
@@ -1079,10 +1101,20 @@ fn nettoyer_partiels(racine: &Path) {
 }
 
 /// Where an asset goes when its name is free.
-fn chemin_naturel(rangement: crate::Rangement, asset: &AssetDistant) -> String {
-    let dossier = sous_dossier(rangement, &asset.date_locale);
+fn chemin_naturel(regle: &Regle, asset: &AssetDistant) -> String {
+    let dossier = sous_dossier_regle(regle, &asset.date_locale);
     let nom = nom_sur(&asset.nom_fichier, &asset.id);
     if dossier.is_empty() { nom } else { format!("{dossier}/{nom}") }
+}
+
+/// Sub-folder of a file received by `regle`, under its own sub-folder.
+fn sous_dossier_regle(regle: &Regle, date_locale: &str) -> String {
+    let dossier = sous_dossier(regle.rangement, date_locale);
+    match (regle.dossier_recus.as_str(), dossier.is_empty()) {
+        ("", _) => dossier,
+        (base, true) => base.to_string(),
+        (base, false) => format!("{base}/{dossier}"),
+    }
 }
 
 /// Sub-folder of a received file: none, or `YYYY/MM` from the capture date.
