@@ -40,6 +40,8 @@ pub struct Virtuels {
     compte: Mutex<Option<String>>,
     #[cfg(target_os = "linux")]
     montages: Mutex<HashMap<i64, Arc<virtuel::Montage>>>,
+    #[cfg(windows)]
+    montages: Mutex<HashMap<i64, virtuel::windows::MontageWindows>>,
     erreurs: Mutex<HashMap<i64, String>>,
 }
 
@@ -76,6 +78,10 @@ impl Virtuels {
         for (_, montage) in self.montages.lock().expect("verrou des montages").drain() {
             montage.demonter();
         }
+        // Windows: disconnecting keeps the placeholders (they open again at
+        // the next connection).
+        #[cfg(windows)]
+        self.montages.lock().expect("verrou des montages").clear();
     }
 
     /// Logout: everything unmounted, no account.
@@ -134,9 +140,27 @@ impl Virtuels {
         Ok(())
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    async fn essayer_monter(&self, etat: &Etat, dossier: &DossierVirtuel) -> Result<(), String> {
+        let client = etat.client()?;
+        let assets = client.assets_de_selection(&dossier.selection).await.map_err(|e| e.to_string())?;
+        let source = Arc::new(virtuel::SourceCache {
+            cache: Arc::clone(&etat.originaux),
+            client,
+            runtime: tokio::runtime::Handle::current(),
+        });
+        let point = PathBuf::from(&dossier.point);
+        let r = rangement(dossier.rangement);
+        let montage = tauri::async_runtime::spawn_blocking(move || virtuel::windows::monter(&point, &assets, r, source))
+            .await
+            .map_err(|e| e.to_string())??;
+        self.montages.lock().expect("verrou des montages").insert(dossier.id, montage);
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "linux", windows)))]
     async fn essayer_monter(&self, _etat: &Etat, _dossier: &DossierVirtuel) -> Result<(), String> {
-        Err("les fichiers virtuels ne sont pas encore pris en charge sur ce système".into())
+        Err("les fichiers virtuels ne sont pas pris en charge sur ce système".into())
     }
 
     /// Refreshes the content of every mounted folder.
@@ -153,7 +177,23 @@ impl Virtuels {
                     (Some(_), Err(e)) => tracing::info!("actualisation de {} : {e}", dossier.point),
                 }
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(windows)]
+            {
+                let deja = self.montages.lock().expect("verrou des montages").contains_key(&dossier.id);
+                match client.assets_de_selection(&dossier.selection).await {
+                    Ok(assets) if deja => {
+                        if let Some(m) = self.montages.lock().expect("verrou des montages").get(&dossier.id)
+                            && let Err(e) = m.actualiser(&assets)
+                        {
+                            tracing::info!("actualisation de {} : {e}", dossier.point);
+                        }
+                    }
+                    _ if !deja => self.monter(etat, &dossier).await,
+                    Ok(_) => {}
+                    Err(e) => tracing::info!("actualisation de {} : {e}", dossier.point),
+                }
+            }
+            #[cfg(not(any(target_os = "linux", windows)))]
             let _ = (&client, dossier);
         }
     }
@@ -185,7 +225,15 @@ pub fn virtuels(etat: State<'_, Etat>) -> Result<Vec<VueVirtuel>, String> {
             let montage = etat.virtuels.montages.lock().expect("verrou des montages").get(&dossier.id).cloned();
             #[cfg(target_os = "linux")]
             let (monte, fichiers) = montage.map_or((false, 0), |m| (true, m.fichiers()));
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(windows)]
+            let (monte, fichiers) = etat
+                .virtuels
+                .montages
+                .lock()
+                .expect("verrou des montages")
+                .get(&dossier.id)
+                .map_or((false, 0), |m| (true, m.fichiers()));
+            #[cfg(not(any(target_os = "linux", windows)))]
             let (monte, fichiers) = (false, 0);
             VueVirtuel { erreur: erreurs.get(&dossier.id).cloned(), dossier, monte, fichiers }
         })
@@ -200,8 +248,8 @@ pub async fn ajouter_virtuel(
     selection: Selection,
     rangement: envoi::Rangement,
 ) -> Result<(), String> {
-    if !cfg!(target_os = "linux") {
-        return Err("les fichiers virtuels ne sont pas encore pris en charge sur ce système".into());
+    if !cfg!(any(target_os = "linux", windows)) {
+        return Err("les fichiers virtuels ne sont pas pris en charge sur ce système".into());
     }
     let compte = compte_actif(&etat)?;
     let chemin = Path::new(&point);
@@ -236,6 +284,13 @@ pub fn retirer_virtuel(etat: State<'_, Etat>, id: i64) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     if let Some(m) = etat.virtuels.montages.lock().expect("verrou des montages").remove(&id) {
         m.demonter();
+    }
+    // Windows: the folder leaves Explorer's cloud folders.
+    #[cfg(windows)]
+    if let Some(m) = etat.virtuels.montages.lock().expect("verrou des montages").remove(&id)
+        && let Err(e) = m.retirer()
+    {
+        tracing::warn!("retrait du dossier virtuel : {e}");
     }
     let liste: Vec<DossierVirtuel> = lire(&etat.dossier_config, &compte).into_iter().filter(|d| d.id != id).collect();
     ecrire(&etat.dossier_config, &compte, &liste)

@@ -19,6 +19,9 @@ tracing = "0.1.44"
 fuser = { version = "0.18", default-features = false }
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+cloud-filter = "0.0.7"
+
 [dev-dependencies]
 hex = "0.4.3"
 sha1 = "0.11.0"
