@@ -17,8 +17,8 @@
         "title": "Nicéphore",
         "width": 1280,
         "height": 820,
-        "minWidth": 720,
-        "minHeight": 480,
+        "minWidth": 480,
+        "minHeight": 360,
         "visible": false,
         "create": false,
         "decorations": false

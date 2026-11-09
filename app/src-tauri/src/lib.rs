@@ -2,6 +2,7 @@
 //! `vignette://` protocol serving cached images, and the local video proxy.
 
 mod alimentation;
+mod apercu_raw;
 mod banc;
 mod coffre;
 mod commandes_envoi;
@@ -714,6 +715,8 @@ pub fn lancer() {
 
     // Photos opened from the file manager (default viewer).
     let fichiers_initiaux = fichiers_locaux::fichiers_dans_args(&std::env::args().collect::<Vec<_>>());
+    // Opened for a photo: the page shows the window once sized to it.
+    let pour_un_fichier = !fichiers_initiaux.is_empty();
 
     tauri::Builder::default()
         // A second launch (another photo opened) goes to the running window.
@@ -733,7 +736,7 @@ pub fn lancer() {
                 commandes_envoi::prevenir_arriere_plan(fenetre.app_handle());
             }
         })
-        .setup(|app| {
+        .setup(move |app| {
             let portable = portable::detecter();
             let emplacements = match &portable {
                 Some(racine) => portable::Emplacements::portables(racine),
@@ -822,7 +825,7 @@ pub fn lancer() {
             // go on there, else show the window as usual.
             let etat = app.state::<Etat>();
             let arriere_plan = std::env::args().any(|a| a == reglages::ARG_ARRIERE_PLAN) && etat.garder_en_arriere_plan();
-            if !arriere_plan && let Some(fenetre) = app.get_webview_window("main") {
+            if !arriere_plan && !pour_un_fichier && let Some(fenetre) = app.get_webview_window("main") {
                 fenetre.show()?;
             }
             Ok(())
@@ -894,6 +897,7 @@ pub fn lancer() {
             fichiers_locaux::ouvrir_fichier_local,
             fichiers_locaux::etat_fichier_local,
             fichiers_locaux::envoyer_fichier_local,
+            fichiers_locaux::apercu_local,
             fichiers_locaux::definir_visionneuse_par_defaut,
             banc::lancer_seconde_instance,
             virtuels::virtuels,

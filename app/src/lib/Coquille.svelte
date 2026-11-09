@@ -13,6 +13,7 @@
   import BarreLaterale from './BarreLaterale.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import BarreFenetre from './BarreFenetre.svelte';
   import BoutonsFenetre from './BoutonsFenetre.svelte';
   import Connexion from './Connexion.svelte';
@@ -70,7 +71,13 @@
 
   /** Opens photos of this computer (default viewer). */
   function ouvrirFichiers(fichiers: string[]) {
-    if (fichiers.length) void goto(`/fichier?chemin=${encodeURIComponent(fichiers[0])}`);
+    if (!fichiers.length) return;
+    // The viewer sizes the window to the photo and shows it; just in case,
+    // the window shows anyway after a few seconds.
+    void goto(`/fichier?chemin=${encodeURIComponent(fichiers[0])}&ajuster=1`);
+    setTimeout(async () => {
+      if (!(await getCurrentWindow().isVisible())) await getCurrentWindow().show();
+    }, 5000);
   }
 
   onMount(() => {

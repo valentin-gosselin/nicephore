@@ -94,6 +94,9 @@ sortie = pathlib.Path(sys.argv[2])
 for nom in ("b-nouvelle", "c-autre"):
     texte = f"{nom} {time.time()}".encode()
     (sortie / f"{nom}.jpg").write_bytes(source[:2] + b"\xff\xfe" + (len(texte) + 2).to_bytes(2, "big") + texte + source[2:])
+# A made-up RAW: TIFF header with orientation 6 (rotated), a JPEG inside.
+entete = b"II*\0\x08\0\0\0" + bytes([1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0])
+(sortie / "d-raw.arw").write_bytes(entete + b"\0" * 64 + source + b"\0" * 64)
 PY
     arguments="\"$sortie/local/b-nouvelle.jpg\""
 elif [ -n "$portable" ]; then

@@ -30,19 +30,33 @@ export async function lancerScenarioFichier() {
     await journal('scénario visionneuse locale');
     const affichee = await quand(() => location.pathname === '/fichier' && (document.querySelector<HTMLImageElement>('img.image')?.naturalWidth ?? 0) > 0);
     await verifier('photo ouverte depuis la ligne de commande et affichée', affichee, location.search.slice(0, 120));
-    await verifier('position dans le dossier', texte().includes('2 / 3'));
-    await verifier('nuage barré : pas sur Immich', await quand(() => texte().includes('Pas sur Immich')));
+    await verifier('position dans le dossier', texte().includes('2 / 4'));
+    // The window took the photo's proportions (portrait 1067 x 1600).
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await attendre(800);
+    const fenetre = getCurrentWindow();
+    const taille = (await fenetre.innerSize()).toLogical(await fenetre.scaleFactor());
+    const rapport = taille.width / (taille.height - 48);
+    await verifier('fenêtre aux proportions de la photo', Math.abs(rapport - 1067 / 1600) < 0.05, `${Math.round(taille.width)} × ${Math.round(taille.height)}`);
+    const etiquettes = () => [...document.querySelectorAll('.statut')].map((e) => `${e.textContent} ${e.getAttribute('aria-label') ?? ''} ${e.getAttribute('title') ?? ''}`).join(' ');
+    await verifier('nuage barré : pas sur Immich', await quand(() => etiquettes().includes('Pas sur Immich')));
+    await verifier('barre compacte dans une fenêtre étroite', !!document.querySelector('button[aria-label="Envoyer maintenant"]'));
     await capture('f1-pas-sur-immich');
     bouton('Envoyer maintenant')?.click();
-    await verifier('envoyée, puis nuage coché', await quand(() => texte().includes('Sur Immich') && !texte().includes('Pas sur Immich'), 150));
+    await verifier('envoyée, puis nuage coché', await quand(() => etiquettes().includes('Sur Immich') && !etiquettes().includes('Pas sur Immich'), 150));
     await capture('f2-envoyee');
     bouton('Précédente')?.click();
     await verifier('voisine du dossier', await quand(() => location.search.includes('a-sur-serveur')));
-    await verifier('voisine déjà sur Immich', await quand(() => texte().includes('Sur Immich') && !texte().includes('Pas sur Immich'), 150));
+    await verifier('voisine déjà sur Immich', await quand(() => etiquettes().includes('Sur Immich') && !etiquettes().includes('Pas sur Immich'), 150));
     const nouvelle = decodeURIComponent(new URLSearchParams(location.search).get('chemin') ?? '').replace('a-sur-serveur', 'c-autre');
     await invoke('lancer_seconde_instance', { chemin: nouvelle });
     await verifier('seconde ouverture dans la même fenêtre', await quand(() => location.search.includes('c-autre'), 150), location.search.slice(0, 120));
     await capture('f3-seconde-ouverture');
+    bouton('Suivante')?.click();
+    const raw = await quand(() => location.search.includes('d-raw') && (document.querySelector<HTMLImageElement>('img.apercu-raw')?.naturalWidth ?? 0) > 0, 150);
+    await verifier('aperçu du RAW affiché', raw && texte().includes('Aperçu du RAW (1067 × 1600)'), texte().slice(0, 160));
+    await verifier('aperçu pivoté selon le RAW', document.querySelector<HTMLElement>('img.apercu-raw')?.style.transform.includes('rotate(90deg)') ?? false);
+    await capture('f4-raw');
   } catch (e) {
     await journal(`scénario interrompu : ${e}`);
   }

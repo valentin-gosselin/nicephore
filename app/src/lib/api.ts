@@ -382,6 +382,7 @@ export type FichierOuvert = {
   modifieLe: number;
   affichable: boolean;
   video: boolean;
+  raw: boolean;
   voisins: string[];
   index: number;
 };
@@ -391,3 +392,5 @@ export const ouvrirFichierLocal = (chemin: string) => invoke<FichierOuvert>('ouv
 export const etatFichierLocal = (chemin: string) => invoke<EtatLocal>('etat_fichier_local', { chemin });
 export const envoyerFichierLocal = (chemin: string) => invoke<string>('envoyer_fichier_local', { chemin });
 export const definirVisionneuseParDefaut = () => invoke<string>('definir_visionneuse_par_defaut');
+export type ApercuLocal = { chemin: string; largeur: number; hauteur: number; orientation: number };
+export const apercuLocal = (chemin: string) => invoke<ApercuLocal | null>('apercu_local', { chemin });

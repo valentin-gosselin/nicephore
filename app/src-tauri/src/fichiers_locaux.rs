@@ -50,9 +50,11 @@ pub fn fichiers_au_demarrage(initiaux: State<'_, FichiersInitiaux>) -> Vec<Strin
 /// A second launch (file opened while Nicéphore runs): the running
 /// instance shows the file.
 pub fn seconde_instance(app: &AppHandle, args: Vec<String>) {
-    crate::zone_notification::montrer(app);
     let fichiers = fichiers_dans_args(&args);
-    if !fichiers.is_empty() {
+    if fichiers.is_empty() {
+        crate::zone_notification::montrer(app);
+    } else {
+        // The page sizes the window to the photo, then shows it.
         let _ = app.emit("ouvrir-fichiers", fichiers);
     }
 }
@@ -67,6 +69,8 @@ pub struct FichierOuvert {
     /// The web view can display it (otherwise only its details and sending).
     affichable: bool,
     video: bool,
+    /// A RAW file: its embedded preview can be shown (`apercu_local`).
+    raw: bool,
     /// Photos and videos of the same folder, by name, this one included.
     voisins: Vec<String>,
     index: usize,
@@ -99,10 +103,56 @@ pub fn ouvrir_fichier_local(app: AppHandle, chemin: String) -> Result<FichierOuv
         modifie_le: meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64),
         affichable: AFFICHABLES.contains(&e.as_str()),
         video: VIDEOS.contains(&e.as_str()),
+        raw: RAW.contains(&e.as_str()),
         chemin,
         voisins,
         index,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApercuLocal {
+    chemin: String,
+    largeur: u32,
+    hauteur: u32,
+    /// EXIF orientation of the RAW (the embedded preview is not rotated).
+    orientation: u16,
+}
+
+/// Preview of a RAW file: the camera's embedded JPEG, extracted once into
+/// the cache. `None` when the file carries none.
+#[tauri::command]
+pub async fn apercu_local(app: AppHandle, chemin: String) -> Result<Option<ApercuLocal>, String> {
+    let fichier = PathBuf::from(&chemin);
+    if !RAW.contains(&extension(&fichier).as_str()) {
+        return Ok(None);
+    }
+    let dossier = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("apercus-raw");
+    app.asset_protocol_scope().allow_directory(&dossier, false).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> Result<Option<ApercuLocal>, String> {
+        use sha1::{Digest, Sha1};
+        let meta = std::fs::metadata(&fichier).map_err(|e| e.to_string())?;
+        let cle = Sha1::digest(format!("{}\n{}\n{:?}", fichier.display(), meta.len(), meta.modified().ok()).as_bytes());
+        let sortie = dossier.join(format!("{}.jpg", hex::encode(&cle[..10])));
+        let donnees = std::fs::read(&fichier).map_err(|e| e.to_string())?;
+        let Some(plage) = crate::apercu_raw::plus_grand_jpeg(&donnees) else { return Ok(None) };
+        let (largeur, hauteur) = crate::apercu_raw::dimensions_jpeg(&donnees[plage.clone()]).unwrap_or((0, 0));
+        if !sortie.exists() {
+            std::fs::create_dir_all(&dossier).map_err(|e| e.to_string())?;
+            let temporaire = sortie.with_extension("part");
+            std::fs::write(&temporaire, &donnees[plage]).map_err(|e| e.to_string())?;
+            std::fs::rename(&temporaire, &sortie).map_err(|e| e.to_string())?;
+        }
+        Ok(Some(ApercuLocal {
+            chemin: sortie.to_string_lossy().into_owned(),
+            largeur,
+            hauteur,
+            orientation: crate::apercu_raw::orientation_tiff(&donnees).unwrap_or(1),
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize)]
