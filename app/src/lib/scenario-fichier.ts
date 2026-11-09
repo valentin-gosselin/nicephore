@@ -52,9 +52,18 @@ export async function lancerScenarioFichier() {
     await invoke('lancer_seconde_instance', { chemin: nouvelle });
     await verifier('seconde ouverture dans la même fenêtre', await quand(() => location.search.includes('c-autre'), 150), location.search.slice(0, 120));
     await capture('f3-seconde-ouverture');
+    // Watched from the click: the "no preview" message must never show
+    // while the RAW preview is being prepared.
+    let messageVu = false;
+    const guet = new MutationObserver(() => {
+      if (document.body.textContent?.includes('Aperçu indisponible')) messageVu = true;
+    });
+    guet.observe(document.body, { childList: true, subtree: true, characterData: true });
     bouton('Suivante')?.click();
     const raw = await quand(() => location.search.includes('d-raw') && (document.querySelector<HTMLImageElement>('img.apercu-raw')?.naturalWidth ?? 0) > 0, 150);
     await verifier('aperçu du RAW affiché', raw && texte().includes('Aperçu du RAW (1067 × 1600)'), texte().slice(0, 160));
+    guet.disconnect();
+    await verifier('pas de message « aperçu indisponible » avant l’aperçu du RAW', !messageVu);
     await verifier('aperçu pivoté selon le RAW', document.querySelector<HTMLElement>('img.apercu-raw')?.style.transform.includes('rotate(90deg)') ?? false);
     // From portrait to landscape (the RAW, rotated), the window follows.
     await attendre(800);
@@ -73,6 +82,10 @@ export async function lancerScenarioFichier() {
     const dimVideo = (await fenetre.innerSize()).toLogical(await fenetre.scaleFactor());
     await verifier('fenêtre aux proportions de la vidéo', Math.abs(dimVideo.width / (dimVideo.height - 48) - 960 / 720) < 0.05, `${Math.round(dimVideo.width)} × ${Math.round(dimVideo.height)}`);
     await capture('f5-video');
+    // The freeze watchdog: the main thread held 5 s (checked in the log by
+    // banc.sh).
+    await invoke('geler_interface', { ms: 5000 });
+    await attendre(2500);
   } catch (e) {
     await journal(`scénario interrompu : ${e}`);
   }

@@ -61,3 +61,23 @@
 - Vérifié : test d'intégration `double_sens_avec_la_phototheque` (copie renommée au fond d'un
   sous-dossier non retéléchargée, nouvelle photo envoyée seule, pas d'album pour les reçues, fichier
   déplacé ni retéléchargé ni renvoyé), suite jetable du moteur 13/13, banc `--jetable` 62/62.
+
+## Arrêt du 9 novembre à 19 h 07 et veille de l'interface
+
+- Nicéphore s'est fermé pendant la grande synchro : KWin a coupé sa connexion (« Data too big for
+  buffer… error in client communication »), le fil principal ne lisant plus les messages de
+  l'affichage. La cause du blocage n'est pas encore établie.
+- Nicéphore surveille désormais son fil principal (`veille_interface.rs`) : au-delà de 3 s sans
+  réponse, « interface figée » dans le journal, puis la durée du gel quand il repart. Le banc
+  `--fichier` provoque un gel de 5 s et vérifie les deux messages.
+
+## Visionneuse : RAW sans message transitoire
+
+- En passant d'une photo à un RAW, « Aperçu indisponible pour ce format » s'affichait environ une
+  seconde avant l'aperçu. La photo précédente reste maintenant affichée jusqu'à ce que la suivante
+  soit prête (aperçu du RAW ou vidéo compris).
+- L'aperçu déjà extrait ne relit plus tout le RAW (25 Mo et plus) : taille lue dans le petit JPEG
+  en cache, orientation dans le premier Mo du RAW. Les aperçus des fichiers précédent et suivant
+  sont préparés à l'avance.
+- Vérifié : le banc `--fichier` guette le message pendant la navigation ; il échoue sur l'ancienne
+  visionneuse et passe (15/15) sur la nouvelle.

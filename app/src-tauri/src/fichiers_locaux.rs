@@ -150,6 +150,22 @@ pub async fn apercu_local(app: AppHandle, chemin: String) -> Result<Option<Aperc
         let meta = std::fs::metadata(&fichier).map_err(|e| e.to_string())?;
         let cle = Sha1::digest(format!("{}\n{}\n{:?}", fichier.display(), meta.len(), meta.modified().ok()).as_bytes());
         let sortie = dossier.join(format!("{}.jpg", hex::encode(&cle[..10])));
+        // Already extracted: the small JPEG gives the size, the head of the
+        // RAW its orientation (its first directory sits at the start), with
+        // no full read of the RAW.
+        if let Ok(jpeg) = std::fs::read(&sortie)
+            && let Some((largeur, hauteur)) = crate::apercu_raw::dimensions_jpeg(&jpeg)
+        {
+            use std::io::Read;
+            let mut tete = Vec::with_capacity(1 << 20);
+            std::fs::File::open(&fichier).and_then(|f| f.take(1 << 20).read_to_end(&mut tete)).map_err(|e| e.to_string())?;
+            return Ok(Some(ApercuLocal {
+                chemin: sortie.to_string_lossy().into_owned(),
+                largeur,
+                hauteur,
+                orientation: crate::apercu_raw::orientation_tiff(&tete).unwrap_or(1),
+            }));
+        }
         let donnees = std::fs::read(&fichier).map_err(|e| e.to_string())?;
         let Some(plage) = crate::apercu_raw::plus_grand_jpeg(&donnees) else { return Ok(None) };
         let (largeur, hauteur) = crate::apercu_raw::dimensions_jpeg(&donnees[plage.clone()]).unwrap_or((0, 0));

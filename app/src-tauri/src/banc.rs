@@ -123,6 +123,15 @@ pub async fn capture(nom: String) -> Result<(), String> {
     if statut.success() { Ok(()) } else { Err(format!("spectacle : {statut}")) }
 }
 
+/// Holds the main thread for `ms` milliseconds (bench only): the freeze
+/// watchdog must report it.
+#[tauri::command]
+pub fn geler_interface(ms: u64) {
+    if mode_banc() {
+        std::thread::sleep(Duration::from_millis(ms.min(10_000)));
+    }
+}
+
 #[tauri::command]
 pub fn quitter(app: tauri::AppHandle) {
     if mode_banc() {

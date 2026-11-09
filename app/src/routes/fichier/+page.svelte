@@ -98,36 +98,31 @@
     const demande = chemin;
     // Each opening from outside asks again; the arrows never do.
     ajusterFenetre = page.url.searchParams.get('ajuster') === '1';
-    fichier = null;
     erreur = null;
-    etat = null;
-    if (!demande) return;
-    apercu = null;
-    video = null;
-    videoIlisible = false;
+    if (!demande) {
+      fichier = null;
+      return;
+    }
+    // The previous photo stays until the next one is ready (its RAW preview
+    // or video included): no message or empty frame in between.
     ouvrirFichierLocal(demande)
       .then(async (f) => {
         if (demande !== chemin) return;
+        const url = f.video ? await urlVideoLocale(demande).catch(() => null) : null;
+        const a = f.raw ? await apercuLocal(demande).catch(() => null) : null;
+        if (demande !== chemin) return;
         fichier = f;
-        if (f.video) {
-          const url = await urlVideoLocale(demande).catch(() => null);
-          if (demande !== chemin) return;
-          video = url;
-          if (!url) {
-            videoIlisible = true;
-            void ajuster(0, 0);
-          }
+        etat = null;
+        apercu = a;
+        video = url;
+        videoIlisible = f.video && !url;
+        if (a) {
+          const tourne = rotation(a.orientation) % 180 !== 0;
+          void ajuster(tourne ? a.hauteur : a.largeur, tourne ? a.largeur : a.hauteur);
+        } else if (videoIlisible || !f.affichable) {
+          void ajuster(0, 0);
         }
-        if (f.raw) {
-          const a = await apercuLocal(demande).catch(() => null);
-          if (demande !== chemin) return;
-          apercu = a;
-          if (a) {
-            const tourne = rotation(a.orientation) % 180 !== 0;
-            void ajuster(tourne ? a.hauteur : a.largeur, tourne ? a.largeur : a.hauteur);
-          }
-        }
-        if (!f.affichable && !apercu) void ajuster(0, 0);
+        prechargerVoisins(f);
         return etatFichierLocal(demande).then((e) => demande === chemin && (etat = e));
       })
       .catch((e) => {
@@ -135,6 +130,17 @@
         void ajuster(0, 0);
       });
   });
+
+  const EST_RAW = /\.(dng|arw|cr2|cr3|nef|orf|raf|rw2|srw|pef)$/i;
+  /** The RAW previews of the previous and next files, extracted ahead. */
+  function prechargerVoisins(f: FichierOuvert) {
+    const n = f.voisins.length;
+    if (n < 2) return;
+    for (const pas of [1, -1]) {
+      const voisin = f.voisins[(f.index + pas + n) % n];
+      if (EST_RAW.test(voisin)) void apercuLocal(voisin).catch(() => null);
+    }
+  }
 
   function aller(sens: 1 | -1) {
     if (!fichier || fichier.voisins.length < 2) return;

@@ -213,6 +213,14 @@ else
 fi
 rm -f "$interne"
 
+if [ -n "$fichier" ]; then
+    # The freeze watchdog saw the 5 s held by the scenario, then the end of it.
+    if grep -aq "interface figée depuis" "$sortie/sortie.txt" && grep -aq "interface de nouveau réactive après" "$sortie/sortie.txt"; then
+        echo "banc: ok : gel de l'interface signalé puis sa fin" >>"$sortie/sortie.txt"
+    else
+        echo "banc: ÉCHEC : gel de l'interface non signalé" >>"$sortie/sortie.txt"
+    fi
+fi
 grep -a 'banc' "$sortie/sortie.txt" | sed 's/^.*banc: //' > "$sortie/mesures.txt" || true
 cat "$sortie/mesures.txt"
 ls "$sortie"

@@ -16,6 +16,7 @@ mod reglages;
 #[cfg(target_os = "linux")]
 mod service_virtuel;
 mod telechargement;
+mod veille_interface;
 mod virtuels;
 mod zone_notification;
 
@@ -795,6 +796,7 @@ pub fn lancer() {
                 }
             }));
             commandes_envoi::demarrer(&moteur, app.handle().clone());
+            veille_interface::lancer(app.handle().clone());
             let zone = zone_notification::creer(app.handle())
                 .map_err(|e| tracing::warn!("pas d'icône dans la zone de notification : {e}"))
                 .ok();
@@ -941,6 +943,7 @@ pub fn lancer() {
             banc::journal,
             banc::capture,
             banc::quitter,
+            banc::geler_interface,
             banc::stats_images
         ])
         .build(tauri::generate_context!())
