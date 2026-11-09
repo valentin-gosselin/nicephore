@@ -2,12 +2,14 @@
   // "Envoi" page: folders of this computer sent to Immich, engine progress
   // and the log of what was done.
   import { Button, Heading, IconButton, ProgressBar, Switch, Text } from '@immich/ui';
-  import { mdiDeleteOutline, mdiFolderOutline, mdiFolderPlusOutline, mdiPause, mdiPlay, mdiRefresh } from '@mdi/js';
+  import { mdiDeleteOutline, mdiFolderArrowUpOutline, mdiFolderDownloadOutline, mdiFolderPlusOutline, mdiPause, mdiPlay, mdiRefresh } from '@mdi/js';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import {
     activerRegleEnvoi,
+    ajouterReception,
     ajouterRegleEnvoi,
+    recevoirDeNouveau,
     echecsEnvoi,
     etatEnvoi,
     journalEnvoi,
@@ -17,13 +19,14 @@
     reglesEnvoi,
     supprimerRegleEnvoi,
     type Cible,
+    type Selection,
     type EntreeJournal,
     type EtatEnvoi,
     type FichierEnEchec,
     type RegleEnvoi,
   } from '../../lib/api';
   import Dialogue from '../../lib/Dialogue.svelte';
-  import DialogueRegle from '../../lib/DialogueRegle.svelte';
+  import DialogueRegle, { type Demande } from '../../lib/DialogueRegle.svelte';
   import { notifier } from '../../lib/notifications.svelte';
 
   let regles = $state<RegleEnvoi[] | null>(null);
@@ -42,6 +45,29 @@
   const nomDossier = (d: string) => d.split(/[\\/]/).filter(Boolean).pop() ?? d;
   const pluriel = (n: number, mot: string) => `${nombre(n)} ${mot}${n > 1 ? 's' : ''}`;
 
+  function libelleSelection(s: Selection | null) {
+    if (!s) return '';
+    switch (s.genre) {
+      case 'album':
+        return `l’album « ${s.nom} »`;
+      case 'personne':
+        return `les photos de ${s.nom}`;
+      case 'favoris':
+        return 'les favoris';
+      case 'periode':
+        return s.du && s.au ? `du ${dateCourte(s.du)} au ${dateCourte(s.au)}` : s.du ? `depuis le ${dateCourte(s.du)}` : `jusqu’au ${dateCourte(s.au ?? '')}`;
+      default:
+        return 'toute la photothèque';
+    }
+  }
+  const dateCourte = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  async function recevoirEncore(regle: RegleEnvoi) {
+    const n = await recevoirDeNouveau(regle.id).catch(() => 0);
+    notifier(`${pluriel(n, 'fichier')} à recevoir de nouveau.`, 'succes');
+    await rafraichir();
+  }
+
   function libelleCible(c: Cible) {
     if (c.genre === 'album') return `Album « ${c.nom} »`;
     if (c.genre === 'albumParDossier') return 'Un album par dossier';
@@ -55,6 +81,9 @@
     dans_la_corbeille: 'Déjà sur le serveur, dans sa corbeille',
     ignore: 'Ignoré',
     abandon: 'Abandonné après plusieurs essais',
+    recu: 'Reçu',
+    retire_ici: 'Effacé ici, pas retéléchargé',
+    retire_du_serveur: 'Retiré sur le serveur, gardé ici',
     regle_ajoutee: 'Dossier ajouté',
     regle_supprimee: 'Dossier retiré',
   };
@@ -91,6 +120,8 @@
         return `Envoi${sur}, ${mo(etat.octetsFaits)} sur ${mo(etat.octetsTotal)}`;
       case 'albums':
         return 'Rangement dans les albums…';
+      case 'reception':
+        return `Réception${sur}, ${mo(etat.octetsFaits)} sur ${mo(etat.octetsTotal)}`;
       default:
         return etat.dernierPassage ? `À jour, dernière vérification à ${heure(etat.dernierPassage)}.` : 'En attente.';
     }
@@ -98,7 +129,7 @@
   const progression = $derived(
     !etat || etat.phase === 'inactif'
       ? null
-      : etat.phase === 'envoi' && etat.octetsTotal
+      : (etat.phase === 'envoi' || etat.phase === 'reception') && etat.octetsTotal
         ? etat.octetsFaits / etat.octetsTotal
         : etat.total
           ? etat.faits / etat.total
@@ -116,10 +147,11 @@
     journal = await journalEnvoi(60).catch(() => []);
   }
 
-  async function ajouter(dossier: string, cible: Cible) {
+  async function ajouter(demande: Demande) {
     try {
-      await ajouterRegleEnvoi(dossier, cible);
-      notifier(`« ${nomDossier(dossier)} » ajouté : l’analyse commence.`, 'succes');
+      if (demande.sens === 'montante') await ajouterRegleEnvoi(demande.dossier, demande.cible);
+      else await ajouterReception(demande.dossier, demande.selection, demande.rangement);
+      notifier(`« ${nomDossier(demande.dossier)} » ajouté : la synchro commence.`, 'succes');
       await rafraichir();
       return true;
     } catch (e) {
@@ -141,7 +173,7 @@
     aRetirer = null;
     try {
       await supprimerRegleEnvoi(regle.id);
-      notifier(`« ${nomDossier(regle.dossier)} » n’est plus envoyé.`, 'succes');
+      notifier(`« ${nomDossier(regle.dossier)} » n’est plus synchronisé.`, 'succes');
       await rafraichir();
     } catch (e) {
       notifier(String(e), 'erreur');
@@ -177,16 +209,16 @@
   });
 </script>
 
-<svelte:head><title>Envoi · Nicéphore</title></svelte:head>
+<svelte:head><title>Synchro · Nicéphore</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
   <div class="mx-auto max-w-3xl space-y-8 p-8">
     <div class="flex items-start justify-between gap-4">
       <div class="space-y-1">
-        <Heading size="large">Envoi vers Immich</Heading>
+        <Heading size="large">Synchronisation</Heading>
         <Text color="muted">
-          Les photos et vidéos des dossiers choisis partent sur le serveur, au fur et à mesure qu’elles arrivent. Rien
-          n’est jamais supprimé, ni ici ni sur le serveur.
+          Des dossiers de cet ordinateur envoyés vers Immich, et des photos d’Immich reçues dans des dossiers, au fur et à
+          mesure. Rien n’est jamais supprimé, ni ici ni sur le serveur.
         </Text>
       </div>
       <Button class="shrink-0 whitespace-nowrap" leadingIcon={mdiFolderPlusOutline} onclick={() => (ajout = true)} disabled={!!erreurBase}>
@@ -242,7 +274,9 @@
         {@const erreur = regle.dossierAbsent ? 'Dossier introuvable (disque débranché ?) : rien n’est fait en attendant.' : etat?.erreursRegles[regle.id]}
         <li class="regle space-y-2 rounded-2xl p-4" class:inactive={!regle.actif}>
           <div class="flex items-center gap-3">
-            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="shrink-0 opacity-70"><path fill="currentColor" d={mdiFolderOutline} /></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="shrink-0 opacity-70">
+              <path fill="currentColor" d={regle.sens === 'descendante' ? mdiFolderDownloadOutline : mdiFolderArrowUpOutline} />
+            </svg>
             <div class="min-w-0 flex-1">
               <div class="truncate font-semibold">{nomDossier(regle.dossier)}</div>
               <div class="truncate text-xs opacity-60" title={regle.dossier}>{regle.dossier}</div>
@@ -254,13 +288,30 @@
             />
             <IconButton
               icon={mdiDeleteOutline}
-              aria-label={`Ne plus envoyer ${nomDossier(regle.dossier)}`}
+              aria-label={`${regle.sens === 'descendante' ? 'Ne plus recevoir dans' : 'Ne plus envoyer'} ${nomDossier(regle.dossier)}`}
               variant="ghost"
               color="secondary"
               shape="round"
               onclick={() => (aRetirer = regle)}
             />
           </div>
+          {#if regle.sens === 'descendante'}
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span class="opacity-70">
+                Reçoit {libelleSelection(regle.selection)}{regle.rangement === 'anneeMois' ? ', par année et mois' : ''}
+              </span>
+              <span class="compteurs">
+                {pluriel(regle.bilan.recus, 'reçu')}{#if regle.bilan.aRecevoir} · {nombre(regle.bilan.aRecevoir)} à recevoir{/if}{#if regle.bilan.retiresServeur}
+                  · {nombre(regle.bilan.retiresServeur)} retiré{regle.bilan.retiresServeur > 1 ? 's' : ''} sur le serveur, gardé{regle.bilan.retiresServeur > 1 ? 's' : ''} ici{/if}
+              </span>
+              {#if regle.bilan.retiresIci + regle.bilan.echecsReception}
+                <button class="lien" onclick={() => recevoirEncore(regle)}>
+                  {pluriel(regle.bilan.retiresIci + regle.bilan.echecsReception, 'fichier')} effacé{regle.bilan.retiresIci + regle.bilan.echecsReception > 1 ? 's' : ''} ici
+                  ou en échec : recevoir de nouveau
+                </button>
+              {/if}
+            </div>
+          {:else}
           <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
             <span class="opacity-70">{libelleCible(regle.cible)}</span>
             <span class="compteurs">
@@ -273,6 +324,7 @@
               </button>
             {/if}
           </div>
+          {/if}
           {#if erreur}<p class="text-sm text-red-500">{erreur}</p>{/if}
         </li>
       {/each}
@@ -301,7 +353,7 @@
 
 {#if aRetirer}
   {@const regle = aRetirer}
-  <Dialogue titre="Ne plus envoyer ce dossier ?" onfermer={() => (aRetirer = null)}>
+  <Dialogue titre={regle.sens === 'descendante' ? 'Ne plus recevoir dans ce dossier ?' : 'Ne plus envoyer ce dossier ?'} onfermer={() => (aRetirer = null)}>
     <div class="space-y-4">
       <Text>
         Nicéphore oubliera « {nomDossier(regle.dossier)} ». Les fichiers restent sur cet ordinateur et les photos déjà
@@ -309,7 +361,7 @@
       </Text>
       <div class="flex justify-end gap-2">
         <Button variant="ghost" color="secondary" onclick={() => (aRetirer = null)}>Annuler</Button>
-        <Button color="danger" onclick={() => retirer(regle)}>Ne plus envoyer</Button>
+        <Button color="danger" onclick={() => retirer(regle)}>{regle.sens === 'descendante' ? 'Ne plus recevoir' : 'Ne plus envoyer'}</Button>
       </div>
     </div>
   </Dialogue>

@@ -335,3 +335,130 @@ async fn retirer_le_dossier_arrete_tout_de_suite() {
     assert!(ids.len() >= ids_avant.len());
     nettoyer(&c, &moteur).await;
 }
+
+async fn ids_essais(c: &ClientImmich, noms: &[&str]) -> Vec<String> {
+    let mut ids = Vec::new();
+    for nom in noms {
+        let page = c
+            .rechercher(&CriteresRecherche { texte: nom.to_string(), mode: ModeRecherche::FichierNom, ..Default::default() }, 1)
+            .await
+            .unwrap();
+        ids.push(page.assets.first().unwrap_or_else(|| panic!("{nom} absent du serveur jetable")).id.clone());
+    }
+    ids
+}
+
+fn sha1_fichier(chemin: &Path) -> String {
+    envoi::analyse::empreinte(chemin).unwrap()
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn reception_d_un_album() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let noms = ["essai-10.jpg", "essai-11.jpg", "essai-12.jpg", "essai-13.jpg"];
+    let ids = ids_essais(&c, &noms).await;
+    let album = c.creer_album(&format!("Réception {jeton}"), "", &ids).await.unwrap();
+    let images = PathBuf::from(std::env::var("HOME").unwrap()).join(".cache/nicephore-immich-jetable/images");
+
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join("recu");
+    // Already here, same content: adopted. Same name, other content: kept,
+    // the photo arrives beside it.
+    ecrire(&racine.join("essai-11.jpg"), &std::fs::read(images.join("essai-11.jpg")).unwrap(), 3_600);
+    ecrire(&racine.join("essai-12.jpg"), b"mon fichier a moi", 3_600);
+
+    let moteur = moteur();
+    let selection = Selection::Album { id: album.id.clone(), nom: album.album_name.clone() };
+    let regle = moteur.base().ajouter_reception(&racine, &selection, envoi::Rangement::Plat).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    moteur.passage().await.unwrap();
+
+    let bilan = compter(&moteur, regle);
+    assert_eq!((bilan.recus, bilan.a_recevoir, bilan.echecs_reception), (4, 0, 0), "{bilan:?}");
+    assert_eq!(journal(&moteur, "recu"), 3, "la copie identique n'est pas retéléchargée");
+    for nom in ["essai-10.jpg", "essai-11.jpg", "essai-13.jpg"] {
+        assert_eq!(sha1_fichier(&racine.join(nom)), sha1_fichier(&images.join(nom)), "{nom}");
+    }
+    assert_eq!(std::fs::read(racine.join("essai-12.jpg")).unwrap(), b"mon fichier a moi", "jamais écrasé");
+    assert_eq!(sha1_fichier(&racine.join("essai-12 (2).jpg")), sha1_fichier(&images.join("essai-12.jpg")));
+    assert!(std::fs::read_dir(&racine).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".part")));
+
+    // Deleted here: not downloaded again. Removed from the album: kept here.
+    std::fs::remove_file(racine.join("essai-10.jpg")).unwrap();
+    c.retirer_de_l_album(&album.id, &[ids[3].clone()]).await.unwrap();
+    moteur.passage().await.unwrap();
+    let bilan = compter(&moteur, regle);
+    assert_eq!((bilan.retires_ici, bilan.retires_serveur), (1, 1), "{bilan:?}");
+    assert!(!racine.join("essai-10.jpg").exists());
+    assert!(racine.join("essai-13.jpg").exists(), "la copie locale reste");
+
+    // On request, what was deleted here comes back.
+    moteur.base().recevoir_de_nouveau(regle).unwrap();
+    moteur.passage().await.unwrap();
+    assert!(racine.join("essai-10.jpg").exists());
+    c.supprimer_album(&album.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn reception_d_une_periode_par_annee_et_mois() {
+    let c = client().await;
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join("periode");
+    std::fs::create_dir_all(&racine).unwrap();
+    let moteur = moteur();
+    // The seeded photos of February 2025 (essai-06 to essai-11, minus any
+    // moved by other tests).
+    let selection = Selection::Periode { du: Some("2025-02-01".into()), au: Some("2025-02-28".into()) };
+    let attendus = c.assets_de_selection(&selection).await.unwrap();
+    assert!(!attendus.is_empty());
+    let regle = moteur.base().ajouter_reception(&racine, &selection, envoi::Rangement::AnneeMois).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    moteur.passage().await.unwrap();
+    assert_eq!(compter(&moteur, regle).recus as usize, attendus.len());
+    let fevrier: Vec<_> = std::fs::read_dir(racine.join("2025/02")).unwrap().flatten().collect();
+    assert_eq!(fevrier.len(), attendus.len());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "serveur Immich jetable"]
+async fn la_pause_arrete_une_reception() {
+    let c = client().await;
+    // 60 big photos sent into an album, then received elsewhere.
+    let (_temporaire, source) = dossier_de_60("a-recevoir").await;
+    let album = c.creer_album(&format!("Grosse réception {}", source.display().to_string().len()), "", &[]).await.unwrap();
+    let envoi = moteur();
+    envoi.base().ajouter_regle(&source, &Cible::Album { id: album.id.clone(), nom: album.album_name.clone() }).unwrap();
+    envoi.definir_client(Some(std::sync::Arc::new(c.clone())));
+    envoi.passage().await.unwrap();
+    assert_eq!(journal(&envoi, "envoye"), 60);
+
+    let destination = tempfile::tempdir().unwrap();
+    let racine = destination.path().join("recu");
+    std::fs::create_dir_all(&racine).unwrap();
+    let moteur = moteur();
+    let selection = Selection::Album { id: album.id.clone(), nom: album.album_name.clone() };
+    moteur.base().ajouter_reception(&racine, &selection, envoi::Rangement::Plat).unwrap();
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    let boucle = tokio::spawn(moteur.lancer());
+    for _ in 0..600 {
+        if journal(&moteur, "recu") > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    moteur.mettre_en_pause(true);
+    let au_moment = journal(&moteur, "recu");
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let apres = journal(&moteur, "recu");
+    let fichiers = std::fs::read_dir(&racine).unwrap().flatten().count();
+    println!("réception : {au_moment} reçus à la pause, {apres} trois secondes après, {fichiers} fichiers");
+    assert_eq!(apres, au_moment);
+    assert!(apres < 60);
+    assert_eq!(fichiers, apres, "aucun fichier partiel laissé");
+    boucle.abort();
+    nettoyer(&c, &envoi).await;
+    c.supprimer_album(&album.id).await.unwrap();
+}

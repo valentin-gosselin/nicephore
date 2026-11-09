@@ -222,17 +222,32 @@ export type Cible =
   | { genre: 'bibliotheque' }
   | { genre: 'album'; id: string; nom: string }
   | { genre: 'albumParDossier' };
-export type BilanEnvoi = { envoyes: number; presents: number; enAttente: number; echecs: number; ignores: number };
+export type BilanEnvoi = {
+  envoyes: number;
+  presents: number;
+  enAttente: number;
+  echecs: number;
+  ignores: number;
+  recus: number;
+  aRecevoir: number;
+  retiresIci: number;
+  retiresServeur: number;
+  echecsReception: number;
+};
+export type Sens = 'montante' | 'descendante' | 'double';
 export type RegleEnvoi = {
   id: number;
   dossier: string;
+  sens: Sens;
   cible: Cible;
+  selection: Selection | null;
+  rangement: Rangement;
   actif: boolean;
   creeLe: number;
   bilan: BilanEnvoi;
   dossierAbsent: boolean;
 };
-export type PhaseEnvoi = 'inactif' | 'analyse' | 'empreintes' | 'verification' | 'envoi' | 'albums';
+export type PhaseEnvoi = 'inactif' | 'analyse' | 'empreintes' | 'verification' | 'envoi' | 'albums' | 'reception';
 export type EtatEnvoi = {
   phase: PhaseEnvoi;
   regle: number | null;
@@ -308,3 +323,18 @@ export const changerCompte = (cle: string) => invoke<Connexion | null>('changer_
 
 export type EstimationDossier = { fichiers: number; octets: number; illisibles: number };
 export const estimerDossier = (dossier: string) => invoke<EstimationDossier>('estimer_dossier', { dossier });
+
+// ---- Receiving ----
+export type Selection =
+  | { genre: 'album'; id: string; nom: string }
+  | { genre: 'personne'; id: string; nom: string }
+  | { genre: 'favoris' }
+  | { genre: 'periode'; du: string | null; au: string | null }
+  | { genre: 'bibliotheque' };
+export type Rangement = 'plat' | 'anneeMois';
+export type EstimationReception = { fichiers: number; octets: number; libre: number | null };
+export const ajouterReception = (dossier: string, selection: Selection, rangement: Rangement) =>
+  invoke<RegleEnvoi>('ajouter_reception', { dossier, selection, rangement });
+export const estimerReception = (selection: Selection, dossier: string | null) =>
+  invoke<EstimationReception>('estimer_reception', { selection, dossier });
+export const recevoirDeNouveau = (regle: number) => invoke<number>('recevoir_de_nouveau', { regle });

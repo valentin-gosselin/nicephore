@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{Erreur, Resultat, maintenant_ms};
 
 /// Current schema version (`PRAGMA user_version`).
-const VERSION: i32 = 1;
+const VERSION: i32 = 2;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE regles (
@@ -57,6 +57,116 @@ CREATE TABLE journal (
 );
 ";
 
+/// Version 2: rules get a direction, download rules their selection and
+/// layout, and received files their own table.
+const SCHEMA_V2: &str = "
+ALTER TABLE regles ADD COLUMN sens TEXT NOT NULL DEFAULT 'montante';
+ALTER TABLE regles ADD COLUMN selection TEXT;
+ALTER TABLE regles ADD COLUMN rangement TEXT NOT NULL DEFAULT 'plat';
+CREATE TABLE recus (
+    regle INTEGER NOT NULL REFERENCES regles(id) ON DELETE CASCADE,
+    asset_id TEXT NOT NULL,
+    chemin TEXT NOT NULL,
+    sha1 TEXT NOT NULL,
+    taille INTEGER NOT NULL DEFAULT 0,
+    modifie_le TEXT NOT NULL DEFAULT '',
+    etat TEXT NOT NULL,
+    essais INTEGER NOT NULL DEFAULT 0,
+    prochain_essai INTEGER NOT NULL DEFAULT 0,
+    erreur TEXT,
+    maj_le INTEGER NOT NULL,
+    PRIMARY KEY (regle, asset_id)
+);
+CREATE UNIQUE INDEX recus_chemin ON recus (regle, chemin);
+";
+
+/// Which way a rule works.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Sens {
+    /// Local folder sent to the server.
+    Montante,
+    /// A selection of the server copied into the local folder.
+    Descendante,
+    /// Folder and album kept alike both ways.
+    Double,
+}
+
+impl Sens {
+    fn code(self) -> &'static str {
+        match self {
+            Sens::Montante => "montante",
+            Sens::Descendante => "descendante",
+            Sens::Double => "double",
+        }
+    }
+}
+
+/// How received files are laid out in the folder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Rangement {
+    /// All in the folder itself.
+    Plat,
+    /// `2026/05/IMG_0001.jpg`, from the capture date.
+    AnneeMois,
+}
+
+/// State of a received file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EtatRecu {
+    /// Path reserved, to download.
+    Attente,
+    Recu,
+    Echec,
+    /// Deleted here by the user: not downloaded again.
+    RetireIci,
+    /// No longer in the selection on the server: the local copy stays.
+    RetireServeur,
+}
+
+impl EtatRecu {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Attente => "attente",
+            Self::Recu => "recu",
+            Self::Echec => "echec",
+            Self::RetireIci => "retire_ici",
+            Self::RetireServeur => "retire_serveur",
+        }
+    }
+
+    fn depuis(code: &str) -> Self {
+        match code {
+            "recu" => Self::Recu,
+            "echec" => Self::Echec,
+            "retire_ici" => Self::RetireIci,
+            "retire_serveur" => Self::RetireServeur,
+            _ => Self::Attente,
+        }
+    }
+}
+
+/// A received (or reserved) file.
+#[derive(Debug, Clone)]
+pub struct Recu {
+    pub chemin: String,
+    pub sha1: String,
+    pub etat: EtatRecu,
+}
+
+/// A file to download.
+#[derive(Debug, Clone)]
+pub struct ARecevoir {
+    pub asset_id: String,
+    pub chemin: String,
+    pub sha1: String,
+    pub taille: u64,
+    pub modifie_le: String,
+    pub essais: u32,
+}
+
 /// Where the photos of a rule go.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(tag = "genre", rename_all = "camelCase")]
@@ -74,7 +184,12 @@ pub enum Cible {
 pub struct Regle {
     pub id: i64,
     pub dossier: String,
+    pub sens: Sens,
+    /// Where sent photos go (upload and two-way rules).
     pub cible: Cible,
+    /// What is received (download rules).
+    pub selection: Option<api_immich::Selection>,
+    pub rangement: Rangement,
     pub actif: bool,
     pub cree_le: i64,
 }
@@ -148,6 +263,11 @@ pub struct Bilan {
     pub en_attente: u64,
     pub echecs: u64,
     pub ignores: u64,
+    pub recus: u64,
+    pub a_recevoir: u64,
+    pub retires_ici: u64,
+    pub retires_serveur: u64,
+    pub echecs_reception: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -211,6 +331,9 @@ impl Base {
         if depuis < 1 {
             self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V1} PRAGMA user_version = 1; COMMIT;"))?;
         }
+        if depuis < 2 {
+            self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"))?;
+        }
         Ok(())
     }
 
@@ -219,7 +342,7 @@ impl Base {
     pub fn regles(&self) -> Resultat<Vec<Regle>> {
         let mut requete = self
             .cnx
-            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le FROM regles ORDER BY dossier")?;
+            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement FROM regles ORDER BY dossier")?;
         let lignes = requete.query_map([], |r| {
             let cible = match r.get::<_, String>(2)?.as_str() {
                 "album" => Cible::Album {
@@ -229,7 +352,14 @@ impl Base {
                 "album_dossier" => Cible::AlbumParDossier,
                 _ => Cible::Bibliotheque,
             };
-            Ok(Regle { id: r.get(0)?, dossier: r.get(1)?, cible, actif: r.get(5)?, cree_le: r.get(6)? })
+            let sens = match r.get::<_, String>(7)?.as_str() {
+                "descendante" => Sens::Descendante,
+                "double" => Sens::Double,
+                _ => Sens::Montante,
+            };
+            let selection = r.get::<_, Option<String>>(8)?.and_then(|t| serde_json::from_str(&t).ok());
+            let rangement = if r.get::<_, String>(9)? == "annee_mois" { Rangement::AnneeMois } else { Rangement::Plat };
+            Ok(Regle { id: r.get(0)?, dossier: r.get(1)?, sens, cible, selection, rangement, actif: r.get(5)?, cree_le: r.get(6)? })
         })?;
         Ok(lignes.collect::<Result<_, _>>()?)
     }
@@ -238,9 +368,32 @@ impl Base {
         self.regles()?.into_iter().find(|r| r.id == id).ok_or(Erreur::RegleInconnue)
     }
 
-    /// Adds a rule. A folder already covered by a rule (itself, a parent or
-    /// a child) is refused: a file must belong to one rule only.
+    /// Adds an upload rule. A folder already covered by a rule (itself, a
+    /// parent or a child) is refused: a file must belong to one rule only.
     pub fn ajouter_regle(&self, dossier: &Path, cible: &Cible) -> Resultat<Regle> {
+        self.ajouter(dossier, Sens::Montante, cible, None, Rangement::Plat)
+    }
+
+    /// Adds a download rule: `selection` copied into `dossier`.
+    pub fn ajouter_reception(&self, dossier: &Path, selection: &api_immich::Selection, rangement: Rangement) -> Resultat<Regle> {
+        self.ajouter(dossier, Sens::Descendante, &Cible::Bibliotheque, Some(selection), rangement)
+    }
+
+    /// Adds a two-way rule between a folder and an album.
+    pub fn ajouter_double(&self, dossier: &Path, album_id: &str, nom_album: &str) -> Resultat<Regle> {
+        let cible = Cible::Album { id: album_id.to_string(), nom: nom_album.to_string() };
+        let selection = api_immich::Selection::Album { id: album_id.to_string(), nom: nom_album.to_string() };
+        self.ajouter(dossier, Sens::Double, &cible, Some(&selection), Rangement::Plat)
+    }
+
+    fn ajouter(
+        &self,
+        dossier: &Path,
+        sens: Sens,
+        cible: &Cible,
+        selection: Option<&api_immich::Selection>,
+        rangement: Rangement,
+    ) -> Resultat<Regle> {
         let dossier = dossier.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
         if dossier.is_empty() {
             return Err(Erreur::Regle("dossier vide".into()));
@@ -260,9 +413,15 @@ impl Base {
             }
             Cible::AlbumParDossier => ("album_dossier", None, None),
         };
+        let selection = selection.map(|s| serde_json::to_string(s).expect("sélection sérialisable"));
+        let rangement = match rangement {
+            Rangement::Plat => "plat",
+            Rangement::AnneeMois => "annee_mois",
+        };
         self.cnx.execute(
-            "INSERT INTO regles (dossier, cible, album_id, nom_album, actif, cree_le) VALUES (?1, ?2, ?3, ?4, 1, ?5)",
-            params![dossier, code, album_id, nom_album, maintenant_ms()],
+            "INSERT INTO regles (dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement)
+             VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6, ?7, ?8)",
+            params![dossier, code, album_id, nom_album, maintenant_ms(), sens.code(), selection, rangement],
         )?;
         let id = self.cnx.last_insert_rowid();
         self.journaliser(Some(id), None, "regle_ajoutee", Some(&dossier), None)?;
@@ -448,7 +607,106 @@ impl Base {
                 EtatFichier::Ignore => bilan.ignores += n,
             }
         }
+        let mut requete = self.cnx.prepare("SELECT regle, etat, COUNT(*) FROM recus GROUP BY regle, etat")?;
+        let lignes = requete.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)? as u64)))?;
+        for ligne in lignes {
+            let (regle, etat, n) = ligne?;
+            let bilan = bilans.entry(regle).or_default();
+            match EtatRecu::depuis(&etat) {
+                EtatRecu::Recu => bilan.recus += n,
+                EtatRecu::Attente => bilan.a_recevoir += n,
+                EtatRecu::RetireIci => bilan.retires_ici += n,
+                EtatRecu::RetireServeur => bilan.retires_serveur += n,
+                EtatRecu::Echec => bilan.echecs_reception += n,
+            }
+        }
         Ok(bilans)
+    }
+
+    // ---- Received files ----
+
+    pub fn recus(&self, regle: i64) -> Resultat<HashMap<String, Recu>> {
+        let mut requete = self.cnx.prepare("SELECT asset_id, chemin, sha1, etat FROM recus WHERE regle = ?1")?;
+        let lignes = requete.query_map(params![regle], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                Recu { chemin: r.get(1)?, sha1: r.get(2)?, etat: EtatRecu::depuis(&r.get::<_, String>(3)?) },
+            ))
+        })?;
+        Ok(lignes.collect::<Result<_, _>>()?)
+    }
+
+    /// Reserves a local path for an asset to download.
+    pub fn reserver_recu(&self, regle: i64, asset: &api_immich::AssetDistant, chemin: &str) -> Resultat<()> {
+        self.cnx.execute(
+            "INSERT OR REPLACE INTO recus (regle, asset_id, chemin, sha1, taille, modifie_le, etat, maj_le)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'attente', ?7)",
+            params![regle, asset.id, chemin, asset.sha1, asset.taille.unwrap_or(0) as i64, asset.modifie_le, maintenant_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// Records a file already present locally with the right content.
+    pub fn noter_recu_present(&self, regle: i64, asset: &api_immich::AssetDistant, chemin: &str) -> Resultat<()> {
+        self.reserver_recu(regle, asset, chemin)?;
+        self.changer_etat_recu(regle, &asset.id, EtatRecu::Recu)
+    }
+
+    pub fn a_recevoir(&self, regle: i64, maintenant: i64) -> Resultat<Vec<ARecevoir>> {
+        let mut requete = self.cnx.prepare(
+            "SELECT asset_id, chemin, sha1, taille, modifie_le, essais FROM recus
+             WHERE regle = ?1 AND etat = 'attente' AND prochain_essai <= ?2 ORDER BY essais, chemin",
+        )?;
+        let lignes = requete.query_map(params![regle, maintenant], |r| {
+            Ok(ARecevoir {
+                asset_id: r.get(0)?,
+                chemin: r.get(1)?,
+                sha1: r.get(2)?,
+                taille: r.get::<_, i64>(3)? as u64,
+                modifie_le: r.get(4)?,
+                essais: r.get(5)?,
+            })
+        })?;
+        Ok(lignes.collect::<Result<_, _>>()?)
+    }
+
+    pub fn changer_etat_recu(&self, regle: i64, asset_id: &str, etat: EtatRecu) -> Resultat<()> {
+        self.cnx.execute(
+            "UPDATE recus SET etat = ?3, erreur = NULL, maj_le = ?4 WHERE regle = ?1 AND asset_id = ?2",
+            params![regle, asset_id, etat.code(), maintenant_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// A path reserved for download is taken by another file: use another.
+    pub fn deplacer_recu(&self, regle: i64, asset_id: &str, chemin: &str) -> Resultat<()> {
+        self.cnx.execute("UPDATE recus SET chemin = ?3 WHERE regle = ?1 AND asset_id = ?2", params![regle, asset_id, chemin])?;
+        Ok(())
+    }
+
+    /// Forgets a reserved file that was never received (gone from the selection).
+    pub fn oublier_recu(&self, regle: i64, asset_id: &str) -> Resultat<()> {
+        self.cnx.execute("DELETE FROM recus WHERE regle = ?1 AND asset_id = ?2", params![regle, asset_id])?;
+        Ok(())
+    }
+
+    pub fn marquer_recu_rate(&self, regle: i64, asset_id: &str, erreur: &str, prochain_essai: i64, definitif: bool) -> Resultat<()> {
+        self.cnx.execute(
+            "UPDATE recus SET essais = essais + 1, erreur = ?3, prochain_essai = ?4,
+                 etat = CASE WHEN ?5 THEN 'echec' ELSE etat END, maj_le = ?6
+             WHERE regle = ?1 AND asset_id = ?2",
+            params![regle, asset_id, erreur, prochain_essai, definitif, maintenant_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// Downloads again what was deleted here or given up.
+    pub fn recevoir_de_nouveau(&self, regle: i64) -> Resultat<usize> {
+        Ok(self.cnx.execute(
+            "UPDATE recus SET etat = 'attente', essais = 0, prochain_essai = 0, erreur = NULL
+             WHERE regle = ?1 AND etat IN ('retire_ici', 'echec')",
+            params![regle],
+        )?)
     }
 
     // ---- Folder albums ----
@@ -560,6 +818,25 @@ mod tests {
         base.supprimer_regle(r).unwrap();
         assert!(base.fichiers_connus(r).unwrap().is_empty());
         assert_eq!(base.journal(10).unwrap()[0].action, "regle_supprimee");
+    }
+
+    #[test]
+    fn migration_de_v1_avec_sauvegarde() {
+        let dossier = tempfile::tempdir().unwrap();
+        let chemin = dossier.path().join("envoi.sqlite");
+        {
+            let cnx = Connection::open(&chemin).unwrap();
+            cnx.execute_batch(&format!("{SCHEMA_V1} PRAGMA user_version = 1;")).unwrap();
+            cnx.execute("INSERT INTO regles (dossier, cible, actif, cree_le) VALUES ('/p', 'bibliotheque', 1, 0)", []).unwrap();
+        }
+        let base = Base::ouvrir(&chemin).unwrap();
+        let regles = base.regles().unwrap();
+        assert_eq!((regles.len(), regles[0].sens), (1, Sens::Montante));
+        assert!(dossier.path().join("envoi.sqlite.v1.sauvegarde").exists());
+        let r = base
+            .ajouter_reception(Path::new("/recu"), &api_immich::Selection::Favoris, Rangement::AnneeMois)
+            .unwrap();
+        assert_eq!((r.sens, r.rangement, r.selection), (Sens::Descendante, Rangement::AnneeMois, Some(api_immich::Selection::Favoris)));
     }
 
     #[test]

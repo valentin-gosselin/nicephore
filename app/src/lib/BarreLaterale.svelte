@@ -5,12 +5,12 @@
   import {
     mdiAccountMultipleOutline,
     mdiArchiveArrowDownOutline,
-    mdiCloudUploadOutline,
     mdiCompassOutline,
     mdiHeartOutline,
     mdiImageAlbum,
     mdiImageMultipleOutline,
     mdiMapOutline,
+    mdiSync,
     mdiTrashCanOutline,
   } from '@mdi/js';
   import { page } from '$app/state';
@@ -42,7 +42,7 @@
     },
     {
       titre: 'Cet ordinateur',
-      entrees: [{ libelle: 'Envoi', icone: mdiCloudUploadOutline, chemin: '/envoi' }],
+      entrees: [{ libelle: 'Synchro', icone: mdiSync, chemin: '/synchro' }],
     },
   ];
 
@@ -72,7 +72,7 @@
     >
       <span class="relative flex">
         <Icon icon={entree.icone} size="22" />
-        {#if entree.chemin === '/envoi' && envoiActif}<span class="temoin" title="Envoi en cours"></span>{/if}
+        {#if entree.chemin === '/synchro' && envoiActif}<span class="temoin" title="Synchro en cours"></span>{/if}
       </span>
       {#if !repliee}<span>{entree.libelle}</span>{/if}
     </a>

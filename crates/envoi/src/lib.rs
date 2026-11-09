@@ -10,7 +10,7 @@ pub mod analyse;
 pub mod base;
 mod moteur;
 
-pub use base::{Base, Bilan, Cible, EntreeJournal, FichierEnEchec, Regle};
+pub use base::{Base, Bilan, Cible, EntreeJournal, EtatRecu, FichierEnEchec, Rangement, Regle, Sens};
 pub use moteur::{Condition, EtatEnvoi, Moteur, Phase};
 
 use std::time::{SystemTime, UNIX_EPOCH};

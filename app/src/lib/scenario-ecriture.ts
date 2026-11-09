@@ -224,7 +224,7 @@ export async function lancerScenarioEcriture() {
 
     // 11. Upload of a local folder (the folder picker is the only step
     // skipped: the rule is added with the folder prepared by banc.sh).
-    await aller('/envoi');
+    await aller('/synchro');
     const page = () => document.querySelector('main')?.textContent?.replace(/\s+/g, ' ') ?? document.body.textContent ?? '';
     await verifier('page Envoi vide au départ', page().includes('Aucun dossier n’est envoyé'));
     const dossier = await invoke<string | null>('dossier_photos_banc');
@@ -250,6 +250,41 @@ export async function lancerScenarioEcriture() {
       await aller('/albums');
       const balade = await element<HTMLAnchorElement>('a.album', (a) => (a.textContent ?? '').includes('Balade banc'));
       await verifier('album du sous-dossier', !!balade && (balade.textContent ?? '').includes('2 éléments'), balade?.textContent?.replace(/\s+/g, ' ') ?? '');
+      // 11b. Receiving: the dialog up to its estimate, then a period of the
+      // server received by year and month.
+      await aller('/synchro');
+      (await element<HTMLButtonElement>('button', (b) => b.textContent?.includes('Ajouter un dossier') ?? false))?.click();
+      (await element<HTMLInputElement>('input[name="sens"][value="descendante"]'))?.click();
+      await attendre(300);
+      (await element<HTMLInputElement>('input[name="quoi"][value="periode"]'))?.click();
+      await attendre(300);
+      saisir(await element<HTMLInputElement>('input[aria-label="Du"]'), '2025-02-01');
+      saisir(await element<HTMLInputElement>('input[aria-label="Au"]'), '2025-02-28');
+      await attendre(2500);
+      const boite = () => document.querySelector('[role="dialog"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      await verifier('estimation de la réception dans la boîte', /\d+ photos? .* à recevoir/.test(boite()), boite().slice(0, 200));
+      await verifier('rangement par année et mois proposé pour une période', !!document.querySelector<HTMLInputElement>('input[name="rangement"][value="anneeMois"]')?.checked);
+      await capture('e6b-boite-reception');
+      (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Annuler'))?.click();
+      await attendre(500);
+      const recu = await invoke<string | null>('dossier_banc_vide', { nom: 'recu' });
+      const periode = { genre: 'periode', du: '2025-02-01', au: '2025-02-28' };
+      const attendu = await invoke<{ fichiers: number }>('estimer_reception', { selection: periode, dossier: recu });
+      await invoke('ajouter_reception', { dossier: recu, selection: periode, rangement: 'anneeMois' });
+      type VueRegle = { sens: string; bilan: { recus: number } };
+      let recus = 0;
+      for (let i = 0; i < 60 && recus < attendu.fichiers; i++) {
+        await attendre(500);
+        recus = (await invoke<VueRegle[]>('regles_envoi')).find((r) => r.sens === 'descendante')?.bilan.recus ?? 0;
+      }
+      await verifier('période reçue en entier', recus === attendu.fichiers && recus > 0, `${recus} sur ${attendu.fichiers}`);
+      await attendre(1500);
+      await verifier('réception affichée sur la page', page().includes('Reçoit du') && page().includes(`${attendu.fichiers} reçu`), page().slice(0, 300));
+      await capture('e6c-reception');
+      (await element<HTMLButtonElement>('[aria-label^="Ne plus recevoir dans"]'))?.click();
+      (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus recevoir'))?.click();
+      await attendre(1500);
+
       // 12. Background: settings, then closing the window into the tray
       // while a folder is sent.
       await aller('/reglages');
@@ -282,7 +317,7 @@ export async function lancerScenarioEcriture() {
         await verifier('rouverte depuis la zone de notification', await invoke<boolean>('fenetre_visible'));
       }
 
-      await aller('/envoi');
+      await aller('/synchro');
       (await element<HTMLButtonElement>('[aria-label^="Ne plus envoyer"]'))?.click();
       const confirmerRetrait = await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus envoyer');
       confirmerRetrait?.click();

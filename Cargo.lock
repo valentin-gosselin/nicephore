@@ -72,6 +72,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "api_immich"
 version = "0.0.1"
 dependencies = [
+ "base64 0.23.1",
  "bytes",
  "futures-util",
  "reqwest",
@@ -1202,6 +1203,7 @@ name = "envoi"
 version = "0.0.1"
 dependencies = [
  "api_immich",
+ "fs4",
  "futures-util",
  "hex",
  "humantime",
@@ -1209,6 +1211,7 @@ dependencies = [
  "reqwest",
  "rusqlite",
  "serde",
+ "serde_json",
  "sha1",
  "tempfile",
  "thiserror 2.0.21",
@@ -1375,6 +1378,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs4"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5"
+dependencies = [
+ "rustix",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2734,6 +2747,7 @@ dependencies = [
  "chacha20poly1305",
  "dirs",
  "envoi",
+ "fs4",
  "futures-util",
  "getrandom 0.4.3",
  "hex",
@@ -2742,6 +2756,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha1",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

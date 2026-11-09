@@ -20,6 +20,7 @@ bytes = "1.12.1"
 cache_vignettes = { path = "../../crates/cache_vignettes" }
 chacha20poly1305 = "0.11.0"
 envoi = { path = "../../crates/envoi" }
+fs4 = "1"
 futures-util = "0.3.34"
 getrandom = "0.4.3"
 hex = "0.4.3"

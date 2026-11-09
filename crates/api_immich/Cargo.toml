@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+base64 = "0.23"
 bytes = "1.12.1"
 futures-util = "0.3.34"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "query", "stream", "multipart", "http2", "charset", "rustls"] }

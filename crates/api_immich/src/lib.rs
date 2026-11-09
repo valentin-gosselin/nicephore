@@ -582,6 +582,62 @@ impl ClientImmich {
         verifier(reponse).await.map(|_| ())
     }
 
+    /// Every asset of a selection (`POST /search/metadata`, 1 000 per page),
+    /// trash excluded. Partial results are never returned: any failed page
+    /// fails the whole listing.
+    pub async fn assets_de_selection(&self, selection: &Selection) -> Resultat<Vec<AssetDistant>> {
+        let mut filtre = serde_json::json!({ "size": 1000, "withExif": true, "order": "asc" });
+        match selection {
+            Selection::Album { id, .. } => {
+                valider_id(id)?;
+                filtre["albumIds"] = serde_json::json!([id]);
+            }
+            Selection::Personne { id, .. } => {
+                valider_id(id)?;
+                filtre["personIds"] = serde_json::json!([id]);
+            }
+            Selection::Favoris => {
+                filtre["isFavorite"] = true.into();
+                filtre["visibility"] = "timeline".into();
+            }
+            Selection::Periode { du, au } => {
+                if let Some(du) = du {
+                    filtre["takenAfter"] = format!("{du}T00:00:00.000Z").into();
+                }
+                if let Some(au) = au {
+                    filtre["takenBefore"] = format!("{au}T23:59:59.999Z").into();
+                }
+                filtre["visibility"] = "timeline".into();
+            }
+            Selection::Bibliotheque => filtre["visibility"] = "timeline".into(),
+        }
+        let mut assets = Vec::new();
+        let mut page = 1u32;
+        loop {
+            filtre["page"] = page.into();
+            let reponse = self
+                .http
+                .post(self.url("search/metadata"))
+                .json(&filtre)
+                .timeout(Duration::from_secs(120))
+                .send()
+                .await?;
+            let valeur: serde_json::Value = verifier(reponse).await?.json().await?;
+            let items = valeur["assets"]["items"].as_array().cloned().unwrap_or_default();
+            for item in &items {
+                match AssetDistant::depuis(item) {
+                    Some(a) => assets.push(a),
+                    None => return Err(Erreur::ReponseInattendue("élément sans empreinte ni nom".into())),
+                }
+            }
+            match valeur["assets"]["nextPage"].as_str().and_then(|p| p.parse::<u32>().ok()) {
+                Some(suivante) if !items.is_empty() => page = suivante,
+                _ => break,
+            }
+        }
+        Ok(assets)
+    }
+
     /// `GET /server/media-types`: extensions the server accepts.
     pub async fn types_medias(&self) -> Resultat<TypesMedias> {
         self.get_json("server/media-types", &[]).await

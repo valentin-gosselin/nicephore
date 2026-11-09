@@ -50,6 +50,18 @@ pub fn montrer_fenetre(app: tauri::AppHandle) {
     crate::zone_notification::montrer(&app);
 }
 
+/// An empty folder of the benchmark run, created on request (letters and
+/// digits only), for the receiving scenario.
+#[tauri::command]
+pub fn dossier_banc_vide(nom: String) -> Option<String> {
+    if nom.is_empty() || !nom.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    let dossier = dossier_banc()?.join(nom);
+    std::fs::create_dir_all(&dossier).ok()?;
+    Some(dossier.to_string_lossy().into_owned())
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentifiantsBanc {

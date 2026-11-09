@@ -162,6 +162,58 @@ pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible)
     Ok(regle)
 }
 
+/// Adds a download rule: a selection of the server copied into a folder.
+#[tauri::command]
+pub fn ajouter_reception(
+    etat: State<'_, Etat>,
+    dossier: String,
+    selection: api_immich::Selection,
+    rangement: envoi::Rangement,
+) -> Result<Regle, String> {
+    if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
+        return Err(e);
+    }
+    let chemin = Path::new(&dossier);
+    if !chemin.is_absolute() || !chemin.is_dir() {
+        return Err("choisissez un dossier existant".into());
+    }
+    let regle = etat.envoi.base().ajouter_reception(chemin, &selection, rangement).map_err(erreur)?;
+    etat.envoi.regles_changees();
+    Ok(regle)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EstimationReception {
+    fichiers: u64,
+    octets: u64,
+    /// Free space where the files would land.
+    libre: Option<u64>,
+}
+
+/// What a selection would bring into a folder, shown before adding it.
+#[tauri::command]
+pub async fn estimer_reception(
+    etat: State<'_, Etat>,
+    selection: api_immich::Selection,
+    dossier: Option<String>,
+) -> Result<EstimationReception, String> {
+    let assets = etat.client()?.assets_de_selection(&selection).await.map_err(|e| e.to_string())?;
+    Ok(EstimationReception {
+        fichiers: assets.len() as u64,
+        octets: assets.iter().filter_map(|a| a.taille).sum(),
+        libre: dossier.and_then(|d| fs4::available_space(d).ok()),
+    })
+}
+
+/// Downloads again what was deleted here or given up.
+#[tauri::command]
+pub fn recevoir_de_nouveau(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
+    let n = etat.envoi.base().recevoir_de_nouveau(regle).map_err(erreur)?;
+    etat.envoi.reveiller();
+    Ok(n)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Estimation {

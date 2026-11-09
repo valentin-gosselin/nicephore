@@ -1,7 +1,7 @@
 //! The engine loop: passes over every active rule, woken by folder changes,
 //! by the user, by due retries, or every 15 minutes.
 
-use api_immich::{ClientImmich, ElementVerification, Erreur as ErreurApi, MetaEnvoi, TypesMedias};
+use api_immich::{AssetDistant, ClientImmich, ElementVerification, Erreur as ErreurApi, MetaEnvoi, TypesMedias};
 use futures_util::{StreamExt, TryStreamExt};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
@@ -12,7 +12,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, watch};
 
 use crate::analyse::{self, FichierLocal};
-use crate::base::{AEnvoyer, Base, Cible, Regle};
+use crate::base::{AEnvoyer, Base, Cible, EtatRecu, Regle};
 use crate::{Erreur, Resultat, maintenant_ms};
 
 /// Files sent at the same time.
@@ -36,6 +36,7 @@ pub enum Phase {
     Verification,
     Envoi,
     Albums,
+    Reception,
 }
 
 /// What the engine is doing, for the interface.
@@ -241,7 +242,9 @@ impl Moteur {
                 return;
             }
         };
-        for regle in regles.iter().filter(|r| r.actif) {
+        // Received folders are not watched: the server is their source, and
+        // our own writes would wake the engine for nothing.
+        for regle in regles.iter().filter(|r| r.actif && r.sens != crate::Sens::Descendante) {
             if let Err(e) = veilleur.watch(Path::new(&regle.dossier), notify::RecursiveMode::Recursive) {
                 tracing::warn!("surveillance de {} impossible : {e}", regle.dossier);
             }
@@ -271,7 +274,11 @@ impl Moteur {
                 tracing::info!("passage d'envoi interrompu (pause ou règles changées)");
                 break;
             }
-            match self.passage_regle(&client, &types, regle, generation).await {
+            let resultat = match regle.sens {
+                crate::Sens::Descendante => self.passage_reception(&client, regle, generation).await,
+                _ => self.passage_regle(&client, &types, regle, generation).await,
+            };
+            match resultat {
                 Ok(Some(d)) => revoir = Some(revoir.map_or(d, |r: Duration| r.min(d))),
                 Ok(None) => {}
                 // Lost session or missing right: stop everything.
@@ -641,6 +648,323 @@ impl Moteur {
     }
 }
 
+impl Moteur {
+    /// Download rule: copies the selection into the folder. Files deleted
+    /// here are not downloaded again, files gone from the server stay here;
+    /// nothing local is ever deleted or overwritten.
+    async fn passage_reception(&self, client: &ClientImmich, regle: &Regle, generation: u64) -> Resultat<Option<Duration>> {
+        let racine = PathBuf::from(&regle.dossier);
+        self.phase(regle.id, Phase::Analyse, 0);
+        // A missing folder (unplugged disk) stops the rule: nothing is
+        // concluded, nothing is written elsewhere.
+        if std::fs::read_dir(&racine).is_err() {
+            return Err(Erreur::Regle("dossier introuvable ou illisible (disque débranché ?)".into()));
+        }
+        // Temporary files left by an abrupt stop (crash, power cut).
+        let r = racine.clone();
+        let _ = tokio::task::spawn_blocking(move || nettoyer_partiels(&r)).await;
+        let selection = regle.selection.clone().ok_or_else(|| Erreur::Regle("sélection manquante".into()))?;
+        let distants = client.assets_de_selection(&selection).await?;
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
+        let connus = self.base().recus(regle.id)?;
+        let ids: std::collections::HashSet<&str> = distants.iter().map(|a| a.id.as_str()).collect();
+
+        // What changed since the last pass.
+        {
+            let base = self.base();
+            for (asset_id, recu) in &connus {
+                let present_ici = analyse::absolu(&racine, &recu.chemin).exists();
+                match recu.etat {
+                    EtatRecu::Recu if !ids.contains(asset_id.as_str()) => {
+                        base.changer_etat_recu(regle.id, asset_id, EtatRecu::RetireServeur)?;
+                        base.journaliser(Some(regle.id), Some(&recu.chemin), "retire_du_serveur", None, Some(asset_id))?;
+                    }
+                    EtatRecu::Recu if !present_ici => {
+                        base.changer_etat_recu(regle.id, asset_id, EtatRecu::RetireIci)?;
+                        base.journaliser(Some(regle.id), Some(&recu.chemin), "retire_ici", None, Some(asset_id))?;
+                    }
+                    EtatRecu::Attente | EtatRecu::Echec if !ids.contains(asset_id.as_str()) => {
+                        base.oublier_recu(regle.id, asset_id)?;
+                    }
+                    EtatRecu::RetireServeur if ids.contains(asset_id.as_str()) && present_ici => {
+                        base.changer_etat_recu(regle.id, asset_id, EtatRecu::Recu)?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // New on the server. A file already here under its name with the
+        // same content is adopted; otherwise a free local name is reserved.
+        let nouveaux: Vec<&AssetDistant> = distants.iter().filter(|a| !connus.contains_key(&a.id)).collect();
+        let candidats: Vec<(usize, PathBuf, String)> = nouveaux
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| {
+                let relatif = chemin_naturel(regle.rangement, a);
+                let absolu = analyse::absolu(&racine, &relatif);
+                let meme_taille = std::fs::metadata(&absolu).is_ok_and(|m| a.taille.is_none_or(|t| t == m.len()));
+                meme_taille.then_some((i, absolu, relatif))
+            })
+            .collect();
+        let adoptes: HashMap<usize, String> = tokio::task::spawn_blocking({
+            let attendus: Vec<String> = candidats.iter().map(|(i, _, _)| nouveaux[*i].sha1.clone()).collect();
+            move || {
+                candidats
+                    .into_iter()
+                    .zip(attendus)
+                    .filter(|((_, absolu, _), sha1)| analyse::empreinte(absolu).is_ok_and(|e| &e == sha1))
+                    .map(|((i, _, relatif), _)| (i, relatif))
+                    .collect()
+            }
+        })
+        .await
+        .map_err(|e| Erreur::Regle(e.to_string()))?;
+        {
+            let base = self.base();
+            let mut pris: std::collections::HashSet<String> = connus.values().map(|r| r.chemin.to_lowercase()).collect();
+            for (i, asset) in nouveaux.iter().enumerate() {
+                if let Some(relatif) = adoptes.get(&i) {
+                    pris.insert(relatif.to_lowercase());
+                    base.noter_recu_present(regle.id, asset, relatif)?;
+                    continue;
+                }
+                let dossier = sous_dossier(regle.rangement, &asset.date_locale);
+                let chemin = nom_libre(&racine, &dossier, &asset.nom_fichier, &asset.id, &mut pris);
+                base.reserver_recu(regle.id, asset, &chemin)?;
+            }
+        }
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
+
+        let a_recevoir = self.base().a_recevoir(regle.id, maintenant_ms())?;
+        if a_recevoir.is_empty() {
+            return Ok(None);
+        }
+        // Room on the disk for everything, plus a margin.
+        let besoin: u64 = a_recevoir.iter().map(|f| f.taille).sum();
+        if let Ok(libre) = fs4::available_space(&racine) {
+            let marge = 1 << 30;
+            if besoin + marge > libre {
+                return Err(Erreur::Regle(format!(
+                    "place insuffisante : {} Mo à recevoir, {} Mo libres",
+                    besoin / 1_048_576,
+                    libre / 1_048_576
+                )));
+            }
+        }
+        self.phase(regle.id, Phase::Reception, a_recevoir.len() as u64);
+        self.etat.send_modify(|e| e.octets_total = besoin);
+        let octets = Arc::new(AtomicU64::new(0));
+        let mut receptions = futures_util::stream::iter(a_recevoir)
+            .map(|fichier| {
+                let octets = Arc::clone(&octets);
+                let racine = racine.clone();
+                async move {
+                    let issue = self.recevoir(client, regle, &racine, &fichier, &octets, generation).await;
+                    (fichier, issue)
+                }
+            })
+            .buffer_unordered(ENVOIS_PARALLELES);
+        // On interruption the queue is drained, not dropped: every download
+        // under way stops by itself and removes its temporary file.
+        while let Some((fichier, issue)) = receptions.next().await {
+            if self.interrompu(generation) {
+                continue;
+            }
+            match issue {
+                Ok(()) => {}
+                Err(e @ Erreur::Api(ErreurApi::CleRefusee | ErreurApi::PermissionManquante(_))) => return Err(e),
+                Err(e) => tracing::warn!("{} : {e}", fichier.chemin),
+            }
+            self.etat.send_modify(|e| {
+                e.faits += 1;
+                e.fichier = Some(fichier.chemin.clone());
+            });
+        }
+        Ok(None)
+    }
+
+    /// Downloads one original into a hidden temporary file, checks its
+    /// SHA-1, then moves it into place without ever replacing a file.
+    async fn recevoir(
+        &self,
+        client: &ClientImmich,
+        regle: &Regle,
+        racine: &Path,
+        fichier: &crate::base::ARecevoir,
+        octets: &Arc<AtomicU64>,
+        generation: u64,
+    ) -> Resultat<()> {
+        use sha1::{Digest, Sha1};
+        use tokio::io::AsyncWriteExt;
+        if self.interrompu(generation) {
+            return Ok(());
+        }
+        let cible = analyse::absolu(racine, &fichier.chemin);
+        let dossier = cible.parent().map(Path::to_path_buf).unwrap_or_else(|| racine.to_path_buf());
+        let echec = |e: String, essais: u32| -> Resultat<()> {
+            let essais = essais + 1;
+            let definitif = essais >= 5;
+            let delai = 30_000_i64.saturating_mul(1 << essais.min(10)).min(6 * 3_600_000);
+            let base = self.base();
+            base.marquer_recu_rate(regle.id, &fichier.asset_id, &e, maintenant_ms() + delai, definitif)?;
+            if definitif {
+                base.journaliser(Some(regle.id), Some(&fichier.chemin), "abandon", Some(&e), Some(&fichier.asset_id))?;
+            }
+            Ok(())
+        };
+        if let Err(e) = tokio::fs::create_dir_all(&dossier).await {
+            return echec(format!("dossier impossible à créer : {e}"), fichier.essais);
+        }
+        // The reserved name got taken meanwhile: same content means done,
+        // otherwise another name, never an overwrite.
+        if cible.exists() {
+            let c = cible.clone();
+            let meme = tokio::task::spawn_blocking(move || analyse::empreinte(&c)).await.ok().and_then(Result::ok);
+            if meme.as_deref() == Some(fichier.sha1.as_str()) {
+                self.base().changer_etat_recu(regle.id, &fichier.asset_id, EtatRecu::Recu)?;
+                return Ok(());
+            }
+            let nom = cible.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let parent = analyse::dossier_de(&fichier.chemin).to_string();
+            let mut pris = std::collections::HashSet::new();
+            let autre = nom_libre(racine, &parent, &nom, &fichier.asset_id, &mut pris);
+            self.base().deplacer_recu(regle.id, &fichier.asset_id, &autre)?;
+            return Ok(());
+        }
+        let partiel = dossier.join(format!(".nicephore-{}.part", fichier.asset_id));
+        let mut arret = self.arret.subscribe();
+        let telechargement = async {
+            let reponse = client.flux_original(&fichier.asset_id).await.map_err(|e| e.to_string())?;
+            let mut sortie = tokio::fs::File::create(&partiel).await.map_err(|e| e.to_string())?;
+            let mut hacheur = Sha1::new();
+            let mut flux = reponse.bytes_stream();
+            while let Some(morceau) = flux.next().await {
+                let morceau = morceau.map_err(|e| e.to_string())?;
+                hacheur.update(&morceau);
+                sortie.write_all(&morceau).await.map_err(|e| e.to_string())?;
+                let faits = octets.fetch_add(morceau.len() as u64, Ordering::Relaxed) + morceau.len() as u64;
+                self.etat.send_modify(|e| e.octets_faits = faits);
+            }
+            sortie.flush().await.map_err(|e| e.to_string())?;
+            sortie.sync_all().await.map_err(|e| e.to_string())?;
+            Ok::<String, String>(hacheur.finalize().iter().map(|o| format!("{o:02x}")).collect())
+        };
+        let resultat = tokio::select! {
+            r = telechargement => Some(r),
+            _ = async {
+                while !self.interrompu(generation) {
+                    if arret.changed().await.is_err() {
+                        std::future::pending::<()>().await;
+                    }
+                }
+            } => None,
+        };
+        let empreinte = match resultat {
+            None => {
+                let _ = tokio::fs::remove_file(&partiel).await;
+                return Ok(());
+            }
+            Some(Err(e)) => {
+                let _ = tokio::fs::remove_file(&partiel).await;
+                return echec(e, fichier.essais);
+            }
+            Some(Ok(e)) => e,
+        };
+        if empreinte != fichier.sha1 {
+            let _ = tokio::fs::remove_file(&partiel).await;
+            return echec("empreinte différente de celle du serveur".into(), fichier.essais);
+        }
+        // Original modification date, then into place (never replacing).
+        if let Ok(date) = humantime::parse_rfc3339_weak(&fichier.modifie_le)
+            && let Ok(f) = std::fs::File::options().write(true).open(&partiel)
+        {
+            let _ = f.set_modified(date);
+        }
+        if cible.exists() {
+            let _ = tokio::fs::remove_file(&partiel).await;
+            return Ok(());
+        }
+        if let Err(e) = tokio::fs::rename(&partiel, &cible).await {
+            let _ = tokio::fs::remove_file(&partiel).await;
+            return echec(format!("mise en place impossible : {e}"), fichier.essais);
+        }
+        let base = self.base();
+        base.changer_etat_recu(regle.id, &fichier.asset_id, EtatRecu::Recu)?;
+        base.journaliser(Some(regle.id), Some(&fichier.chemin), "recu", None, Some(&fichier.asset_id))?;
+        Ok(())
+    }
+}
+
+/// Removes our `.nicephore-*.part` temporary files under `racine`.
+fn nettoyer_partiels(racine: &Path) {
+    for entree in walkdir::WalkDir::new(racine).follow_links(false).into_iter().flatten() {
+        let nom = entree.file_name().to_string_lossy();
+        if entree.file_type().is_file() && nom.starts_with(".nicephore-") && nom.ends_with(".part") {
+            let _ = std::fs::remove_file(entree.path());
+        }
+    }
+}
+
+/// Where an asset goes when its name is free.
+fn chemin_naturel(rangement: crate::Rangement, asset: &AssetDistant) -> String {
+    let dossier = sous_dossier(rangement, &asset.date_locale);
+    let nom = nom_sur(&asset.nom_fichier, &asset.id);
+    if dossier.is_empty() { nom } else { format!("{dossier}/{nom}") }
+}
+
+/// Sub-folder of a received file: none, or `YYYY/MM` from the capture date.
+fn sous_dossier(rangement: crate::Rangement, date_locale: &str) -> String {
+    match rangement {
+        crate::Rangement::Plat => String::new(),
+        crate::Rangement::AnneeMois => {
+            let (annee, mois) = (date_locale.get(0..4), date_locale.get(5..7));
+            match (annee, mois) {
+                (Some(a), Some(m)) if a.chars().all(|c| c.is_ascii_digit()) && m.chars().all(|c| c.is_ascii_digit()) => format!("{a}/{m}"),
+                _ => "sans date".into(),
+            }
+        }
+    }
+}
+
+/// A file name valid on every system (Windows forbids more characters).
+fn nom_sur(nom: &str, secours: &str) -> String {
+    let propre: String = nom
+        .chars()
+        .map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c })
+        .collect();
+    let propre = propre.trim().trim_end_matches(['.', ' ']).trim_start_matches('.').to_string();
+    if propre.is_empty() { secours.to_string() } else { propre }
+}
+
+/// A relative path free both on disk and among the reserved ones (names
+/// compared without case, as on Windows): `IMG.jpg`, then `IMG (2).jpg`...
+fn nom_libre(
+    racine: &Path,
+    dossier: &str,
+    nom: &str,
+    secours: &str,
+    pris: &mut std::collections::HashSet<String>,
+) -> String {
+    let nom = nom_sur(nom, secours);
+    let (base, extension) = match nom.rsplit_once('.') {
+        Some((b, e)) if !b.is_empty() => (b.to_string(), format!(".{e}")),
+        _ => (nom.clone(), String::new()),
+    };
+    for n in 1.. {
+        let candidat = if n == 1 { nom.clone() } else { format!("{base} ({n}){extension}") };
+        let chemin = if dossier.is_empty() { candidat } else { format!("{dossier}/{candidat}") };
+        if !pris.contains(&chemin.to_lowercase()) && !analyse::absolu(racine, &chemin).exists() {
+            pris.insert(chemin.to_lowercase());
+            return chemin;
+        }
+    }
+    unreachable!()
+}
+
 fn analyse_ms(t: std::time::SystemTime) -> i64 {
     t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
@@ -655,6 +979,21 @@ fn nom_album(racine: &str, dossier: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::nom_album;
+
+    #[test]
+    fn noms_et_dossiers_des_fichiers_recus() {
+        use super::{nom_libre, nom_sur, sous_dossier};
+        let dossier = tempfile::tempdir().unwrap();
+        std::fs::write(dossier.path().join("IMG.jpg"), b"x").unwrap();
+        let mut pris = std::collections::HashSet::new();
+        assert_eq!(nom_libre(dossier.path(), "", "IMG.jpg", "id", &mut pris), "IMG (2).jpg");
+        assert_eq!(nom_libre(dossier.path(), "", "img (2).JPG", "id", &mut pris), "img (2) (2).JPG");
+        assert_eq!(nom_libre(dossier.path(), "2026/05", "a:b?.jpg", "id", &mut pris), "2026/05/a_b_.jpg");
+        assert_eq!(nom_sur("...", "secours"), "secours");
+        assert_eq!(sous_dossier(crate::Rangement::AnneeMois, "2026-05-30T14:00:00"), "2026/05");
+        assert_eq!(sous_dossier(crate::Rangement::AnneeMois, ""), "sans date");
+        assert_eq!(sous_dossier(crate::Rangement::Plat, "2026-05-30T14:00:00"), "");
+    }
 
     #[test]
     fn noms_des_albums_par_dossier() {

@@ -533,3 +533,56 @@ pub struct ReponseEnvoi {
     /// `created`, `replaced` or `duplicate`.
     pub status: String,
 }
+
+/// What a download rule takes from the server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "genre", rename_all = "camelCase")]
+pub enum Selection {
+    /// An album, by id (never by name).
+    Album { id: String, nom: String },
+    /// Every photo of a person.
+    Personne { id: String, nom: String },
+    Favoris,
+    /// Photos taken between two dates (YYYY-MM-DD, inclusive), open ended
+    /// on a missing side.
+    Periode {
+        #[serde(default)]
+        du: Option<String>,
+        #[serde(default)]
+        au: Option<String>,
+    },
+    /// The whole timeline (archive excluded).
+    Bibliotheque,
+}
+
+/// An asset of a selection, with what a download needs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetDistant {
+    pub id: String,
+    pub nom_fichier: String,
+    /// SHA-1 of the original, hex.
+    pub sha1: String,
+    /// Size of the original when the server knows it.
+    pub taille: Option<u64>,
+    /// Local date and time of capture (`YYYY-MM-DDTHH:MM:SS`), for sorting
+    /// into year and month folders.
+    pub date_locale: String,
+    /// RFC 3339 modification date of the original file.
+    pub modifie_le: String,
+}
+
+impl AssetDistant {
+    pub(crate) fn depuis(v: &serde_json::Value) -> Option<Self> {
+        use base64::Engine;
+        let sha1 = base64::engine::general_purpose::STANDARD.decode(v["checksum"].as_str()?).ok()?;
+        Some(Self {
+            id: v["id"].as_str()?.to_string(),
+            nom_fichier: v["originalFileName"].as_str()?.to_string(),
+            sha1: sha1.iter().map(|o| format!("{o:02x}")).collect(),
+            taille: v["exifInfo"]["fileSizeInByte"].as_u64(),
+            date_locale: v["localDateTime"].as_str().unwrap_or_default().chars().take(19).collect(),
+            modifie_le: v["fileModifiedAt"].as_str().unwrap_or_default().to_string(),
+        })
+    }
+}
