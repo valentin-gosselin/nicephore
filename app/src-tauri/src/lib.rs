@@ -898,6 +898,7 @@ pub fn lancer() {
             fichiers_locaux::etat_fichier_local,
             fichiers_locaux::envoyer_fichier_local,
             fichiers_locaux::apercu_local,
+            fichiers_locaux::url_video_locale,
             fichiers_locaux::definir_visionneuse_par_defaut,
             banc::lancer_seconde_instance,
             virtuels::virtuels,

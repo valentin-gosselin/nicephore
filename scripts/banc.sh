@@ -98,6 +98,8 @@ for nom in ("b-nouvelle", "c-autre"):
 entete = b"II*\0\x08\0\0\0" + bytes([1, 0, 0x12, 1, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0])
 (sortie / "d-raw.arw").write_bytes(entete + b"\0" * 64 + source + b"\0" * 64)
 PY
+    # A short H.264 video, 960 x 720 (4:3).
+    ffmpeg -loglevel error -f lavfi -i testsrc=size=960x720:rate=25 -t 2 -pix_fmt yuv420p -c:v libx264 "$sortie/local/e-video.mp4"
     arguments="\"$sortie/local/b-nouvelle.jpg\""
 elif [ -n "$portable" ]; then
     export NICEPHORE_PORTABLE="$sortie/donnees"

@@ -394,3 +394,4 @@ export const envoyerFichierLocal = (chemin: string) => invoke<string>('envoyer_f
 export const definirVisionneuseParDefaut = () => invoke<string>('definir_visionneuse_par_defaut');
 export type ApercuLocal = { chemin: string; largeur: number; hauteur: number; orientation: number };
 export const apercuLocal = (chemin: string) => invoke<ApercuLocal | null>('apercu_local', { chemin });
+export const urlVideoLocale = (chemin: string) => invoke<string>('url_video_locale', { chemin });

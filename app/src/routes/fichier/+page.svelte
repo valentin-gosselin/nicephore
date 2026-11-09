@@ -17,6 +17,7 @@
   import { page } from '$app/state';
   import {
     apercuLocal,
+    urlVideoLocale,
     envoyerFichierLocal,
     etatFichierLocal,
     ouvrirFichierLocal,
@@ -34,6 +35,8 @@
   let etat = $state<EtatLocal | null>(null);
   let envoi = $state(false);
   let apercu = $state<ApercuLocal | null>(null);
+  let video = $state<string | null>(null);
+  let videoIlisible = $state(false);
   let zoneL = $state(0);
   let zoneH = $state(0);
   /** Opened from outside (file manager): the window takes the photo's size. */
@@ -100,10 +103,21 @@
     etat = null;
     if (!demande) return;
     apercu = null;
+    video = null;
+    videoIlisible = false;
     ouvrirFichierLocal(demande)
       .then(async (f) => {
         if (demande !== chemin) return;
         fichier = f;
+        if (f.video) {
+          const url = await urlVideoLocale(demande).catch(() => null);
+          if (demande !== chemin) return;
+          video = url;
+          if (!url) {
+            videoIlisible = true;
+            void ajuster(0, 0);
+          }
+        }
         if (f.raw) {
           const a = await apercuLocal(demande).catch(() => null);
           if (demande !== chemin) return;
@@ -220,16 +234,24 @@
         <p>Aperçu indisponible pour ce format ({fichier.nom.split('.').pop()?.toUpperCase()}).</p>
         <p class="text-sm opacity-70">Il peut tout de même être envoyé vers Immich, qui sait l’afficher.</p>
       </div>
-    {:else if fichier.video}
-      {#key fichier.chemin}
+    {:else if fichier.video && videoIlisible}
+      <div class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center opacity-80">
+        <p>Cette vidéo ne peut pas être lue ici : son format n’est pas pris en charge par le système.</p>
+        <p class="text-sm opacity-70">Elle peut tout de même être envoyée vers Immich, qui la convertit pour la lecture.</p>
+      </div>
+    {:else if fichier.video && video}
+      {#key video}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video
-          class="h-full w-full object-contain"
-          src={convertFileSrc(fichier.chemin)}
+          class="video-locale h-full w-full object-contain"
+          src={video}
           controls
           autoplay
           onloadedmetadata={(e) => ajuster(e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
-          onerror={() => ajuster(0, 0)}
+          onerror={() => {
+            videoIlisible = true;
+            void ajuster(0, 0);
+          }}
         ></video>
       {/key}
     {:else}

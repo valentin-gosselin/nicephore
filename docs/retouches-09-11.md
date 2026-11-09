@@ -10,3 +10,17 @@
 - Vérifié dans l'appli (59/59) : sélection désactivée sur la page, fenêtre fermée sans aucun dossier
   rangée dans la zone de notification puis rouverte ; visionneuse, portable, comptes et lecture
   seule sans régression.
+
+## Vidéos de l'ordinateur dans la visionneuse
+
+- Une vidéo ouverte depuis le gestionnaire de fichiers (Nicéphore étant la visionneuse par défaut)
+  restait noire : WebKitGTK ne lit pas les vidéos servies par le protocole interne de Tauri. Elles
+  passent désormais par le relais local déjà utilisé pour les vidéos du serveur (127.0.0.1, jeton
+  aléatoire), avec la lecture par plages (`Range`) qu'exige le lecteur ; seuls les fichiers ouverts
+  dans la visionneuse y sont enregistrés, par numéro, jamais par chemin.
+- Toutes les vidéos sont essayées (MP4, MOV, WebM, MKV, AVI…) ; si le système ne sait pas en
+  décoder une, un message clair remplace l'écran noir.
+- La vidéo de Valentin (`essai.mp4`) est en H.264 4K, que ses décodeurs GStreamer savent lire :
+  c'était bien le protocole, pas le format.
+- Vérifié : plages (tests unitaires), banc `--fichier` 14/14 avec une vidéo H.264 960 × 720 lue et
+  la fenêtre à ses proportions ; vidéos du serveur toujours lues.

@@ -17,7 +17,11 @@ const IMAGES: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "t
 const RAW: &[&str] = &["dng", "arw", "cr2", "cr3", "nef", "orf", "raf", "rw2", "srw", "pef"];
 const VIDEOS: &[&str] = &["mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp", "mts", "m2ts"];
 /// Formats the web view displays itself.
-const AFFICHABLES: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "mp4", "m4v", "webm", "mov"];
+/// Videos are all tried: the system's decoders decide, and an unreadable
+/// one shows a message.
+const AFFICHABLES: &[&str] = &[
+    "jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "mp4", "m4v", "webm", "mov", "mkv", "avi", "3gp", "mts", "m2ts",
+];
 
 fn extension(chemin: &Path) -> String {
     chemin.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default()
@@ -108,6 +112,17 @@ pub fn ouvrir_fichier_local(app: AppHandle, chemin: String) -> Result<FichierOuv
         voisins,
         index,
     })
+}
+
+/// URL to play a video of this computer (through the local relay: the web
+/// view cannot play videos from Tauri's own protocols on Linux).
+#[tauri::command]
+pub fn url_video_locale(etat: State<'_, Etat>, chemin: String) -> Result<String, String> {
+    let fichier = PathBuf::from(&chemin);
+    if !fichier.is_file() || !VIDEOS.contains(&extension(&fichier).as_str()) {
+        return Err("ce n'est pas une vidéo".into());
+    }
+    Ok(etat.proxy.url_locale(fichier))
 }
 
 #[derive(Serialize)]

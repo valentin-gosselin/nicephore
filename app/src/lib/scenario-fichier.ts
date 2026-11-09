@@ -30,7 +30,7 @@ export async function lancerScenarioFichier() {
     await journal('scénario visionneuse locale');
     const affichee = await quand(() => location.pathname === '/fichier' && (document.querySelector<HTMLImageElement>('img.image')?.naturalWidth ?? 0) > 0);
     await verifier('photo ouverte depuis la ligne de commande et affichée', affichee, location.search.slice(0, 120));
-    await verifier('position dans le dossier', texte().includes('2 / 4'));
+    await verifier('position dans le dossier', texte().includes('2 / 5'));
     // The window took the photo's proportions (portrait 1067 x 1600).
     const { getCurrentWindow } = await import('@tauri-apps/api/window');
     await attendre(800);
@@ -62,6 +62,17 @@ export async function lancerScenarioFichier() {
     const rapportPaysage = paysage.width / (paysage.height - 48);
     await verifier('la fenêtre passe en paysage avec la photo', Math.abs(rapportPaysage - 1600 / 1067) < 0.05, `${Math.round(paysage.width)} × ${Math.round(paysage.height)}`);
     await capture('f4-raw');
+    // A video of this computer plays, and the window takes its proportions.
+    bouton('Suivante')?.click();
+    const lue = await quand(() => {
+      const v = document.querySelector<HTMLVideoElement>('video.video-locale');
+      return location.search.includes('e-video') && !!v && v.readyState >= 2 && v.videoWidth === 960;
+    }, 150);
+    await verifier('vidéo de l’ordinateur lue', lue, texte().slice(0, 120));
+    await attendre(800);
+    const dimVideo = (await fenetre.innerSize()).toLogical(await fenetre.scaleFactor());
+    await verifier('fenêtre aux proportions de la vidéo', Math.abs(dimVideo.width / (dimVideo.height - 48) - 960 / 720) < 0.05, `${Math.round(dimVideo.width)} × ${Math.round(dimVideo.height)}`);
+    await capture('f5-video');
   } catch (e) {
     await journal(`scénario interrompu : ${e}`);
   }
