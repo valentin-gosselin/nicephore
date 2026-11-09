@@ -85,10 +85,10 @@ pub struct Etat {
 
 impl Etat {
     /// Closing the window hides it when uploads may go on in the tray.
+    /// Closing the window hides it in the tray when the setting asks for it
+    /// (and the desktop offers a tray); Nicéphore is quit from its icon.
     fn garder_en_arriere_plan(&self) -> bool {
-        self.zone.is_some()
-            && self.reglages.read().expect("verrou des réglages").fermer_en_arriere_plan
-            && self.envoi.base().regles().is_ok_and(|r| r.iter().any(|r| r.actif))
+        self.zone.is_some() && self.reglages.read().expect("verrou des réglages").fermer_en_arriere_plan
     }
 }
 

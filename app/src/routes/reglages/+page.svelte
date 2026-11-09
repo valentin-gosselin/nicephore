@@ -90,7 +90,7 @@
     {
       cle: 'fermerEnArrierePlan',
       titre: 'Continuer dans la zone de notification',
-      detail: 'Fermer la fenêtre laisse Nicéphore envoyer vos dossiers ; on le quitte depuis son icône.',
+      detail: 'Fermer la fenêtre la range dans la zone de notification, où Nicéphore continue ses envois ; on le quitte depuis le menu de son icône.',
     },
     {
       cle: 'pauseSurBatterie',

@@ -169,6 +169,11 @@ export async function lancerScenarioEcriture() {
     await verifier('élément désarchivé', compte() === archiveAvant, `${compte()}`);
     await capture('e3-archive');
 
+    // 8b. A desktop app: selecting everything selects nothing.
+    const style = getComputedStyle(document.body);
+    const selection = style.userSelect || style.getPropertyValue('-webkit-user-select');
+    await verifier('rien ne se sélectionne comme sur une page web', selection === 'none', selection);
+
     // 9. Editing in the viewer's info panel.
     await aller('/');
     (await element<HTMLButtonElement>('.tuile .image-tuile'))?.click();
@@ -365,6 +370,12 @@ export async function lancerScenarioEcriture() {
       confirmerRetrait?.click();
       await attendre(1500);
       await verifier('dossier retiré', page().includes('Aucun dossier n’est envoyé') && page().includes('Dossier retiré'));
+      // Without any folder synced, closing still goes to the tray.
+      await invoke('fermer_fenetre');
+      await attendre(1500);
+      await verifier('fermer range dans la zone de notification même sans dossier', !(await invoke<boolean>('fenetre_visible')));
+      await invoke('montrer_fenetre');
+      await attendre(1000);
     }
     await capture('e7-fin');
 
