@@ -116,6 +116,10 @@ if [ -n "$jetable" ] && [ -z "$portable" ]; then
     config_privee="export XDG_CONFIG_HOME=\"$sortie/config\""
 fi
 
+# A tray host, as a desktop panel provides one (app/src-tauri/examples/hote-zone.rs):
+# without it Nicéphore has no tray icon and closing the window quits.
+hote_zone="$(dirname "$binaire")/examples/hote-zone"
+
 interne="$sortie/lancer.sh"
 cat > "$interne" <<FIN
 #!/bin/sh
@@ -123,6 +127,11 @@ cat > "$interne" <<FIN
 unset DISPLAY
 export GDK_BACKEND=wayland
 $config_privee
+if [ -x "$hote_zone" ]; then
+    rm -f "$sortie/zone.txt" "$sortie/zone.txt.pret"
+    "$hote_zone" "$sortie/zone.txt" &
+    for essai in 1 2 3 4 5 6 7 8 9 10; do [ -e "$sortie/zone.txt.pret" ] && break; sleep 0.2; done
+fi
 if [ -n "$mise_a_jour" ]; then
     # The update restarts Nicéphore: the session lasts while a copy runs.
     "$binaire"
@@ -138,6 +147,17 @@ lancer() {
     /usr/bin/dbus-run-session -- /usr/bin/kwin_wayland --virtual --no-lockscreen \
         --width "$largeur" --height "$hauteur" --socket "banc-$$" --exit-with-session \
         "$interne" >>"$sortie/sortie.txt" 2>&1 || true
+    # What the panel read from the tray icon.
+    if [ -f "$sortie/zone.txt" ]; then
+        sed 's/^/banc: zone : /' "$sortie/zone.txt" >>"$sortie/sortie.txt"
+        if grep -q '^titre=Nicéphore$' "$sortie/zone.txt" && grep -qE '^images=([0-9]+x[0-9]+,?)+$' "$sortie/zone.txt"; then
+            echo "banc: ok : icône de la zone publiée avec son titre et ses images" >>"$sortie/sortie.txt"
+        else
+            echo "banc: ÉCHEC : icône de la zone sans titre ou sans images" >>"$sortie/sortie.txt"
+        fi
+    elif [ -x "$hote_zone" ]; then
+        echo "banc: ÉCHEC : aucune icône dans la zone de notification" >>"$sortie/sortie.txt"
+    fi
 }
 
 if [ -n "$comptes" ]; then

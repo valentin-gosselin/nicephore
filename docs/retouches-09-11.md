@@ -24,3 +24,18 @@
   c'était bien le protocole, pas le format.
 - Vérifié : plages (tests unitaires), banc `--fichier` 14/14 avec une vidéo H.264 960 × 720 lue et
   la fenêtre à ses proportions ; vidéos du serveur toujours lues.
+
+## Icône de la zone de notification sous Plasma
+
+- Rangée dans la fenêtre contextuelle de la zone de notification (icônes masquées), l'icône de
+  Nicéphore disparaissait et l'entrée s'appelait « nicephore ». L'icône de Tauri passe par
+  libappindicator, qui transmet à Plasma un chemin de fichier temporaire et aucun titre.
+- Sous Linux, Nicéphore publie désormais lui-même son icône par le protocole standard
+  (StatusNotifierItem, crate `ksni`) : titre « Nicéphore », images de l'icône en 32, 64, 128 et
+  256 pixels, info-bulle avec l'état de l'envoi, même menu qu'avant. Le clic gauche ouvre la
+  fenêtre. Windows garde l'icône de Tauri.
+- Sans hôte de zone de notification (bureau qui n'en a pas), l'icône n'est pas créée et fermer la
+  fenêtre quitte, comme avant.
+- Le banc lance un hôte de zone minimal sur son bus privé (`examples/hote-zone.rs`) qui relit ce
+  qu'un panneau verrait. Vérifié : banc `--jetable` 59/59 et `--fichier` 14/14, avec titre, quatre
+  tailles d'images et menu lus par l'hôte.
