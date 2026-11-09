@@ -6,6 +6,7 @@ mod banc;
 mod coffre;
 mod commandes_envoi;
 mod compte;
+mod fichiers_locaux;
 mod mise_a_jour;
 mod portable;
 mod prechargement;
@@ -711,7 +712,13 @@ pub fn lancer() {
         )
         .init();
 
+    // Photos opened from the file manager (default viewer).
+    let fichiers_initiaux = fichiers_locaux::fichiers_dans_args(&std::env::args().collect::<Vec<_>>());
+
     tauri::Builder::default()
+        // A second launch (another photo opened) goes to the running window.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _dossier| fichiers_locaux::seconde_instance(app, argv)))
+        .manage(fichiers_locaux::FichiersInitiaux(std::sync::Mutex::new(Some(fichiers_initiaux))))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -883,6 +890,12 @@ pub fn lancer() {
             mise_a_jour::infos_mise_a_jour,
             mise_a_jour::chercher_mise_a_jour,
             mise_a_jour::installer_mise_a_jour,
+            fichiers_locaux::fichiers_au_demarrage,
+            fichiers_locaux::ouvrir_fichier_local,
+            fichiers_locaux::etat_fichier_local,
+            fichiers_locaux::envoyer_fichier_local,
+            fichiers_locaux::definir_visionneuse_par_defaut,
+            banc::lancer_seconde_instance,
             virtuels::virtuels,
             virtuels::ajouter_virtuel,
             virtuels::retirer_virtuel,

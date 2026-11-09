@@ -32,6 +32,14 @@ if [ "${1:-}" = "--comptes" ]; then
     comptes=1
     shift
 fi
+# --fichier: default viewer scenario, Nicéphore launched with a photo like
+# the file manager does.
+fichier=""
+if [ "${1:-}" = "--fichier" ]; then
+    jetable=1
+    fichier=1
+    shift
+fi
 mise_a_jour=""
 if [ "${1:-}" = "--mise-a-jour" ]; then
     jetable=1
@@ -63,6 +71,9 @@ fi
 if [ -n "$mise_a_jour" ]; then
     export NICEPHORE_BANC_SCENARIO=mise-a-jour
 fi
+if [ -n "$fichier" ]; then
+    export NICEPHORE_BANC_SCENARIO=fichier
+fi
 if [ -n "$portable" ]; then
     # No development key: the login screen is the way in.
     unset IMMICH_URL IMMICH_API_KEY IMMICH_KEY
@@ -71,7 +82,21 @@ fi
 sortie="$racine/banc/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$sortie"
 export NICEPHORE_BANC_DOSSIER="$sortie"
-if [ -n "$portable" ]; then
+arguments=""
+if [ -n "$fichier" ]; then
+    # A photo already on the server, a new one (another checksum), another.
+    mkdir -p "$sortie/local"
+    python3 -I - "$donnees_jetable/images/essai-00.jpg" "$sortie/local" <<'PY'
+import pathlib, sys, time
+source = pathlib.Path(sys.argv[1]).read_bytes()
+sortie = pathlib.Path(sys.argv[2])
+(sortie / "a-sur-serveur.jpg").write_bytes(source)
+for nom in ("b-nouvelle", "c-autre"):
+    texte = f"{nom} {time.time()}".encode()
+    (sortie / f"{nom}.jpg").write_bytes(source[:2] + b"\xff\xfe" + (len(texte) + 2).to_bytes(2, "big") + texte + source[2:])
+PY
+    arguments="\"$sortie/local/b-nouvelle.jpg\""
+elif [ -n "$portable" ]; then
     export NICEPHORE_PORTABLE="$sortie/donnees"
 elif [ -n "$jetable" ]; then
     # Photos for the upload scenario: variants of a seeded photo (new
@@ -99,7 +124,7 @@ if [ -n "$mise_a_jour" ]; then
     sleep 2
     while pgrep -f "^$binaire" >/dev/null; do sleep 1; done
 else
-    exec "$binaire"
+    exec "$binaire" $arguments
 fi
 FIN
 chmod +x "$interne"
@@ -143,7 +168,7 @@ elif [ -n "$portable" ]; then
     } >>"$sortie/sortie.txt"
 else
     lancer
-    if [ -n "$jetable" ] && [ -z "$portable" ]; then
+    if [ -n "$jetable" ] && [ -z "$portable" ] && [ -z "$fichier" ] && [ -z "$mise_a_jour" ]; then
         # The virtual folders service outlives the app: its folder is still
         # served, then stopping the service unmounts it.
         if mount | grep -q "$sortie/persistant"; then

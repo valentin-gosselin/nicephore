@@ -25,7 +25,11 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
     }
   },
   "bundle": {
@@ -41,7 +45,49 @@
       "icons/128x128@2x.png",
       "icons/icon.png"
     ],
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "fileAssociations": [
+      {
+        "ext": [
+          "jpg",
+          "jpeg",
+          "png",
+          "gif",
+          "webp",
+          "avif",
+          "bmp",
+          "tif",
+          "tiff",
+          "heic",
+          "heif",
+          "dng",
+          "arw",
+          "cr2",
+          "cr3",
+          "nef",
+          "orf",
+          "raf",
+          "rw2"
+        ],
+        "name": "Photo",
+        "description": "Photo",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "mp4",
+          "mov",
+          "m4v",
+          "webm",
+          "mkv",
+          "avi",
+          "3gp"
+        ],
+        "name": "Vidéo",
+        "description": "Vidéo",
+        "role": "Viewer"
+      }
+    ]
   },
   "plugins": {
     "updater": {

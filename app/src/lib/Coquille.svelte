@@ -68,8 +68,15 @@
   // A newer version found by the startup check.
   let versionDisponible = $state<string | null>(null);
 
+  /** Opens photos of this computer (default viewer). */
+  function ouvrirFichiers(fichiers: string[]) {
+    if (fichiers.length) void goto(`/fichier?chemin=${encodeURIComponent(fichiers[0])}`);
+  }
+
   onMount(() => {
     void verifierSession();
+    invoke<string[]>('fichiers_au_demarrage').then(ouvrirFichiers).catch(() => {});
+    const arretFichiers = listen<string[]>('ouvrir-fichiers', ({ payload }) => ouvrirFichiers(payload));
     const arretVersion = listen<{ version: string }>('version-disponible', ({ payload }) => (versionDisponible = payload.version));
     // Portable mode scenario (scripts/banc.sh --portable): runs from the
     // login or unlock screen, before any timeline exists.
@@ -78,6 +85,9 @@
       if (scenario.startsWith('portable')) {
         const { lancerScenarioPortable } = await import('./scenario-portable');
         void lancerScenarioPortable(scenario);
+      } else if (scenario === 'fichier') {
+        const { lancerScenarioFichier } = await import('./scenario-fichier');
+        void lancerScenarioFichier();
       } else if (scenario === 'comptes') {
         const { lancerScenarioComptes } = await import('./scenario-comptes');
         void lancerScenarioComptes();
@@ -88,14 +98,20 @@
         void lancerScenarioMiseAJour();
       }
     });
-    return () => void arretVersion.then((f) => f());
+    return () => {
+      void arretVersion.then((f) => f());
+      void arretFichiers.then((f) => f());
+    };
   });
 </script>
 
 <svelte:window bind:innerWidth={largeur} onkeydown={surTouche} onmousedown={surBoutonSouris} onmouseup={surBoutonSouris} />
 
 <div class="flex h-full flex-col">
-  {#if session.ajout}
+  {#if page.url.pathname === '/fichier'}
+    <!-- A photo of this computer: shown even without a connection. -->
+    {@render children()}
+  {:else if session.ajout}
     <BarreFenetre />
     <Connexion onconnecte={() => compteAjoute()} onannuler={() => (session.ajout = false)} />
   {:else if session.verification}

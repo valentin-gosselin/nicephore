@@ -40,9 +40,13 @@ case "${1:-}" in
     *) [ -f "$cache/mode" ] && modes="$(cat "$cache/mode")" ;;
 esac
 
+# lancer <mode> [files...]: the files opened from the file manager reach
+# Nicéphore (or the instance already running).
 lancer() {
     (
-        case "$1" in
+        mode=$1
+        shift
+        case "$mode" in
             dmabuf) export WEBKIT_DISABLE_DMABUF_RENDERER=1 ;;
             compat)
                 export GDK_BACKEND=x11
@@ -59,7 +63,7 @@ for mode in $modes; do
     echo "mode $mode, $(date)" >"$journal"
     debut=$(date +%s)
     statut=0
-    lancer "$mode" >>"$journal" 2>&1 || statut=$?
+    lancer "$mode" "$@" >>"$journal" 2>&1 || statut=$?
     duree=$(( $(date +%s) - debut ))
     if [ "$statut" -eq 0 ] || [ "$duree" -ge 15 ]; then
         # Survived its start: remember this mode.

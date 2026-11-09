@@ -368,3 +368,21 @@ export const ajouterVirtuel = (point: string, selection: Selection, rangement: R
 export const retirerVirtuel = (id: number) => invoke<void>('retirer_virtuel', { id });
 export const cacheOriginaux = () => invoke<OccupationCache>('cache_originaux');
 export const viderCacheOriginaux = () => invoke<void>('vider_cache_originaux');
+
+// ---- Local files (default viewer) ----
+export type FichierOuvert = {
+  chemin: string;
+  nom: string;
+  taille: number;
+  modifieLe: number;
+  affichable: boolean;
+  video: boolean;
+  voisins: string[];
+  index: number;
+};
+export type EtatLocal = { connecte: boolean; surServeur: boolean; assetId: string | null; dansLaCorbeille: boolean };
+export const fichiersAuDemarrage = () => invoke<string[]>('fichiers_au_demarrage');
+export const ouvrirFichierLocal = (chemin: string) => invoke<FichierOuvert>('ouvrir_fichier_local', { chemin });
+export const etatFichierLocal = (chemin: string) => invoke<EtatLocal>('etat_fichier_local', { chemin });
+export const envoyerFichierLocal = (chemin: string) => invoke<string>('envoyer_fichier_local', { chemin });
+export const definirVisionneuseParDefaut = () => invoke<string>('definir_visionneuse_par_defaut');

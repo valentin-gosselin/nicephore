@@ -50,6 +50,17 @@ pub fn montrer_fenetre(app: tauri::AppHandle) {
     crate::zone_notification::montrer(&app);
 }
 
+/// Launches the program again with a file, like the file manager would
+/// while Nicéphore runs (benchmark only).
+#[tauri::command]
+pub fn lancer_seconde_instance(chemin: String) -> Result<(), String> {
+    if !mode_banc() {
+        return Err("mode banc inactif".into());
+    }
+    let programme = std::env::current_exe().map_err(|e| e.to_string())?;
+    std::process::Command::new(programme).arg(chemin).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// An empty folder of the benchmark run, created on request (letters and
 /// digits only), for the receiving scenario.
 #[tauri::command]

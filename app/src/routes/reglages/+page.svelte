@@ -9,6 +9,7 @@
     definirReglagesApp,
     etatPrechargement,
     cacheOriginaux,
+    definirVisionneuseParDefaut,
     viderCacheOriginaux,
     infosCache,
     infosPortable,
@@ -242,6 +243,26 @@
         {/each}
       </section>
     {/if}
+
+    <section class="space-y-3">
+      <Heading size="small">Visionneuse de cet ordinateur</Heading>
+      <Text size="small" color="muted">
+        Ouvrir les photos et vidéos de l’ordinateur avec Nicéphore : on parcourt le dossier, et un nuage indique celles
+        qui ne sont pas encore sur Immich, avec un bouton pour les envoyer.
+      </Text>
+      <Button
+        variant="outline"
+        onclick={async () => {
+          try {
+            notifier(await definirVisionneuseParDefaut(), 'succes');
+          } catch (e) {
+            notifier(String(e), 'erreur');
+          }
+        }}
+      >
+        Faire de Nicéphore la visionneuse par défaut
+      </Button>
+    </section>
 
     <section class="space-y-3">
       <Heading size="small">Vignettes sur cet ordinateur</Heading>
