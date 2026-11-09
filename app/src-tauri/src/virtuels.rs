@@ -49,7 +49,7 @@ fn fichier(dossier_config: &Path, compte: &str) -> PathBuf {
     dossier_config.join(format!("virtuels-{compte}.json"))
 }
 
-fn lire(dossier_config: &Path, compte: &str) -> Vec<DossierVirtuel> {
+pub(crate) fn lire(dossier_config: &Path, compte: &str) -> Vec<DossierVirtuel> {
     std::fs::read_to_string(fichier(dossier_config, compte))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
@@ -64,11 +64,35 @@ fn ecrire(dossier_config: &Path, compte: &str, liste: &[DossierVirtuel]) -> Resu
     std::fs::rename(&temporaire, chemin).map_err(|e| e.to_string())
 }
 
-fn rangement(r: envoi::Rangement) -> virtuel::Rangement {
+pub(crate) fn rangement(r: envoi::Rangement) -> virtuel::Rangement {
     match r {
         envoi::Rangement::Plat => virtuel::Rangement::Plat,
         envoi::Rangement::AnneeMois => virtuel::Rangement::AnneeMois,
     }
+}
+
+/// Linux, installed mode: the folders are served by the service process
+/// (`service_virtuel`), so they outlive the app. Portable mode and the
+/// benchmark keep them in the app.
+fn par_service(etat: &Etat) -> bool {
+    // The write scenario tests the service too, in its private config.
+    let banc = std::env::var_os("NICEPHORE_BANC_DOSSIER").is_some() && std::env::var_os("NICEPHORE_BANC_SERVICE").is_none();
+    cfg!(target_os = "linux") && etat.portable.is_none() && !banc
+}
+
+/// Waits (up to `secondes`) for the service to report on folder `id`.
+#[cfg(target_os = "linux")]
+async fn attendre_service(etat: &Etat, id: i64, secondes: u64, retire: bool) -> Option<crate::service_virtuel::EtatDossier> {
+    for _ in 0..secondes * 4 {
+        let rapport = crate::service_virtuel::lire_etat(&etat.dossier_config).and_then(|e| e.dossiers.get(&id).cloned());
+        match (&rapport, retire) {
+            (None, true) => return None,
+            (Some(r), false) if r.monte || r.erreur.is_some() => return rapport,
+            _ => {}
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    crate::service_virtuel::lire_etat(&etat.dossier_config).and_then(|e| e.dossiers.get(&id).cloned())
 }
 
 impl Virtuels {
@@ -101,6 +125,18 @@ impl Virtuels {
         }
         self.demonter_tout();
         self.erreurs.lock().expect("verrou des erreurs").clear();
+        let etat = app.state::<Etat>();
+        #[cfg(target_os = "linux")]
+        if par_service(&etat) {
+            // The service follows the active account; it only has to run.
+            if !lire(&etat.dossier_config, compte).is_empty() {
+                if let Err(e) = crate::service_virtuel::demarrer() {
+                    tracing::warn!("{e}");
+                }
+                let _ = crate::service_virtuel::definir_demarrage(true);
+            }
+            return;
+        }
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
             let etat = app.state::<Etat>();
@@ -217,6 +253,26 @@ fn compte_actif(etat: &Etat) -> Result<String, String> {
 #[tauri::command]
 pub fn virtuels(etat: State<'_, Etat>) -> Result<Vec<VueVirtuel>, String> {
     let compte = compte_actif(&etat)?;
+    #[cfg(target_os = "linux")]
+    if par_service(&etat) {
+        let service = crate::service_virtuel::lire_etat(&etat.dossier_config).filter(|e| e.compte.as_deref() == Some(compte.as_str()));
+        return Ok(lire(&etat.dossier_config, &compte)
+            .into_iter()
+            .map(|dossier| {
+                let rapport = service.as_ref().and_then(|e| e.dossiers.get(&dossier.id).cloned());
+                VueVirtuel {
+                    monte: rapport.as_ref().is_some_and(|r| r.monte),
+                    fichiers: rapport.as_ref().map_or(0, |r| r.fichiers),
+                    erreur: match (&service, rapport) {
+                        (None, _) => Some("service des dossiers virtuels arrêté : relancez Nicéphore".into()),
+                        (_, Some(r)) => r.erreur,
+                        _ => None,
+                    },
+                    dossier,
+                }
+            })
+            .collect());
+    }
     let erreurs = etat.virtuels.erreurs.lock().expect("verrou des erreurs").clone();
     Ok(lire(&etat.dossier_config, &compte)
         .into_iter()
@@ -266,6 +322,16 @@ pub async fn ajouter_virtuel(
     let dossier = DossierVirtuel { id: chrono_id(), point, selection, rangement };
     liste.push(dossier.clone());
     ecrire(&etat.dossier_config, &compte, &liste)?;
+    #[cfg(target_os = "linux")]
+    if par_service(&etat) {
+        crate::service_virtuel::demarrer()?;
+        crate::service_virtuel::definir_demarrage(true)?;
+        return match attendre_service(&etat, dossier.id, 30, false).await {
+            Some(r) if r.monte => Ok(()),
+            Some(r) => Err(r.erreur.unwrap_or_else(|| "montage impossible".into())),
+            None => Err("le service des dossiers virtuels ne répond pas".into()),
+        };
+    }
     etat.virtuels.monter(&etat, &dossier).await;
     match etat.virtuels.erreurs.lock().expect("verrou des erreurs").get(&dossier.id) {
         Some(e) => Err(e.clone()),
@@ -279,8 +345,18 @@ fn chrono_id() -> i64 {
 
 /// Unmounts and forgets a virtual folder (the cached originals stay).
 #[tauri::command]
-pub fn retirer_virtuel(etat: State<'_, Etat>, id: i64) -> Result<(), String> {
+pub async fn retirer_virtuel(etat: State<'_, Etat>, id: i64) -> Result<(), String> {
     let compte = compte_actif(&etat)?;
+    #[cfg(target_os = "linux")]
+    if par_service(&etat) {
+        let liste: Vec<DossierVirtuel> = lire(&etat.dossier_config, &compte).into_iter().filter(|d| d.id != id).collect();
+        ecrire(&etat.dossier_config, &compte, &liste)?;
+        if liste.is_empty() {
+            crate::service_virtuel::definir_demarrage(false)?;
+        }
+        attendre_service(&etat, id, 10, true).await;
+        return Ok(());
+    }
     #[cfg(target_os = "linux")]
     if let Some(m) = etat.virtuels.montages.lock().expect("verrou des montages").remove(&id) {
         m.demonter();

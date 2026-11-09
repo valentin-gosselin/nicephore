@@ -407,6 +407,7 @@
         Rien n’est jamais supprimé : ni les fichiers de ce dossier, ni les photos sur le serveur. Les photos déjà présentes
         sur le serveur ne sont pas renvoyées.
       {:else if sens === 'virtuel'}
+        Le dossier reste accessible même Nicéphore fermé (un petit service sans fenêtre le sert, lancé avec la session).
         Lecture seule : rien ne peut être modifié ni effacé dans ce dossier. Les photos ouvertes restent dans un cache
         (20 Go au plus), à vider dans les Réglages.
       {:else if sens === 'double'}

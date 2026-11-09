@@ -43,6 +43,7 @@ dirs = "7.0.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = "5"
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_Power"] }

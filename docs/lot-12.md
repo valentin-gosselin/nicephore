@@ -39,3 +39,22 @@ télécharger avant qu'un programme n'ouvre un fichier.
 - Dans l'appli (54/54) : dossier virtuel monté avec ses 6 fichiers, affiché sur la page, retiré ;
   aucun montage restant après la fermeture (contrôlé par `banc.sh`).
 - Windows : pas encore (lot 13, API Cloud Files) ; l'ajout y est refusé avec un message clair.
+
+## Persistance (09/11, retour de Valentin : le dossier disparaissait à la fermeture)
+
+- Sous Linux, un dossier virtuel n'existe que tant qu'un programme le sert. Les dossiers sont donc
+  confiés à un petit service sans fenêtre, le même programme lancé avec `--dossiers-virtuels`
+  (`app/src-tauri/src/service_virtuel.rs`) : il suit le compte actif, monte et démonte les
+  dossiers selon la liste écrite par l'appli, les actualise toutes les 5 minutes, publie son état
+  (`virtuels-etat.json`) et se démonte proprement à l'arrêt. Une seule instance (verrou) ; il
+  s'arrête seul une minute après le dernier dossier retiré.
+- L'appli le lance (détaché, sa propre session) dès qu'un dossier virtuel existe, et l'inscrit au
+  démarrage de session (`~/.config/autostart/nicephore-dossiers-virtuels.desktop`, retiré avec le
+  dernier dossier). Une AppImage lance l'AppImage elle-même. Fermer Nicéphore ne touche plus aux
+  dossiers virtuels.
+- En mode portable (comptes scellés par une phrase de passe), les dossiers restent servis par
+  l'appli, comme avant.
+- Vérifié : `scripts/essai-service-virtuel.sh` sur l'hôte (montage depuis la liste, une seule
+  instance, contenu identique à l'original, état publié, démontage au retrait, arrêt seul sans
+  dossier, démontage propre à l'arrêt), et dans l'appli (55/55) : dossier confié au service
+  encore servi après la fermeture de l'appli, démonté à l'arrêt du service.

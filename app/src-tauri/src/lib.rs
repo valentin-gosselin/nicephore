@@ -11,6 +11,8 @@ mod portable;
 mod prechargement;
 mod proxy_video;
 mod reglages;
+#[cfg(target_os = "linux")]
+mod service_virtuel;
 mod telechargement;
 mod virtuels;
 mod zone_notification;
@@ -697,6 +699,11 @@ fn client_depuis_environnement() -> Option<Arc<ClientImmich>> {
 }
 
 pub fn lancer() {
+    // The virtual folders service runs without window.
+    #[cfg(target_os = "linux")]
+    if std::env::args().any(|a| a == service_virtuel::ARG_SERVICE) {
+        return service_virtuel::executer();
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()

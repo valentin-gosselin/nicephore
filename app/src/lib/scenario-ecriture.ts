@@ -316,6 +316,11 @@ export async function lancerScenarioEcriture() {
       (await element<HTMLButtonElement>('[aria-label^="Retirer le dossier virtuel"]'))?.click();
       await attendre(1500);
       await verifier('dossier virtuel retiré', (await invoke<VueVirtuel[]>('virtuels')).length === 0);
+      // Another one stays: it must still be served once the app is closed
+      // (checked by banc.sh).
+      const persistant = await invoke<string | null>('dossier_banc_vide', { nom: 'persistant' });
+      await invoke('ajouter_virtuel', { point: persistant, selection: periode, rangement: 'plat' });
+      await verifier('dossier virtuel persistant monté', (await invoke<VueVirtuel[]>('virtuels'))[0]?.monte === true);
 
       // 12. Background: settings, then closing the window into the tray
       // while a folder is sent.

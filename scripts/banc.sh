@@ -57,6 +57,8 @@ if [ -n "$jetable" ]; then
     . "$donnees_jetable/test.env"
     set +a
     export IMMICH_URL="$IMMICH_TEST_URL" IMMICH_API_KEY="$IMMICH_TEST_API_KEY" NICEPHORE_BANC_SCENARIO=ecriture
+    # Virtual folders go through their service, in the private config.
+    export NICEPHORE_BANC_SERVICE=1
 fi
 if [ -n "$mise_a_jour" ]; then
     export NICEPHORE_BANC_SCENARIO=mise-a-jour
@@ -141,6 +143,18 @@ elif [ -n "$portable" ]; then
     } >>"$sortie/sortie.txt"
 else
     lancer
+    if [ -n "$jetable" ] && [ -z "$portable" ]; then
+        # The virtual folders service outlives the app: its folder is still
+        # served, then stopping the service unmounts it.
+        if mount | grep -q "$sortie/persistant"; then
+            echo "banc: ok : dossier virtuel encore servi après la fermeture ($(ls "$sortie/persistant" | wc -l) fichiers)" >>"$sortie/sortie.txt"
+        else
+            echo "banc: ÉCHEC : dossier virtuel plus servi après la fermeture" >>"$sortie/sortie.txt"
+        fi
+        pkill -TERM -f "^$binaire --dossiers-virtuels" || true
+        sleep 2
+        mount | grep -q "$sortie/persistant" || echo "banc: ok : démonté à l'arrêt du service" >>"$sortie/sortie.txt"
+    fi
     # A virtual folder must never stay mounted after the app.
     if mount | grep -q "$sortie"; then
         echo "banc: ÉCHEC : un montage reste dans $sortie" >>"$sortie/sortie.txt"
