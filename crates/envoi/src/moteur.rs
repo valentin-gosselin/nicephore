@@ -825,6 +825,8 @@ impl Moteur {
         let mut distants = client.assets_de_selection(&selection).await?;
         if regle.sans_raw {
             distants.retain(|a| !analyse::est_raw(&a.nom_fichier));
+            // Reserved before RAW files were left out.
+            self.base().oublier_raw_a_recevoir(regle.id)?;
         }
         if self.interrompu(generation) {
             return Ok((None, Vec::new()));

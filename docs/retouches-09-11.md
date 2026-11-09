@@ -81,3 +81,13 @@
   sont préparés à l'avance.
 - Vérifié : le banc `--fichier` guette le message pendant la navigation ; il échoue sur l'ancienne
   visionneuse et passe (15/15) sur la nouvelle.
+
+## RAW laissés de côté : plus de téléchargements en retard, interrupteur visible
+
+- Les RAW mis en file de téléchargement avant que l'option soit décochée descendaient quand même
+  (259 DNG du téléphone chez Valentin). Décocher l'option les oublie, et chaque réception les
+  oublie aussi par sécurité ; les RAW déjà reçus restent connus. Test unitaire
+  `sans_raw_oublie_les_raw_a_recevoir`, suite jetable du moteur 13/13.
+- Sur la carte d'un dossier, l'option RAW était un lien discret, pas reconnu comme cliquable :
+  c'est maintenant un interrupteur « Inclure les fichiers RAW (DNG, ARW, CR2…) ». Banc
+  `--jetable` 62/62.

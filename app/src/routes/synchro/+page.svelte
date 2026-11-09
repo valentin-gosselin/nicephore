@@ -438,9 +438,14 @@
             {/if}
           </div>
           {/if}
-          <button class="lien text-xs opacity-60" onclick={() => basculerRaw(regle)}>
-            {regle.sansRaw ? 'Fichiers RAW laissés de côté' : 'Fichiers RAW inclus'}
-          </button>
+          <div class="flex items-center gap-2 text-xs opacity-80">
+            <Switch
+              checked={!regle.sansRaw}
+              aria-label="Inclure les fichiers RAW"
+              onCheckedChange={() => basculerRaw(regle)}
+            />
+            <span>Inclure les fichiers RAW (DNG, ARW, CR2…){regle.sansRaw ? ' : laissés de côté' : ''}</span>
+          </div>
           {#if erreur}<p class="text-sm text-red-500">{erreur}</p>{/if}
         </li>
       {/each}

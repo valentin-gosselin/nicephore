@@ -480,9 +480,31 @@ impl Base {
         self.regle(regle.id)
     }
 
+    /// Leaving RAW files out also drops those waiting to be downloaded
+    /// (reserved before): they would come down anyway otherwise.
     pub fn definir_sans_raw(&self, regle: i64, sans_raw: bool) -> Resultat<()> {
         let n = self.cnx.execute("UPDATE regles SET sans_raw = ?2 WHERE id = ?1", params![regle, sans_raw])?;
-        if n == 0 { Err(Erreur::RegleInconnue) } else { Ok(()) }
+        if n == 0 {
+            return Err(Erreur::RegleInconnue);
+        }
+        if sans_raw {
+            self.oublier_raw_a_recevoir(regle)?;
+        }
+        Ok(())
+    }
+
+    /// RAW files waiting to be downloaded (or failed) are forgotten.
+    pub fn oublier_raw_a_recevoir(&self, regle: i64) -> Resultat<usize> {
+        let en_attente: Vec<(String, String)> = self
+            .cnx
+            .prepare("SELECT asset_id, chemin FROM recus WHERE regle = ?1 AND etat IN ('attente', 'echec')")?
+            .query_map(params![regle], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let raw: Vec<&String> = en_attente.iter().filter(|(_, chemin)| crate::analyse::est_raw(chemin)).map(|(a, _)| a).collect();
+        for asset_id in &raw {
+            self.oublier_recu(regle, asset_id)?;
+        }
+        Ok(raw.len())
     }
 
     pub fn definir_miroir(&self, regle: i64, miroir: bool) -> Resultat<()> {
@@ -877,7 +899,11 @@ impl Base {
                 essais: r.get(5)?,
             })
         })?;
-        Ok(lignes.collect::<Result<_, _>>()?)
+        let tous: Vec<ARecevoir> = lignes.collect::<Result<_, _>>()?;
+        if self.regle(regle).is_ok_and(|r| r.sans_raw) {
+            return Ok(tous.into_iter().filter(|f| !crate::analyse::est_raw(&f.chemin)).collect());
+        }
+        Ok(tous)
     }
 
     pub fn changer_etat_recu(&self, regle: i64, asset_id: &str, etat: EtatRecu) -> Resultat<()> {
@@ -1084,6 +1110,28 @@ mod tests {
         assert_eq!((bilan.recus, bilan.presents), (1, 1));
         assert!(base.sans_album(r.id).unwrap().is_empty(), "un fichier reçu ne rejoint pas d'album");
         assert!(base.a_verifier(r.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn sans_raw_oublie_les_raw_a_recevoir() {
+        let base = Base::en_memoire().unwrap();
+        let r = base.ajouter_reception(Path::new("/recu"), &api_immich::Selection::Bibliotheque, Rangement::AnneeMois).unwrap().id;
+        let asset = |id: &str, nom: &str| api_immich::AssetDistant {
+            id: id.into(),
+            nom_fichier: nom.into(),
+            sha1: format!("sha-{id}"),
+            taille: Some(10),
+            date_locale: "2021-07-23T16:42:22".into(),
+            modifie_le: String::new(),
+        };
+        base.reserver_recu(r, &asset("a", "x.DNG"), "2021/07/x.DNG").unwrap();
+        base.reserver_recu(r, &asset("b", "x.jpg"), "2021/07/x.jpg").unwrap();
+        base.noter_recu_present(r, &asset("c", "y.DNG"), "2021/07/y.DNG").unwrap();
+        assert_eq!(base.a_recevoir(r, i64::MAX).unwrap().len(), 2);
+        base.definir_sans_raw(r, true).unwrap();
+        let reste: Vec<String> = base.a_recevoir(r, i64::MAX).unwrap().into_iter().map(|f| f.chemin).collect();
+        assert_eq!(reste, ["2021/07/x.jpg"]);
+        assert_eq!(base.recus(r).unwrap().len(), 2, "le RAW déjà reçu reste connu");
     }
 
     #[test]
