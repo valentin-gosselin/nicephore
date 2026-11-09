@@ -238,3 +238,9 @@ jetable en Docker pour l'intégration), jamais contre la vraie bibliothèque.
   redirection vers l'appli (adresse de rappel en boucle locale ou schéma `nicephore://`). Immich ne
   passe la main au navigateur que pour OAuth : la connexion par e-mail et mot de passe n'a pas de
   mécanisme équivalent. Le serveur de test n'a pas OAuth activé.
+
+- **Appli mobile** (idée du 09/11, à creuser) : Tauri 2 vise aussi Android et iOS, donc le cœur Rust
+  et l'interface Svelte pourraient servir sur téléphone. À trancher d'abord : ce qu'elle apporterait
+  face à l'appli officielle d'Immich, déjà excellente (galerie du téléphone par défaut sans Google,
+  visionneuse plus rapide, usage sur /e/OS sans services Google, synchro différente…). Plutôt après
+  l'étape 3.
