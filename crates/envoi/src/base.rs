@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{Erreur, Resultat, maintenant_ms};
 
 /// Current schema version (`PRAGMA user_version`).
-const VERSION: i32 = 2;
+const VERSION: i32 = 3;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE regles (
@@ -79,6 +79,36 @@ CREATE TABLE recus (
 );
 CREATE UNIQUE INDEX recus_chemin ON recus (regle, chemin);
 ";
+
+/// Version 3: two-way rules may mirror deletions, which wait in their
+/// own table (first seen, confirmed) before being applied.
+const SCHEMA_V3: &str = "
+ALTER TABLE regles ADD COLUMN miroir INTEGER NOT NULL DEFAULT 0;
+CREATE TABLE suppressions (
+    regle INTEGER NOT NULL REFERENCES regles(id) ON DELETE CASCADE,
+    cote TEXT NOT NULL,
+    asset_id TEXT NOT NULL,
+    chemin TEXT NOT NULL,
+    vu_le INTEGER NOT NULL,
+    confirme_le INTEGER,
+    PRIMARY KEY (regle, cote, asset_id)
+);
+";
+
+/// A deletion seen on one side, to repeat on the other (two-way rules
+/// with mirrored deletions).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Suppression {
+    /// `ici`: deleted on the server side (removed from the album), so the
+    /// local file goes to the trash. `serveur`: deleted here, so the photo
+    /// leaves the album.
+    pub cote: String,
+    pub asset_id: String,
+    pub chemin: String,
+    pub vu_le: i64,
+    pub confirme: bool,
+}
 
 /// Which way a rule works.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
@@ -190,6 +220,8 @@ pub struct Regle {
     /// What is received (download rules).
     pub selection: Option<api_immich::Selection>,
     pub rangement: Rangement,
+    /// Two-way rules: deletions are repeated on the other side.
+    pub miroir: bool,
     pub actif: bool,
     pub cree_le: i64,
 }
@@ -334,6 +366,9 @@ impl Base {
         if depuis < 2 {
             self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V2} PRAGMA user_version = 2; COMMIT;"))?;
         }
+        if depuis < 3 {
+            self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
+        }
         Ok(())
     }
 
@@ -342,7 +377,7 @@ impl Base {
     pub fn regles(&self) -> Resultat<Vec<Regle>> {
         let mut requete = self
             .cnx
-            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement FROM regles ORDER BY dossier")?;
+            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement, miroir FROM regles ORDER BY dossier")?;
         let lignes = requete.query_map([], |r| {
             let cible = match r.get::<_, String>(2)?.as_str() {
                 "album" => Cible::Album {
@@ -359,7 +394,17 @@ impl Base {
             };
             let selection = r.get::<_, Option<String>>(8)?.and_then(|t| serde_json::from_str(&t).ok());
             let rangement = if r.get::<_, String>(9)? == "annee_mois" { Rangement::AnneeMois } else { Rangement::Plat };
-            Ok(Regle { id: r.get(0)?, dossier: r.get(1)?, sens, cible, selection, rangement, actif: r.get(5)?, cree_le: r.get(6)? })
+            Ok(Regle {
+                id: r.get(0)?,
+                dossier: r.get(1)?,
+                sens,
+                cible,
+                selection,
+                rangement,
+                miroir: r.get(10)?,
+                actif: r.get(5)?,
+                cree_le: r.get(6)?,
+            })
         })?;
         Ok(lignes.collect::<Result<_, _>>()?)
     }
@@ -379,11 +424,105 @@ impl Base {
         self.ajouter(dossier, Sens::Descendante, &Cible::Bibliotheque, Some(selection), rangement)
     }
 
-    /// Adds a two-way rule between a folder and an album.
-    pub fn ajouter_double(&self, dossier: &Path, album_id: &str, nom_album: &str) -> Resultat<Regle> {
+    /// Adds a two-way rule between a folder and an album; `miroir` repeats
+    /// deletions on the other side (with safeguards).
+    pub fn ajouter_double(&self, dossier: &Path, album_id: &str, nom_album: &str, miroir: bool) -> Resultat<Regle> {
         let cible = Cible::Album { id: album_id.to_string(), nom: nom_album.to_string() };
         let selection = api_immich::Selection::Album { id: album_id.to_string(), nom: nom_album.to_string() };
-        self.ajouter(dossier, Sens::Double, &cible, Some(&selection), Rangement::Plat)
+        let regle = self.ajouter(dossier, Sens::Double, &cible, Some(&selection), Rangement::Plat)?;
+        self.cnx.execute("UPDATE regles SET miroir = ?2 WHERE id = ?1", params![regle.id, miroir])?;
+        self.regle(regle.id)
+    }
+
+    pub fn definir_miroir(&self, regle: i64, miroir: bool) -> Resultat<()> {
+        self.cnx.execute("UPDATE regles SET miroir = ?2 WHERE id = ?1", params![regle, miroir])?;
+        if !miroir {
+            self.cnx.execute("DELETE FROM suppressions WHERE regle = ?1", params![regle])?;
+        }
+        Ok(())
+    }
+
+    /// Files of a two-way rule sent or found on the server: (asset, path).
+    pub fn fichiers_lies(&self, regle: i64) -> Resultat<Vec<(String, String)>> {
+        let mut requete = self.cnx.prepare(
+            "SELECT asset_id, chemin FROM fichiers WHERE regle = ?1 AND etat IN ('envoye', 'present') AND asset_id IS NOT NULL",
+        )?;
+        let lignes = requete.query_map(params![regle], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(lignes.collect::<Result<_, _>>()?)
+    }
+
+    /// Links a local file to its asset as received (two-way rules).
+    pub fn lier_recu(&self, regle: i64, asset_id: &str, chemin: &str) -> Resultat<()> {
+        self.cnx.execute(
+            "INSERT OR IGNORE INTO recus (regle, asset_id, chemin, sha1, etat, maj_le) VALUES (?1, ?2, ?3, '', 'recu', ?4)",
+            params![regle, asset_id, chemin, maintenant_ms()],
+        )?;
+        Ok(())
+    }
+
+    // ---- Mirrored deletions ----
+
+    /// Records the deletions seen by this pass: new ones get their first
+    /// sight date, those no longer seen (the situation came back) are dropped.
+    pub fn noter_suppressions(&self, regle: i64, vues: &[(String, String, String)]) -> Resultat<()> {
+        let maintenant = maintenant_ms();
+        let tx = self.cnx.unchecked_transaction()?;
+        tx.execute("UPDATE suppressions SET vu_le = -vu_le WHERE regle = ?1", params![regle])?;
+        for (cote, asset_id, chemin) in vues {
+            tx.execute(
+                "INSERT INTO suppressions (regle, cote, asset_id, chemin, vu_le) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (regle, cote, asset_id) DO UPDATE SET vu_le = -vu_le",
+                params![regle, cote, asset_id, chemin, maintenant],
+            )?;
+        }
+        tx.execute("DELETE FROM suppressions WHERE regle = ?1 AND vu_le < 0", params![regle])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn suppressions(&self, regle: i64) -> Resultat<Vec<Suppression>> {
+        let mut requete = self.cnx.prepare(
+            "SELECT cote, asset_id, chemin, vu_le, confirme_le IS NOT NULL FROM suppressions WHERE regle = ?1 ORDER BY chemin",
+        )?;
+        let lignes = requete.query_map(params![regle], |r| {
+            Ok(Suppression { cote: r.get(0)?, asset_id: r.get(1)?, chemin: r.get(2)?, vu_le: r.get(3)?, confirme: r.get(4)? })
+        })?;
+        Ok(lignes.collect::<Result<_, _>>()?)
+    }
+
+    /// The user agrees with the waiting deletions (above the threshold).
+    pub fn confirmer_suppressions(&self, regle: i64) -> Resultat<usize> {
+        Ok(self.cnx.execute(
+            "UPDATE suppressions SET confirme_le = ?2 WHERE regle = ?1 AND confirme_le IS NULL",
+            params![regle, maintenant_ms()],
+        )?)
+    }
+
+    /// The user refuses them: the files come back on their side instead
+    /// (deleted here: received again; removed from the album: sent again).
+    pub fn refuser_suppressions(&self, regle: i64) -> Resultat<usize> {
+        let tx = self.cnx.unchecked_transaction()?;
+        tx.execute(
+            "UPDATE recus SET etat = 'attente', essais = 0, prochain_essai = 0
+             WHERE regle = ?1 AND asset_id IN (SELECT asset_id FROM suppressions WHERE regle = ?1 AND cote = 'serveur')",
+            params![regle],
+        )?;
+        tx.execute(
+            "UPDATE fichiers SET album_fait = 0
+             WHERE regle = ?1 AND asset_id IN (SELECT asset_id FROM suppressions WHERE regle = ?1 AND cote = 'ici')",
+            params![regle],
+        )?;
+        let n = tx.execute("DELETE FROM suppressions WHERE regle = ?1", params![regle])?;
+        tx.commit()?;
+        Ok(n)
+    }
+
+    pub fn oublier_suppression(&self, regle: i64, cote: &str, asset_id: &str) -> Resultat<()> {
+        self.cnx.execute(
+            "DELETE FROM suppressions WHERE regle = ?1 AND cote = ?2 AND asset_id = ?3",
+            params![regle, cote, asset_id],
+        )?;
+        Ok(())
     }
 
     fn ajouter(

@@ -25,6 +25,17 @@ const LOT_ALBUM: usize = 1_000;
 const PERIODE: Duration = Duration::from_secs(15 * 60);
 /// Quiet time after a folder event before a pass starts.
 const CALME: Duration = Duration::from_secs(3);
+/// Mirrored deletions beyond this many files (or 5 % of the folder) wait
+/// for the user's confirmation.
+const SEUIL_SUPPRESSIONS: usize = 20;
+/// Hidden file marking a two-way folder: without it (unplugged disk,
+/// folder replaced), no deletion is ever mirrored.
+pub const TEMOIN: &str = ".nicephore-dossier";
+
+/// Puts the marker file in a two-way folder.
+pub fn poser_temoin(dossier: &Path) -> std::io::Result<()> {
+    std::fs::write(dossier.join(TEMOIN), "Dossier synchronisé par Nicéphore avec un album Immich.\n")
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,6 +68,8 @@ pub struct EtatEnvoi {
     /// Problem per rule (folder missing, album deleted...).
     pub erreurs_regles: BTreeMap<i64, String>,
     pub dernier_passage: Option<i64>,
+    /// Two-way rules whose mirrored deletions wait for a confirmation.
+    pub confirmations: BTreeMap<i64, u64>,
     /// Why sending waits (on battery, metered network...).
     pub attente: Option<String>,
     /// Files sent by the last finished pass.
@@ -81,6 +94,9 @@ pub struct Moteur {
     /// Bumped by a pause or any rule change: the running pass stops at once
     /// (between two files, and during an upload, which is cancelled).
     arret: watch::Sender<u64>,
+    /// Delay before a mirrored deletion is applied (10 minutes).
+    grace_ms: AtomicI64,
+    confirmations: Mutex<BTreeMap<i64, u64>>,
 }
 
 /// Outcome of one file upload.
@@ -103,6 +119,8 @@ impl Moteur {
             condition: Mutex::new(None),
             envoyes_passage: AtomicU64::new(0),
             arret: watch::Sender::new(0),
+            grace_ms: AtomicI64::new(10 * 60_000),
+            confirmations: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -160,6 +178,11 @@ impl Moteur {
         *self.base.lock().expect("verrou de la base d'envoi") = base;
         self.etat.send_modify(|e| e.erreurs_regles.clear());
         self.regles_changees();
+    }
+
+    /// Changes the delay before a mirrored deletion is applied.
+    pub fn regler_delai_de_grace(&self, delai: Duration) {
+        self.grace_ms.store(delai.as_millis() as i64, Ordering::SeqCst);
     }
 
     /// Changes how long a file must stay unchanged before it is sent
@@ -276,7 +299,8 @@ impl Moteur {
             }
             let resultat = match regle.sens {
                 crate::Sens::Descendante => self.passage_reception(&client, regle, generation).await,
-                _ => self.passage_regle(&client, &types, regle, generation).await,
+                crate::Sens::Double => self.passage_double(&client, &types, regle, generation).await,
+                crate::Sens::Montante => self.passage_regle(&client, &types, regle, generation).await,
             };
             match resultat {
                 Ok(Some(d)) => revoir = Some(revoir.map_or(d, |r: Duration| r.min(d))),
@@ -314,6 +338,7 @@ impl Moteur {
 
     fn fin_passage(&self, erreurs: BTreeMap<i64, String>) {
         let envoyes = self.envoyes_passage.swap(0, Ordering::SeqCst);
+        let confirmations = self.confirmations.lock().expect("verrou des confirmations").clone();
         self.etat.send_modify(|e| {
             *e = EtatEnvoi {
                 en_pause: e.en_pause,
@@ -322,6 +347,7 @@ impl Moteur {
                 erreurs_regles: erreurs,
                 dernier_passage: Some(maintenant_ms()),
                 envoyes_passage: envoyes,
+                confirmations,
                 ..Default::default()
             }
         });
@@ -653,6 +679,132 @@ impl Moteur {
     /// here are not downloaded again, files gone from the server stay here;
     /// nothing local is ever deleted or overwritten.
     async fn passage_reception(&self, client: &ClientImmich, regle: &Regle, generation: u64) -> Resultat<Option<Duration>> {
+        self.reception(client, regle, generation, false).await.map(|(revoir, _)| revoir)
+    }
+
+    /// Two-way rule: the folder is sent into the album, the album received
+    /// into the folder; with `miroir`, deletions on one side are repeated on
+    /// the other, after a grace delay and with a confirmation above a
+    /// threshold, never when the marker file is missing.
+    async fn passage_double(
+        &self,
+        client: &ClientImmich,
+        types: &TypesMedias,
+        regle: &Regle,
+        generation: u64,
+    ) -> Resultat<Option<Duration>> {
+        let racine = PathBuf::from(&regle.dossier);
+        if std::fs::read_dir(&racine).is_err() {
+            return Err(Erreur::Regle("dossier introuvable ou illisible (disque débranché ?)".into()));
+        }
+        if regle.miroir && !racine.join(TEMOIN).exists() {
+            return Err(Erreur::Regle(format!(
+                "fichier témoin {TEMOIN} absent : dossier remplacé ou débranché ? Rien n'est synchronisé en attendant"
+            )));
+        }
+        let revoir_envoi = self.passage_regle(client, types, regle, generation).await?;
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
+        // Sent (or found on the server) files are the local copies of their
+        // album photos.
+        {
+            let base = self.base();
+            for (asset_id, chemin) in base.fichiers_lies(regle.id)? {
+                base.lier_recu(regle.id, &asset_id, &chemin)?;
+            }
+        }
+        let (revoir_reception, candidats) = self.reception(client, regle, generation, regle.miroir).await?;
+        if self.interrompu(generation) {
+            return Ok(None);
+        }
+        let revoir_suppressions = if regle.miroir {
+            self.appliquer_suppressions(client, regle, &racine, candidats).await?
+        } else {
+            None
+        };
+        Ok([revoir_envoi, revoir_reception, revoir_suppressions].into_iter().flatten().min())
+    }
+
+    /// Records the deletions seen, then applies those confirmed or past
+    /// their grace delay. Removing from the album keeps the photo in the
+    /// library; a local file goes to the system trash.
+    async fn appliquer_suppressions(
+        &self,
+        client: &ClientImmich,
+        regle: &Regle,
+        racine: &Path,
+        candidats: Vec<(String, String, String)>,
+    ) -> Resultat<Option<Duration>> {
+        let Cible::Album { id: album, .. } = &regle.cible else { return Ok(None) };
+        let (attente, total) = {
+            let base = self.base();
+            base.noter_suppressions(regle.id, &candidats)?;
+            (base.suppressions(regle.id)?, base.recus(regle.id)?.len())
+        };
+        let mut confirmations = self.confirmations.lock().expect("verrou des confirmations").clone();
+        confirmations.remove(&regle.id);
+        if attente.is_empty() {
+            *self.confirmations.lock().expect("verrou des confirmations") = confirmations;
+            return Ok(None);
+        }
+        let grace = self.grace_ms.load(Ordering::SeqCst);
+        let maintenant = maintenant_ms();
+        let depasse = attente.len() > SEUIL_SUPPRESSIONS || attente.len() * 20 > total;
+        let a_faire: Vec<&crate::Suppression> = attente
+            .iter()
+            .filter(|s| s.confirme || (!depasse && maintenant - s.vu_le >= grace))
+            .collect();
+        if depasse && attente.iter().any(|s| !s.confirme) {
+            confirmations.insert(regle.id, attente.iter().filter(|s| !s.confirme).count() as u64);
+        }
+        *self.confirmations.lock().expect("verrou des confirmations") = confirmations;
+
+        // Server side: out of the album, in one request.
+        let hors_album: Vec<&crate::Suppression> = a_faire.iter().copied().filter(|s| s.cote == "serveur").collect();
+        if !hors_album.is_empty() {
+            let ids: Vec<String> = hors_album.iter().map(|s| s.asset_id.clone()).collect();
+            client.retirer_de_l_album(album, &ids).await?;
+            let base = self.base();
+            for s in hors_album {
+                base.changer_etat_recu(regle.id, &s.asset_id, EtatRecu::RetireIci)?;
+                base.oublier_suppression(regle.id, &s.cote, &s.asset_id)?;
+                base.journaliser(Some(regle.id), Some(&s.chemin), "retire_de_l_album", None, Some(&s.asset_id))?;
+            }
+        }
+        // Local side: to the system trash, one by one.
+        for s in a_faire.iter().filter(|s| s.cote == "ici") {
+            let chemin = analyse::absolu(racine, &s.chemin);
+            let resultat = tokio::task::spawn_blocking(move || if chemin.exists() { trash::delete(&chemin).map_err(|e| e.to_string()) } else { Ok(()) })
+                .await
+                .map_err(|e| Erreur::Regle(e.to_string()))?;
+            let base = self.base();
+            match resultat {
+                Ok(()) => {
+                    base.changer_etat_recu(regle.id, &s.asset_id, EtatRecu::RetireServeur)?;
+                    base.oublier_suppression(regle.id, &s.cote, &s.asset_id)?;
+                    base.journaliser(Some(regle.id), Some(&s.chemin), "mis_a_la_corbeille", None, Some(&s.asset_id))?;
+                }
+                Err(e) => base.journaliser(Some(regle.id), Some(&s.chemin), "corbeille_impossible", Some(&e), Some(&s.asset_id))?,
+            }
+        }
+        // The rest waits for its delay (or for a confirmation).
+        let prochaine = attente
+            .iter()
+            .filter(|s| !s.confirme && !depasse)
+            .map(|s| s.vu_le + grace - maintenant)
+            .filter(|&ms| ms > 0)
+            .min();
+        Ok(prochaine.map(|ms| Duration::from_millis(ms as u64 + 1_000)))
+    }
+
+    async fn reception(
+        &self,
+        client: &ClientImmich,
+        regle: &Regle,
+        generation: u64,
+        miroir: bool,
+    ) -> Resultat<(Option<Duration>, Vec<(String, String, String)>)> {
         let racine = PathBuf::from(&regle.dossier);
         self.phase(regle.id, Phase::Analyse, 0);
         // A missing folder (unplugged disk) stops the rule: nothing is
@@ -666,17 +818,26 @@ impl Moteur {
         let selection = regle.selection.clone().ok_or_else(|| Erreur::Regle("sélection manquante".into()))?;
         let distants = client.assets_de_selection(&selection).await?;
         if self.interrompu(generation) {
-            return Ok(None);
+            return Ok((None, Vec::new()));
         }
         let connus = self.base().recus(regle.id)?;
         let ids: std::collections::HashSet<&str> = distants.iter().map(|a| a.id.as_str()).collect();
 
-        // What changed since the last pass.
+        // What changed since the last pass. With mirrored deletions, a file
+        // gone on one side becomes a candidate deletion on the other.
+        let mut candidats: Vec<(String, String, String)> = Vec::new();
         {
             let base = self.base();
             for (asset_id, recu) in &connus {
                 let present_ici = analyse::absolu(&racine, &recu.chemin).exists();
+                let sur_serveur = ids.contains(asset_id.as_str());
                 match recu.etat {
+                    EtatRecu::Recu if miroir && !sur_serveur && present_ici => {
+                        candidats.push(("ici".into(), asset_id.clone(), recu.chemin.clone()));
+                    }
+                    EtatRecu::Recu if miroir && sur_serveur && !present_ici => {
+                        candidats.push(("serveur".into(), asset_id.clone(), recu.chemin.clone()));
+                    }
                     EtatRecu::Recu if !ids.contains(asset_id.as_str()) => {
                         base.changer_etat_recu(regle.id, asset_id, EtatRecu::RetireServeur)?;
                         base.journaliser(Some(regle.id), Some(&recu.chemin), "retire_du_serveur", None, Some(asset_id))?;
@@ -698,7 +859,7 @@ impl Moteur {
         // New on the server. A file already here under its name with the
         // same content is adopted; otherwise a free local name is reserved.
         let nouveaux: Vec<&AssetDistant> = distants.iter().filter(|a| !connus.contains_key(&a.id)).collect();
-        let candidats: Vec<(usize, PathBuf, String)> = nouveaux
+        let homonymes: Vec<(usize, PathBuf, String)> = nouveaux
             .iter()
             .enumerate()
             .filter_map(|(i, a)| {
@@ -709,9 +870,9 @@ impl Moteur {
             })
             .collect();
         let adoptes: HashMap<usize, String> = tokio::task::spawn_blocking({
-            let attendus: Vec<String> = candidats.iter().map(|(i, _, _)| nouveaux[*i].sha1.clone()).collect();
+            let attendus: Vec<String> = homonymes.iter().map(|(i, _, _)| nouveaux[*i].sha1.clone()).collect();
             move || {
-                candidats
+                homonymes
                     .into_iter()
                     .zip(attendus)
                     .filter(|((_, absolu, _), sha1)| analyse::empreinte(absolu).is_ok_and(|e| &e == sha1))
@@ -736,12 +897,12 @@ impl Moteur {
             }
         }
         if self.interrompu(generation) {
-            return Ok(None);
+            return Ok((None, Vec::new()));
         }
 
         let a_recevoir = self.base().a_recevoir(regle.id, maintenant_ms())?;
         if a_recevoir.is_empty() {
-            return Ok(None);
+            return Ok((None, candidats));
         }
         // Room on the disk for everything, plus a margin.
         let besoin: u64 = a_recevoir.iter().map(|f| f.taille).sum();
@@ -784,7 +945,7 @@ impl Moteur {
                 e.fichier = Some(fichier.chemin.clone());
             });
         }
-        Ok(None)
+        Ok((None, candidats))
     }
 
     /// Downloads one original into a hidden temporary file, checks its

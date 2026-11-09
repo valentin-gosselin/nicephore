@@ -182,6 +182,77 @@ pub fn ajouter_reception(
     Ok(regle)
 }
 
+/// Adds a two-way rule between a folder and an album: an existing one
+/// (`album`), or a new album named `nouvel_album`. The marker file is put
+/// in the folder.
+#[tauri::command]
+pub async fn ajouter_double(
+    etat: State<'_, Etat>,
+    dossier: String,
+    album: Option<String>,
+    nouvel_album: Option<String>,
+    miroir: bool,
+) -> Result<Regle, String> {
+    if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
+        return Err(e);
+    }
+    let chemin = Path::new(&dossier);
+    if !chemin.is_absolute() || !chemin.is_dir() {
+        return Err("choisissez un dossier existant".into());
+    }
+    let client = etat.client()?;
+    let (id, nom) = match (album, nouvel_album) {
+        (Some(id), _) => {
+            let a = client.album(&id).await.map_err(|e| e.to_string())?;
+            (a.id, a.album_name)
+        }
+        (None, Some(nom)) if !nom.trim().is_empty() => {
+            let a = client.creer_album(nom.trim(), "", &[]).await.map_err(|e| e.to_string())?;
+            (a.id, a.album_name)
+        }
+        _ => return Err("choisissez un album".into()),
+    };
+    envoi::poser_temoin(chemin).map_err(|e| format!("fichier témoin impossible à poser : {e}"))?;
+    let regle = etat.envoi.base().ajouter_double(chemin, &id, &nom, miroir).map_err(erreur)?;
+    etat.envoi.regles_changees();
+    Ok(regle)
+}
+
+/// Turns mirrored deletions on or off for a two-way rule.
+#[tauri::command]
+pub fn definir_miroir(etat: State<'_, Etat>, regle: i64, miroir: bool) -> Result<(), String> {
+    let base = etat.envoi.base();
+    let r = base.regle(regle).map_err(erreur)?;
+    if miroir {
+        envoi::poser_temoin(Path::new(&r.dossier)).map_err(|e| format!("fichier témoin impossible à poser : {e}"))?;
+    }
+    base.definir_miroir(regle, miroir).map_err(erreur)?;
+    drop(base);
+    etat.envoi.regles_changees();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn suppressions_en_attente(etat: State<'_, Etat>, regle: i64) -> Result<Vec<envoi::Suppression>, String> {
+    etat.envoi.base().suppressions(regle).map_err(erreur)
+}
+
+#[tauri::command]
+pub fn confirmer_suppressions(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
+    let n = etat.envoi.base().confirmer_suppressions(regle).map_err(erreur)?;
+    etat.envoi.reveiller();
+    Ok(n)
+}
+
+/// Refused deletions: what was deleted here comes back from the album, what
+/// left the album goes back into it.
+#[tauri::command]
+pub fn refuser_suppressions(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
+    let n = etat.envoi.base().refuser_suppressions(regle).map_err(erreur)?;
+    etat.envoi.reveiller();
+    Ok(n)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EstimationReception {

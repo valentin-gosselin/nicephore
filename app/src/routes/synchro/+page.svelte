@@ -2,12 +2,18 @@
   // "Envoi" page: folders of this computer sent to Immich, engine progress
   // and the log of what was done.
   import { Button, Heading, IconButton, ProgressBar, Switch, Text } from '@immich/ui';
-  import { mdiDeleteOutline, mdiFolderArrowUpOutline, mdiFolderDownloadOutline, mdiFolderPlusOutline, mdiPause, mdiPlay, mdiRefresh } from '@mdi/js';
+  import { mdiDeleteOutline, mdiFolderArrowUpOutline, mdiFolderDownloadOutline, mdiFolderSyncOutline, mdiFolderPlusOutline, mdiPause, mdiPlay, mdiRefresh } from '@mdi/js';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import {
     activerRegleEnvoi,
+    ajouterDouble,
     ajouterReception,
+    confirmerSuppressions,
+    definirMiroir,
+    refuserSuppressions,
+    suppressionsEnAttente,
+    type SuppressionEnAttente,
     ajouterRegleEnvoi,
     recevoirDeNouveau,
     echecsEnvoi,
@@ -62,6 +68,37 @@
   }
   const dateCourte = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 
+  let enAttente = $state<{ regle: RegleEnvoi; liste: SuppressionEnAttente[] } | null>(null);
+
+  async function voirSuppressions(regle: RegleEnvoi) {
+    enAttente = { regle, liste: await suppressionsEnAttente(regle.id).catch(() => []) };
+  }
+
+  async function deciderSuppressions(appliquer: boolean) {
+    if (!enAttente) return;
+    const { regle } = enAttente;
+    enAttente = null;
+    try {
+      const n = appliquer ? await confirmerSuppressions(regle.id) : await refuserSuppressions(regle.id);
+      notifier(
+        appliquer ? `${pluriel(n, 'suppression')} confirmée${n > 1 ? 's' : ''}.` : `${pluriel(n, 'suppression')} annulée${n > 1 ? 's' : ''} : les fichiers reviennent.`,
+        'succes',
+      );
+      await rafraichir();
+    } catch (e) {
+      notifier(String(e), 'erreur');
+    }
+  }
+
+  async function basculerMiroir(regle: RegleEnvoi) {
+    try {
+      await definirMiroir(regle.id, !regle.miroir);
+      await rafraichir();
+    } catch (e) {
+      notifier(String(e), 'erreur');
+    }
+  }
+
   async function recevoirEncore(regle: RegleEnvoi) {
     const n = await recevoirDeNouveau(regle.id).catch(() => 0);
     notifier(`${pluriel(n, 'fichier')} à recevoir de nouveau.`, 'succes');
@@ -82,6 +119,9 @@
     ignore: 'Ignoré',
     abandon: 'Abandonné après plusieurs essais',
     recu: 'Reçu',
+    retire_de_l_album: 'Effacé ici, retiré de l’album',
+    mis_a_la_corbeille: 'Retiré de l’album, mis à la corbeille ici',
+    corbeille_impossible: 'Corbeille impossible, fichier gardé',
     retire_ici: 'Effacé ici, pas retéléchargé',
     retire_du_serveur: 'Retiré sur le serveur, gardé ici',
     regle_ajoutee: 'Dossier ajouté',
@@ -150,6 +190,7 @@
   async function ajouter(demande: Demande) {
     try {
       if (demande.sens === 'montante') await ajouterRegleEnvoi(demande.dossier, demande.cible);
+      else if (demande.sens === 'double') await ajouterDouble(demande.dossier, demande.album, demande.nouvelAlbum, demande.miroir);
       else await ajouterReception(demande.dossier, demande.selection, demande.rangement);
       notifier(`« ${nomDossier(demande.dossier)} » ajouté : la synchro commence.`, 'succes');
       await rafraichir();
@@ -275,7 +316,10 @@
         <li class="regle space-y-2 rounded-2xl p-4" class:inactive={!regle.actif}>
           <div class="flex items-center gap-3">
             <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" class="shrink-0 opacity-70">
-              <path fill="currentColor" d={regle.sens === 'descendante' ? mdiFolderDownloadOutline : mdiFolderArrowUpOutline} />
+              <path
+                fill="currentColor"
+                d={regle.sens === 'descendante' ? mdiFolderDownloadOutline : regle.sens === 'double' ? mdiFolderSyncOutline : mdiFolderArrowUpOutline}
+              />
             </svg>
             <div class="min-w-0 flex-1">
               <div class="truncate font-semibold">{nomDossier(regle.dossier)}</div>
@@ -288,14 +332,29 @@
             />
             <IconButton
               icon={mdiDeleteOutline}
-              aria-label={`${regle.sens === 'descendante' ? 'Ne plus recevoir dans' : 'Ne plus envoyer'} ${nomDossier(regle.dossier)}`}
+              aria-label={`${regle.sens === 'descendante' ? 'Ne plus recevoir dans' : regle.sens === 'double' ? 'Ne plus synchroniser' : 'Ne plus envoyer'} ${nomDossier(regle.dossier)}`}
               variant="ghost"
               color="secondary"
               shape="round"
               onclick={() => (aRetirer = regle)}
             />
           </div>
-          {#if regle.sens === 'descendante'}
+          {#if regle.sens === 'double'}
+            {@const attente = etat?.confirmations?.[regle.id] ?? 0}
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <span class="opacity-70">Identique à l’album « {regle.cible.genre === 'album' ? regle.cible.nom : ''} »</span>
+              <span class="compteurs">{pluriel(regle.bilan.envoyes, 'envoyé')} · {pluriel(regle.bilan.recus, 'reçu')}</span>
+              <button class="lien" onclick={() => basculerMiroir(regle)}>
+                {regle.miroir ? 'Suppressions répercutées' : 'Suppressions non répercutées'}
+              </button>
+            </div>
+            {#if attente}
+              <div class="attente flex items-center gap-3 rounded-xl p-3 text-sm">
+                <span class="flex-1">{pluriel(attente, 'suppression')} attend{attente > 1 ? 'ent' : ''} votre accord.</span>
+                <Button size="small" variant="outline" onclick={() => voirSuppressions(regle)}>Voir</Button>
+              </div>
+            {/if}
+          {:else if regle.sens === 'descendante'}
             <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
               <span class="opacity-70">
                 Reçoit {libelleSelection(regle.selection)}{regle.rangement === 'anneeMois' ? ', par année et mois' : ''}
@@ -353,7 +412,10 @@
 
 {#if aRetirer}
   {@const regle = aRetirer}
-  <Dialogue titre={regle.sens === 'descendante' ? 'Ne plus recevoir dans ce dossier ?' : 'Ne plus envoyer ce dossier ?'} onfermer={() => (aRetirer = null)}>
+  <Dialogue
+    titre={regle.sens === 'descendante' ? 'Ne plus recevoir dans ce dossier ?' : regle.sens === 'double' ? 'Ne plus synchroniser ce dossier ?' : 'Ne plus envoyer ce dossier ?'}
+    onfermer={() => (aRetirer = null)}
+  >
     <div class="space-y-4">
       <Text>
         Nicéphore oubliera « {nomDossier(regle.dossier)} ». Les fichiers restent sur cet ordinateur et les photos déjà
@@ -361,7 +423,33 @@
       </Text>
       <div class="flex justify-end gap-2">
         <Button variant="ghost" color="secondary" onclick={() => (aRetirer = null)}>Annuler</Button>
-        <Button color="danger" onclick={() => retirer(regle)}>{regle.sens === 'descendante' ? 'Ne plus recevoir' : 'Ne plus envoyer'}</Button>
+        <Button color="danger" onclick={() => retirer(regle)}>{regle.sens === 'descendante' ? 'Ne plus recevoir' : regle.sens === 'double' ? 'Ne plus synchroniser' : 'Ne plus envoyer'}</Button>
+      </div>
+    </div>
+  </Dialogue>
+{/if}
+
+{#if enAttente}
+  {@const a = enAttente}
+  <Dialogue titre="Suppressions en attente" onfermer={() => (enAttente = null)} largeur={620}>
+    <div class="space-y-3">
+      <Text size="small">
+        Beaucoup de fichiers ont disparu d’un côté d’un coup : Nicéphore attend votre accord avant de faire de même de l’autre
+        côté. Si c’est une erreur (dossier vidé par mégarde, album modifié), annulez : les fichiers reviennent.
+      </Text>
+      <ul class="max-h-80 space-y-1 overflow-y-auto text-sm">
+        {#each a.liste as s (s.cote + s.assetId)}
+          <li class="flex gap-3">
+            <span class="min-w-0 flex-1 truncate" title={s.chemin}>{s.chemin}</span>
+            <span class="shrink-0 opacity-70">
+              {s.cote === 'serveur' ? 'effacé ici, sortira de l’album' : 'sorti de l’album, ira à la corbeille'}
+            </span>
+          </li>
+        {/each}
+      </ul>
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" color="secondary" onclick={() => deciderSuppressions(false)}>Annuler ces suppressions</Button>
+        <Button color="danger" onclick={() => deciderSuppressions(true)}>Appliquer</Button>
       </div>
     </div>
   </Dialogue>
@@ -394,6 +482,13 @@
   }
   .regle.inactive {
     opacity: 0.6;
+  }
+  .attente {
+    color: #b45309;
+    background: color-mix(in oklab, #f59e0b 14%, transparent);
+  }
+  :global(.dark) .attente {
+    color: #fbbf24;
   }
   .lien {
     text-decoration: underline;

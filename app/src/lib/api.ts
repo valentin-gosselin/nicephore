@@ -242,6 +242,8 @@ export type RegleEnvoi = {
   cible: Cible;
   selection: Selection | null;
   rangement: Rangement;
+  /** Two-way folders: deletions repeated on the other side. */
+  miroir: boolean;
   actif: boolean;
   creeLe: number;
   bilan: BilanEnvoi;
@@ -263,6 +265,8 @@ export type EtatEnvoi = {
   dernierPassage: number | null;
   /** Why sending waits (on battery, metered network). */
   attente: string | null;
+  /** Two-way folders whose deletions wait for a confirmation (count by rule). */
+  confirmations: Record<string, number>;
   envoyesPassage: number;
 };
 export type EntreeJournal = {
@@ -338,3 +342,12 @@ export const ajouterReception = (dossier: string, selection: Selection, rangemen
 export const estimerReception = (selection: Selection, dossier: string | null) =>
   invoke<EstimationReception>('estimer_reception', { selection, dossier });
 export const recevoirDeNouveau = (regle: number) => invoke<number>('recevoir_de_nouveau', { regle });
+
+// ---- Two-way folders ----
+export type SuppressionEnAttente = { cote: 'ici' | 'serveur'; assetId: string; chemin: string; vuLe: number; confirme: boolean };
+export const ajouterDouble = (dossier: string, album: string | null, nouvelAlbum: string | null, miroir: boolean) =>
+  invoke<RegleEnvoi>('ajouter_double', { dossier, album, nouvelAlbum, miroir });
+export const definirMiroir = (regle: number, miroir: boolean) => invoke<void>('definir_miroir', { regle, miroir });
+export const suppressionsEnAttente = (regle: number) => invoke<SuppressionEnAttente[]>('suppressions_en_attente', { regle });
+export const confirmerSuppressions = (regle: number) => invoke<number>('confirmer_suppressions', { regle });
+export const refuserSuppressions = (regle: number) => invoke<number>('refuser_suppressions', { regle });

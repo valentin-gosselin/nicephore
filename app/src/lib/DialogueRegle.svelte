@@ -2,14 +2,15 @@
   import type { Cible as CibleEnvoi, Rangement as RangementReception, Selection as SelectionServeur } from './api';
   export type Demande =
     | { sens: 'montante'; dossier: string; cible: CibleEnvoi }
-    | { sens: 'descendante'; dossier: string; selection: SelectionServeur; rangement: RangementReception };
+    | { sens: 'descendante'; dossier: string; selection: SelectionServeur; rangement: RangementReception }
+    | { sens: 'double'; dossier: string; album: string | null; nouvelAlbum: string | null; miroir: boolean };
 </script>
 
 <script lang="ts">
   // Adds a synced folder: which way first (send a folder, or receive a
   // selection of the server), then the folder, then the details, with what
   // would be sent or received before anything starts.
-  import { Button, LoadingSpinner, Text } from '@immich/ui';
+  import { Button, LoadingSpinner, Switch, Text } from '@immich/ui';
   import { open } from '@tauri-apps/plugin-dialog';
   import { onMount } from 'svelte';
   import {
@@ -42,6 +43,9 @@
   let du = $state('');
   let au = $state('');
   let rangement = $state<Rangement>('plat');
+  // Two-way.
+  let albumDouble = $state<string>('nouveau');
+  let miroir = $state(false);
 
   let albums = $state<Album[] | null>(null);
   let gens = $state<Personne[] | null>(null);
@@ -85,7 +89,7 @@
 
   // What would be sent from the folder.
   $effect(() => {
-    if (sens !== 'montante') return;
+    if (sens === 'descendante') return;
     const choisi = dossier;
     estimationEnvoi = null;
     erreurEstimation = null;
@@ -130,7 +134,9 @@
     !!dossier &&
       (sens === 'montante'
         ? !!estimationEnvoi && estimationEnvoi.fichiers > 0 && (genre !== 'album' || !!albumChoisi)
-        : !!selection && !!estimationReception && estimationReception.fichiers > 0 && !placeManque),
+        : sens === 'double'
+          ? !!estimationEnvoi && (albumDouble === 'nouveau' || !!albums?.some((a) => a.id === albumDouble))
+          : !!selection && !!estimationReception && estimationReception.fichiers > 0 && !placeManque),
   );
   const nomDossier = $derived(dossier?.split(/[\\/]/).filter(Boolean).pop() ?? '');
 
@@ -154,6 +160,11 @@
         cible = { genre };
       }
       demande = { sens, dossier, cible };
+    } else if (sens === 'double') {
+      demande =
+        albumDouble === 'nouveau'
+          ? { sens, dossier, album: null, nouvelAlbum: nomDossier, miroir }
+          : { sens, dossier, album: albumDouble, nouvelAlbum: null, miroir };
     } else {
       if (!selection) return;
       demande = { sens, dossier, selection, rangement };
@@ -179,6 +190,11 @@
       sens: 'descendante',
       titre: 'Recevoir des photos d’Immich dans un dossier',
       detail: 'Un album, une personne, les favoris, une période ou toute la photothèque, copiés sur cet ordinateur.',
+    },
+    {
+      sens: 'double',
+      titre: 'Garder un dossier et un album identiques',
+      detail: 'Ce qui arrive dans le dossier part dans l’album, ce qui arrive dans l’album vient dans le dossier.',
     },
   ];
   const ciblesEnvoi: { genre: Cible['genre']; titre: string; detail: string }[] = [
@@ -230,14 +246,36 @@
     </fieldset>
 
     <div class="space-y-1">
-      <Text size="small" color="muted">{sens === 'montante' ? 'Dossier à envoyer' : 'Dossier où recevoir'}</Text>
+      <Text size="small" color="muted">
+        {sens === 'montante' ? 'Dossier à envoyer' : sens === 'double' ? 'Dossier à garder identique à l’album' : 'Dossier où recevoir'}
+      </Text>
       <div class="flex items-center gap-3">
         <span class="chemin min-w-0 flex-1 truncate" title={dossier ?? ''}>{dossier ?? 'Aucun dossier choisi'}</span>
         <Button type="button" variant="outline" size="small" onclick={choisir}>Choisir…</Button>
       </div>
     </div>
 
-    {#if sens === 'montante'}
+    {#if sens === 'double'}
+      <fieldset class="space-y-2">
+        <legend class="mb-1 text-sm opacity-60">Album</legend>
+        <label class="ligne" class:choisie={albumDouble === 'nouveau'}>
+          <input type="radio" name="album-double" value="nouveau" bind:group={albumDouble} />
+          <span>Un nouvel album{nomDossier ? ` « ${nomDossier} »` : ' au nom du dossier'}</span>
+        </label>
+        {@render listeAlbums('album-double-liste', albumDouble, (id) => (albumDouble = id), true)}
+      </fieldset>
+      <label class="flex items-start justify-between gap-4 rounded-xl p-3 option">
+        <span>
+          <span class="block font-medium">Répercuter les suppressions</span>
+          <span class="block text-sm opacity-70">
+            Une photo effacée ici quitte l’album (elle reste dans la photothèque) ; une photo retirée de l’album va dans la
+            corbeille de l’ordinateur. Après 10 minutes, avec votre accord au-delà de 20 fichiers, et jamais si le
+            dossier change de disque.
+          </span>
+        </span>
+        <Switch bind:checked={miroir} />
+      </label>
+    {:else if sens === 'montante'}
       <fieldset class="space-y-2">
         <legend class="mb-1 text-sm opacity-60">Où vont les photos</legend>
         {#each ciblesEnvoi as o (o.genre)}
@@ -307,6 +345,11 @@
       </div>
     {:else if erreurEstimation}
       <Text size="small" color="danger">{erreurEstimation}</Text>
+    {:else if sens === 'double' && estimationEnvoi}
+      <div class="estimation rounded-xl p-3 text-sm" class:gros={grosEnvoi}>
+        Dans le dossier : <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>, envoyées
+        dans l’album (sauf celles déjà sur le serveur). Les photos de l’album absentes du dossier y seront copiées.
+      </div>
     {:else if sens === 'montante' && estimationEnvoi}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={grosEnvoi}>
         {#if estimationEnvoi.fichiers === 0}
@@ -344,6 +387,9 @@
       {#if sens === 'montante'}
         Rien n’est jamais supprimé : ni les fichiers de ce dossier, ni les photos sur le serveur. Les photos déjà présentes
         sur le serveur ne sont pas renvoyées.
+      {:else if sens === 'double'}
+        Rien n’est jamais effacé définitivement : au pire une photo quitte l’album ou va dans la corbeille. Un fichier
+        modifié d’un côté est gardé en double plutôt qu’écrasé.
       {:else}
         Rien n’est jamais supprimé ni écrasé ici. Une photo que vous effacez de ce dossier n’est pas retéléchargée ; une photo
         retirée sur le serveur reste ici. Les fichiers déjà présents à l’identique sont reconnus.
@@ -354,6 +400,8 @@
       <Button type="submit" disabled={!pret} loading={enCours}>
         {#if sens === 'montante'}
           {estimationEnvoi && estimationEnvoi.fichiers > 0 ? `Envoyer ${volume(estimationEnvoi.octets)}` : 'Envoyer'}
+        {:else if sens === 'double'}
+          Synchroniser
         {:else}
           {estimationReception && estimationReception.fichiers > 0 ? `Recevoir ${volume(estimationReception.octets)}` : 'Recevoir'}
         {/if}

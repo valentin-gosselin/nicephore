@@ -2,7 +2,7 @@
 //! (`scripts/immich-jetable.sh tester`). Never against a real library.
 
 use api_immich::*;
-use envoi::{Base, Cible, Moteur};
+use envoi::{Base, Cible, Moteur, poser_temoin};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -460,5 +460,141 @@ async fn la_pause_arrete_une_reception() {
     assert_eq!(fichiers, apres, "aucun fichier partiel laissé");
     boucle.abort();
     nettoyer(&c, &envoi).await;
+    c.supprimer_album(&album.id).await.unwrap();
+}
+
+/// A private trash for the tests: deleted files never reach the user's.
+fn corbeille_privee(dossier: &Path) -> PathBuf {
+    let donnees = dossier.join("donnees-xdg");
+    std::fs::create_dir_all(&donnees).unwrap();
+    // Tests run on one thread (--test-threads=1).
+    unsafe { std::env::set_var("XDG_DATA_HOME", &donnees) };
+    donnees.join("Trash/files")
+}
+
+async fn nombre_dans_l_album(c: &ClientImmich, id: &str) -> u64 {
+    c.album(id).await.unwrap().asset_count
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn double_sens_sans_miroir() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let ids = ids_essais(&c, &["essai-14.jpg", "essai-15.jpg"]).await;
+    let album = c.creer_album(&format!("Deux sens {jeton}"), "", &ids).await.unwrap();
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join("deux-sens");
+    ecrire(&racine.join("locale.jpg"), &variante(&photo_du_serveur(), &format!("locale {jeton}")), 3_600);
+    poser_temoin(&racine).unwrap();
+    patienter().await;
+
+    let moteur = moteur();
+    let regle = moteur.base().ajouter_double(&racine, &album.id, &album.album_name, false).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 3, "la photo locale monte dans l'album");
+    for nom in ["locale.jpg", "essai-14.jpg", "essai-15.jpg"] {
+        assert!(racine.join(nom).exists(), "{nom}");
+    }
+    assert_eq!(journal(&moteur, "recu"), 2, "seules les photos de l'album descendent");
+
+    // The downloaded files are recognised, not sent back.
+    patienter().await;
+    moteur.passage().await.unwrap();
+    assert_eq!((journal(&moteur, "envoye"), journal(&moteur, "recu")), (1, 2));
+
+    // Without mirroring, deletions stay on their side.
+    std::fs::remove_file(racine.join("essai-14.jpg")).unwrap();
+    let envoyee = moteur.base().journal(100).unwrap().into_iter().find(|e| e.action == "envoye").unwrap().asset_id.unwrap();
+    c.retirer_de_l_album(&album.id, std::slice::from_ref(&envoyee)).await.unwrap();
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 2, "essai-14 reste dans l'album");
+    assert!(racine.join("locale.jpg").exists(), "le fichier local reste");
+    let bilan = compter(&moteur, regle);
+    assert_eq!((bilan.retires_ici, bilan.retires_serveur), (1, 1), "{bilan:?}");
+
+    c.mettre_a_la_corbeille(&[envoyee]).await.unwrap();
+    c.supprimer_album(&album.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn double_sens_avec_miroir_et_garde_fous() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let ids = ids_essais(&c, &["essai-16.jpg", "essai-17.jpg"]).await;
+    let album = c.creer_album(&format!("Miroir {jeton}"), "", &ids).await.unwrap();
+    let temporaire = tempfile::tempdir().unwrap();
+    let corbeille = corbeille_privee(temporaire.path());
+    let racine = temporaire.path().join("miroir");
+    let jpeg = photo_du_serveur();
+    // 40 local photos: deleting one is below the 5 % threshold, 25 above.
+    for i in 0..40 {
+        ecrire(&racine.join(format!("m{i:02}.jpg")), &variante(&jpeg, &format!("miroir {i} {jeton}")), 3_600);
+    }
+    poser_temoin(&racine).unwrap();
+    patienter().await;
+
+    let moteur = moteur();
+    moteur.regler_delai_de_grace(Duration::from_secs(2));
+    let regle = moteur.base().ajouter_double(&racine, &album.id, &album.album_name, true).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 42);
+    patienter().await;
+    moteur.passage().await.unwrap();
+
+    // Deleted here: out of the album after the grace delay, still in the library.
+    std::fs::remove_file(racine.join("essai-16.jpg")).unwrap();
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 42, "pas avant le délai de grâce");
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 41, "retirée de l'album");
+    assert_eq!(ids_essais(&c, &["essai-16.jpg"]).await.len(), 1, "toujours dans la photothèque");
+
+    // Removed from the album: the local file goes to the trash.
+    let m00 = moteur
+        .base()
+        .journal(1_000)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.action == "envoye" && e.chemin.as_deref() == Some("m00.jpg"))
+        .unwrap()
+        .asset_id
+        .unwrap();
+    c.retirer_de_l_album(&album.id, &[m00]).await.unwrap();
+    moteur.passage().await.unwrap();
+    assert!(racine.join("m00.jpg").exists(), "pas avant le délai de grâce");
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    moteur.passage().await.unwrap();
+    assert!(!racine.join("m00.jpg").exists());
+    assert!(corbeille.join("m00.jpg").exists(), "dans la corbeille, pas effacé");
+
+    // Above the threshold: nothing until confirmed.
+    for i in 10..35 {
+        std::fs::remove_file(racine.join(format!("m{i:02}.jpg"))).unwrap();
+    }
+    moteur.passage().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 40, "25 suppressions attendent une confirmation");
+    assert_eq!(moteur.instantane().confirmations.get(&regle), Some(&25));
+    moteur.base().confirmer_suppressions(regle).unwrap();
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 15, "appliquées une fois confirmées");
+
+    // Marker file gone: nothing at all.
+    std::fs::remove_file(racine.join(envoi::TEMOIN)).unwrap();
+    std::fs::remove_file(racine.join("m01.jpg")).unwrap();
+    moteur.passage().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 15);
+    assert!(moteur.instantane().erreurs_regles.get(&regle).is_some_and(|e| e.contains("témoin")));
+
+    let envoyes: Vec<String> = moteur.base().journal(1_000).unwrap().into_iter().filter(|e| e.action == "envoye").filter_map(|e| e.asset_id).collect();
+    c.mettre_a_la_corbeille(&envoyes).await.unwrap();
     c.supprimer_album(&album.id).await.unwrap();
 }

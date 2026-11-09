@@ -285,6 +285,24 @@ export async function lancerScenarioEcriture() {
       (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus recevoir'))?.click();
       await attendre(1500);
 
+      // 11c. Two ways: an empty folder kept like the album made in step 11.
+      const albumBalade = (await invoke<{ id: string; albumName: string }[]>('albums')).find((x) => x.albumName.startsWith('Balade banc'));
+      const deux = await invoke<string | null>('dossier_banc_vide', { nom: 'deuxsens' });
+      await invoke('ajouter_double', { dossier: deux, album: albumBalade?.id ?? null, nouvelAlbum: null, miroir: false });
+      type VueDouble = { sens: string; miroir: boolean; bilan: { recus: number } };
+      const double = async () => (await invoke<VueDouble[]>('regles_envoi')).find((r) => r.sens === 'double');
+      for (let i = 0; i < 60 && ((await double())?.bilan.recus ?? 0) < 2; i++) await attendre(500);
+      await verifier('deux sens : les photos de l’album arrivent dans le dossier', (await double())?.bilan.recus === 2);
+      await attendre(1500);
+      await verifier('deux sens affiché sur la page', page().includes('Identique à l’album'));
+      (await element<HTMLButtonElement>('button', (b) => b.textContent?.trim() === 'Suppressions non répercutées'))?.click();
+      await attendre(1200);
+      await verifier('miroir activé depuis la page', (await double())?.miroir === true && page().includes('Suppressions répercutées'));
+      await capture('e6d-deux-sens');
+      (await element<HTMLButtonElement>('[aria-label^="Ne plus synchroniser"]'))?.click();
+      (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Ne plus synchroniser'))?.click();
+      await attendre(1500);
+
       // 12. Background: settings, then closing the window into the tray
       // while a folder is sent.
       await aller('/reglages');
