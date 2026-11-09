@@ -244,6 +244,8 @@ export type RegleEnvoi = {
   rangement: Rangement;
   /** Two-way folders: deletions repeated on the other side. */
   miroir: boolean;
+  /** RAW files left out. */
+  sansRaw: boolean;
   actif: boolean;
   creeLe: number;
   bilan: BilanEnvoi;
@@ -281,7 +283,8 @@ export type EntreeJournal = {
 export type FichierEnEchec = { chemin: string; erreur: string | null; essais: number };
 
 export const reglesEnvoi = () => invoke<RegleEnvoi[]>('regles_envoi');
-export const ajouterRegleEnvoi = (dossier: string, cible: Cible) => invoke<RegleEnvoi>('ajouter_regle_envoi', { dossier, cible });
+export const ajouterRegleEnvoi = (dossier: string, cible: Cible, sansRaw = false) =>
+  invoke<RegleEnvoi>('ajouter_regle_envoi', { dossier, cible, sansRaw });
 export const activerRegleEnvoi = (id: number, actif: boolean) => invoke<void>('activer_regle_envoi', { id, actif });
 export const supprimerRegleEnvoi = (id: number) => invoke<void>('supprimer_regle_envoi', { id });
 export const etatEnvoi = () => invoke<EtatEnvoi>('etat_envoi');
@@ -337,16 +340,17 @@ export type Selection =
   | { genre: 'bibliotheque' };
 export type Rangement = 'plat' | 'anneeMois';
 export type EstimationReception = { fichiers: number; octets: number; libre: number | null };
-export const ajouterReception = (dossier: string, selection: Selection, rangement: Rangement) =>
-  invoke<RegleEnvoi>('ajouter_reception', { dossier, selection, rangement });
+export const ajouterReception = (dossier: string, selection: Selection, rangement: Rangement, sansRaw = false) =>
+  invoke<RegleEnvoi>('ajouter_reception', { dossier, selection, rangement, sansRaw });
 export const estimerReception = (selection: Selection, dossier: string | null) =>
   invoke<EstimationReception>('estimer_reception', { selection, dossier });
 export const recevoirDeNouveau = (regle: number) => invoke<number>('recevoir_de_nouveau', { regle });
 
 // ---- Two-way folders ----
 export type SuppressionEnAttente = { cote: 'ici' | 'serveur'; assetId: string; chemin: string; vuLe: number; confirme: boolean };
-export const ajouterDouble = (dossier: string, album: string | null, nouvelAlbum: string | null, miroir: boolean) =>
-  invoke<RegleEnvoi>('ajouter_double', { dossier, album, nouvelAlbum, miroir });
+export const ajouterDouble = (dossier: string, album: string | null, nouvelAlbum: string | null, miroir: boolean, sansRaw = false) =>
+  invoke<RegleEnvoi>('ajouter_double', { dossier, album, nouvelAlbum, miroir, sansRaw });
+export const definirSansRaw = (regle: number, sansRaw: boolean) => invoke<void>('definir_sans_raw', { regle, sansRaw });
 export const definirMiroir = (regle: number, miroir: boolean) => invoke<void>('definir_miroir', { regle, miroir });
 export const suppressionsEnAttente = (regle: number) => invoke<SuppressionEnAttente[]>('suppressions_en_attente', { regle });
 export const confirmerSuppressions = (regle: number) => invoke<number>('confirmer_suppressions', { regle });
@@ -358,13 +362,14 @@ export type DossierVirtuel = {
   point: string;
   selection: Selection;
   rangement: Rangement;
+  sansRaw: boolean;
   monte: boolean;
   fichiers: number;
   erreur: string | null;
 };
 export const dossiersVirtuels = () => invoke<DossierVirtuel[]>('virtuels');
-export const ajouterVirtuel = (point: string, selection: Selection, rangement: Rangement) =>
-  invoke<void>('ajouter_virtuel', { point, selection, rangement });
+export const ajouterVirtuel = (point: string, selection: Selection, rangement: Rangement, sansRaw = false) =>
+  invoke<void>('ajouter_virtuel', { point, selection, rangement, sansRaw });
 export const retirerVirtuel = (id: number) => invoke<void>('retirer_virtuel', { id });
 export const cacheOriginaux = () => invoke<OccupationCache>('cache_originaux');
 export const viderCacheOriginaux = () => invoke<void>('vider_cache_originaux');

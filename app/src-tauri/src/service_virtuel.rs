@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::virtuels::{DossierVirtuel, lire, rangement};
+use crate::virtuels::{DossierVirtuel, filtrer, lire, rangement};
 use crate::compte;
 
 /// Argument that starts the service instead of the app.
@@ -204,7 +204,9 @@ async fn boucle(config: PathBuf) {
             let retires: Vec<i64> = montes
                 .montages
                 .iter()
-                .filter(|(id, (d, _))| voulus.get(id).is_none_or(|v| v.point != d.point || v.selection != d.selection))
+                .filter(|(id, (d, _))| {
+                    voulus.get(id).is_none_or(|v| v.point != d.point || v.selection != d.selection || v.sans_raw != d.sans_raw)
+                })
                 .map(|(id, _)| *id)
                 .collect();
             for id in retires {
@@ -234,7 +236,7 @@ async fn boucle(config: PathBuf) {
                 actualise = Instant::now();
                 for (d, m) in montes.montages.values() {
                     match client.assets_de_selection(&d.selection).await {
-                        Ok(assets) => m.actualiser(&assets),
+                        Ok(assets) => m.actualiser(&filtrer(d, assets)),
                         Err(e) => tracing::info!("actualisation de {} : {e}", d.point),
                     }
                 }
@@ -266,7 +268,7 @@ async fn boucle(config: PathBuf) {
 
 #[cfg(target_os = "linux")]
 async fn monter(d: &DossierVirtuel, client: Arc<ClientImmich>, cache: Arc<virtuel::CacheOriginaux>) -> Result<Arc<virtuel::Montage>, String> {
-    let assets = client.assets_de_selection(&d.selection).await.map_err(|e| e.to_string())?;
+    let assets = filtrer(d, client.assets_de_selection(&d.selection).await.map_err(|e| e.to_string())?);
     let point = PathBuf::from(&d.point);
     let r = rangement(d.rangement);
     let runtime = tokio::runtime::Handle::current();

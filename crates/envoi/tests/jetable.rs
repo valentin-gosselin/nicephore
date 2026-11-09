@@ -297,15 +297,20 @@ async fn la_pause_arrete_tout_de_suite() {
     assert_eq!(apres, au_moment, "plus rien ne part après la pause");
     assert!(apres < 60, "la pause doit couper le passage en cours");
 
-    // Resuming sends the rest.
+    // Resuming sends the rest. An upload cut by the pause after the server
+    // had it all comes back as "already there" (same checksum): no copy.
     moteur.mettre_en_pause(false);
-    for _ in 0..300 {
-        if journal(&moteur, "envoye") >= 60 {
+    let sur_serveur = |m: &Moteur| {
+        let b = m.base().bilans().unwrap().into_values().next().unwrap_or_default();
+        b.envoyes + b.presents
+    };
+    for _ in 0..600 {
+        if sur_serveur(&moteur) >= 60 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    assert_eq!(journal(&moteur, "envoye"), 60, "la reprise envoie le reste");
+    assert_eq!(sur_serveur(&moteur), 60, "la reprise envoie le reste, sans doublon");
     boucle.abort();
     nettoyer(&c, &moteur).await;
 }
@@ -595,6 +600,53 @@ async fn double_sens_avec_miroir_et_garde_fous() {
     assert!(moteur.instantane().erreurs_regles.get(&regle).is_some_and(|e| e.contains("témoin")));
 
     let envoyes: Vec<String> = moteur.base().journal(1_000).unwrap().into_iter().filter(|e| e.action == "envoye").filter_map(|e| e.asset_id).collect();
+    c.mettre_a_la_corbeille(&envoyes).await.unwrap();
+    c.supprimer_album(&album.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn sans_les_fichiers_raw() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let temporaire = tempfile::tempdir().unwrap();
+    let corbeille = corbeille_privee(temporaire.path());
+    let racine = temporaire.path().join("raw");
+    let jpeg = photo_du_serveur();
+    // A JPEG and its "RAW" twin (any content: the server keeps it as a file).
+    ecrire(&racine.join("DSC0001.jpg"), &variante(&jpeg, &format!("jpg {jeton}")), 3_600);
+    ecrire(&racine.join("DSC0001.DNG"), &variante(&jpeg, &format!("raw {jeton}")), 3_600);
+    poser_temoin(&racine).unwrap();
+    patienter().await;
+    let album = c.creer_album(&format!("Raw {jeton}"), "", &[]).await.unwrap();
+
+    // Two ways with mirrored deletions, RAW included first: both go up.
+    let moteur = moteur();
+    moteur.regler_delai_de_grace(Duration::from_secs(1));
+    let regle = moteur.base().ajouter_double(&racine, &album.id, &album.album_name, true).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 2);
+
+    // RAW left out: the RAW file stays here and in the album, untouched.
+    moteur.base().definir_sans_raw(regle, true).unwrap();
+    for _ in 0..3 {
+        moteur.passage().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+    }
+    assert!(racine.join("DSC0001.DNG").exists(), "jamais mis à la corbeille");
+    assert!(!corbeille.join("DSC0001.DNG").exists());
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 2);
+
+    // A new RAW file is not sent; a new JPEG is.
+    ecrire(&racine.join("DSC0002.ARW"), &variante(&jpeg, &format!("raw2 {jeton}")), 3_600);
+    ecrire(&racine.join("DSC0002.jpg"), &variante(&jpeg, &format!("jpg2 {jeton}")), 3_600);
+    patienter().await;
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 3);
+    assert!(moteur.base().journal(100).unwrap().iter().all(|e| e.chemin.as_deref() != Some("DSC0002.ARW")));
+
+    let envoyes: Vec<String> = moteur.base().journal(100).unwrap().into_iter().filter(|e| e.action == "envoye").filter_map(|e| e.asset_id).collect();
     c.mettre_a_la_corbeille(&envoyes).await.unwrap();
     c.supprimer_album(&album.id).await.unwrap();
 }

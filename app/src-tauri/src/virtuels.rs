@@ -22,6 +22,17 @@ pub struct DossierVirtuel {
     pub point: String,
     pub selection: Selection,
     pub rangement: envoi::Rangement,
+    /// RAW files left out.
+    #[serde(default)]
+    pub sans_raw: bool,
+}
+
+/// The assets of a folder, RAW files left out when asked.
+pub(crate) fn filtrer(dossier: &DossierVirtuel, mut assets: Vec<api_immich::AssetDistant>) -> Vec<api_immich::AssetDistant> {
+    if dossier.sans_raw {
+        assets.retain(|a| !envoi::analyse::est_raw(&a.nom_fichier));
+    }
+    assets
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -164,7 +175,7 @@ impl Virtuels {
     #[cfg(target_os = "linux")]
     async fn essayer_monter(&self, etat: &Etat, dossier: &DossierVirtuel) -> Result<(), String> {
         let client = etat.client()?;
-        let assets = client.assets_de_selection(&dossier.selection).await.map_err(|e| e.to_string())?;
+        let assets = filtrer(dossier, client.assets_de_selection(&dossier.selection).await.map_err(|e| e.to_string())?);
         let point = PathBuf::from(&dossier.point);
         let cache = Arc::clone(&etat.originaux);
         let runtime = tokio::runtime::Handle::current();
@@ -179,7 +190,7 @@ impl Virtuels {
     #[cfg(windows)]
     async fn essayer_monter(&self, etat: &Etat, dossier: &DossierVirtuel) -> Result<(), String> {
         let client = etat.client()?;
-        let assets = client.assets_de_selection(&dossier.selection).await.map_err(|e| e.to_string())?;
+        let assets = filtrer(dossier, client.assets_de_selection(&dossier.selection).await.map_err(|e| e.to_string())?);
         let source = Arc::new(virtuel::SourceCache {
             cache: Arc::clone(&etat.originaux),
             client,
@@ -208,7 +219,7 @@ impl Virtuels {
             {
                 let montage = self.montages.lock().expect("verrou des montages").get(&dossier.id).cloned();
                 match (montage, client.assets_de_selection(&dossier.selection).await) {
-                    (Some(m), Ok(assets)) => m.actualiser(&assets),
+                    (Some(m), Ok(assets)) => m.actualiser(&filtrer(&dossier, assets)),
                     (None, _) => self.monter(etat, &dossier).await,
                     (Some(_), Err(e)) => tracing::info!("actualisation de {} : {e}", dossier.point),
                 }
@@ -219,7 +230,7 @@ impl Virtuels {
                 match client.assets_de_selection(&dossier.selection).await {
                     Ok(assets) if deja => {
                         if let Some(m) = self.montages.lock().expect("verrou des montages").get(&dossier.id)
-                            && let Err(e) = m.actualiser(&assets)
+                            && let Err(e) = m.actualiser(&filtrer(&dossier, assets))
                         {
                             tracing::info!("actualisation de {} : {e}", dossier.point);
                         }
@@ -303,6 +314,7 @@ pub async fn ajouter_virtuel(
     point: String,
     selection: Selection,
     rangement: envoi::Rangement,
+    sans_raw: Option<bool>,
 ) -> Result<(), String> {
     if !cfg!(any(target_os = "linux", windows)) {
         return Err("les fichiers virtuels ne sont pas pris en charge sur ce système".into());
@@ -319,7 +331,7 @@ pub async fn ajouter_virtuel(
     if liste.iter().any(|d| Path::new(&d.point) == chemin) {
         return Err("ce dossier montre déjà une sélection".into());
     }
-    let dossier = DossierVirtuel { id: chrono_id(), point, selection, rangement };
+    let dossier = DossierVirtuel { id: chrono_id(), point, selection, rangement, sans_raw: sans_raw.unwrap_or(false) };
     liste.push(dossier.clone());
     ecrire(&etat.dossier_config, &compte, &liste)?;
     #[cfg(target_os = "linux")]

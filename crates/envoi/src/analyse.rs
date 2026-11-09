@@ -28,6 +28,15 @@ pub struct Inventaire {
     pub illisibles: Vec<String>,
 }
 
+/// RAW camera files, which a rule may leave out.
+pub const EXTENSIONS_RAW: &[&str] =
+    &["dng", "arw", "srf", "sr2", "cr2", "cr3", "crw", "nef", "nrw", "orf", "raf", "rw2", "rwl", "pef", "srw", "3fr", "iiq", "x3f", "erf", "mos", "kdc"];
+
+/// True for a RAW file name.
+pub fn est_raw(nom: &str) -> bool {
+    nom.rsplit_once('.').is_some_and(|(_, e)| EXTENSIONS_RAW.contains(&e.to_ascii_lowercase().as_str()))
+}
+
 /// A file modified less than this long ago may still be written (copy from
 /// a card, download...): it waits for the next pass.
 pub const DELAI_STABILITE: Duration = Duration::from_secs(10);
@@ -182,6 +191,12 @@ mod tests {
         let maintenant = en_ms(SystemTime::now());
         assert!(maintenant - f.modifie_ms > 3_000_000);
         assert!(!stable(f, maintenant, DELAI_STABILITE));
+    }
+
+    #[test]
+    fn fichiers_raw_reconnus() {
+        assert!(est_raw("IMG_0001.CR3") && est_raw("2026/05/DSC07106.arw") && est_raw("a.dng"));
+        assert!(!est_raw("DSC07106.jpg") && !est_raw("raw") && !est_raw("video.mp4"));
     }
 
     #[test]

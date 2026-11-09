@@ -15,6 +15,7 @@
     ajouterReception,
     confirmerSuppressions,
     definirMiroir,
+    definirSansRaw,
     refuserSuppressions,
     suppressionsEnAttente,
     type SuppressionEnAttente,
@@ -100,6 +101,15 @@
         appliquer ? `${pluriel(n, 'suppression')} confirmée${n > 1 ? 's' : ''}.` : `${pluriel(n, 'suppression')} annulée${n > 1 ? 's' : ''} : les fichiers reviennent.`,
         'succes',
       );
+      await rafraichir();
+    } catch (e) {
+      notifier(String(e), 'erreur');
+    }
+  }
+
+  async function basculerRaw(regle: RegleEnvoi) {
+    try {
+      await definirSansRaw(regle.id, !regle.sansRaw);
       await rafraichir();
     } catch (e) {
       notifier(String(e), 'erreur');
@@ -206,10 +216,11 @@
 
   async function ajouter(demande: Demande) {
     try {
-      if (demande.sens === 'montante') await ajouterRegleEnvoi(demande.dossier, demande.cible);
-      else if (demande.sens === 'double') await ajouterDouble(demande.dossier, demande.album, demande.nouvelAlbum, demande.miroir);
-      else if (demande.sens === 'virtuel') await ajouterVirtuel(demande.dossier, demande.selection, demande.rangement);
-      else await ajouterReception(demande.dossier, demande.selection, demande.rangement);
+      const r = demande.sansRaw;
+      if (demande.sens === 'montante') await ajouterRegleEnvoi(demande.dossier, demande.cible, r);
+      else if (demande.sens === 'double') await ajouterDouble(demande.dossier, demande.album, demande.nouvelAlbum, demande.miroir, r);
+      else if (demande.sens === 'virtuel') await ajouterVirtuel(demande.dossier, demande.selection, demande.rangement, r);
+      else await ajouterReception(demande.dossier, demande.selection, demande.rangement, r);
       notifier(`« ${nomDossier(demande.dossier)} » ajouté : la synchro commence.`, 'succes');
       await rafraichir();
       return true;
@@ -402,6 +413,9 @@
             {/if}
           </div>
           {/if}
+          <button class="lien text-xs opacity-60" onclick={() => basculerRaw(regle)}>
+            {regle.sansRaw ? 'Fichiers RAW laissés de côté' : 'Fichiers RAW inclus'}
+          </button>
           {#if erreur}<p class="text-sm text-red-500">{erreur}</p>{/if}
         </li>
       {/each}
@@ -429,7 +443,9 @@
                 />
               </div>
               <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-                <span class="opacity-70">Montre {libelleSelection(d.selection)}{d.rangement === 'anneeMois' ? ', par année et mois' : ''}</span>
+                <span class="opacity-70">
+                  Montre {libelleSelection(d.selection)}{d.rangement === 'anneeMois' ? ', par année et mois' : ''}{d.sansRaw ? ', sans RAW' : ''}
+                </span>
                 {#if d.monte}<span class="compteurs">{pluriel(d.fichiers, 'fichier')} visible{d.fichiers > 1 ? 's' : ''}, téléchargé{d.fichiers > 1 ? 's' : ''} à l’ouverture</span>{/if}
               </div>
               {#if d.erreur}<p class="text-sm text-red-500">{d.erreur}</p>{/if}

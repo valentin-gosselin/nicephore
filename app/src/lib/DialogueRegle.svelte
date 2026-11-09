@@ -1,10 +1,11 @@
 <script lang="ts" module>
   import type { Cible as CibleEnvoi, Rangement as RangementReception, Selection as SelectionServeur } from './api';
-  export type Demande =
+  export type Demande = (
     | { sens: 'montante'; dossier: string; cible: CibleEnvoi }
     | { sens: 'descendante'; dossier: string; selection: SelectionServeur; rangement: RangementReception }
     | { sens: 'double'; dossier: string; album: string | null; nouvelAlbum: string | null; miroir: boolean }
-    | { sens: 'virtuel'; dossier: string; selection: SelectionServeur; rangement: RangementReception };
+    | { sens: 'virtuel'; dossier: string; selection: SelectionServeur; rangement: RangementReception }
+  ) & { sansRaw: boolean };
 </script>
 
 <script lang="ts">
@@ -47,6 +48,7 @@
   // Two-way.
   let albumDouble = $state<string>('nouveau');
   let miroir = $state(false);
+  let avecRaw = $state(true);
 
   let albums = $state<Album[] | null>(null);
   let gens = $state<Personne[] | null>(null);
@@ -162,16 +164,20 @@
       } else {
         cible = { genre };
       }
-      demande = { sens, dossier, cible };
+      demande = { sens, dossier, cible, sansRaw: false };
     } else if (sens === 'double') {
       demande =
         albumDouble === 'nouveau'
-          ? { sens, dossier, album: null, nouvelAlbum: nomDossier, miroir }
-          : { sens, dossier, album: albumDouble, nouvelAlbum: null, miroir };
+          ? { sens, dossier, album: null, nouvelAlbum: nomDossier, miroir, sansRaw: false }
+          : { sens, dossier, album: albumDouble, nouvelAlbum: null, miroir, sansRaw: false };
     } else {
       if (!selection) return;
-      demande = sens === 'virtuel' ? { sens, dossier, selection, rangement } : { sens, dossier, selection, rangement };
+      demande =
+        sens === 'virtuel'
+          ? { sens, dossier, selection, rangement, sansRaw: false }
+          : { sens, dossier, selection, rangement, sansRaw: false };
     }
+    demande = { ...demande, sansRaw: !avecRaw };
     enCours = true;
     const ok = await onvalider(demande);
     enCours = false;
@@ -401,6 +407,11 @@
         {/if}
       </div>
     {/if}
+
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" bind:checked={avecRaw} />
+      Inclure les fichiers RAW (DNG, ARW, CR2, NEF…), souvent bien plus lourds que le JPEG du même déclenchement
+    </label>
 
     <Text size="small" color="muted">
       {#if sens === 'montante'}

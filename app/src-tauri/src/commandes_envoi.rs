@@ -149,7 +149,7 @@ pub fn regles_envoi(etat: State<'_, Etat>) -> Result<Vec<RegleVue>, String> {
 }
 
 #[tauri::command]
-pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible) -> Result<Regle, String> {
+pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible, sans_raw: Option<bool>) -> Result<Regle, String> {
     if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
         return Err(e);
     }
@@ -158,6 +158,7 @@ pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible)
         return Err("choisissez un dossier existant".into());
     }
     let regle = etat.envoi.base().ajouter_regle(chemin, &cible).map_err(erreur)?;
+    let regle = appliquer_sans_raw(&etat, regle, sans_raw)?;
     etat.envoi.regles_changees();
     Ok(regle)
 }
@@ -169,6 +170,7 @@ pub fn ajouter_reception(
     dossier: String,
     selection: api_immich::Selection,
     rangement: envoi::Rangement,
+    sans_raw: Option<bool>,
 ) -> Result<Regle, String> {
     if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
         return Err(e);
@@ -178,6 +180,7 @@ pub fn ajouter_reception(
         return Err("choisissez un dossier existant".into());
     }
     let regle = etat.envoi.base().ajouter_reception(chemin, &selection, rangement).map_err(erreur)?;
+    let regle = appliquer_sans_raw(&etat, regle, sans_raw)?;
     etat.envoi.regles_changees();
     Ok(regle)
 }
@@ -192,6 +195,7 @@ pub async fn ajouter_double(
     album: Option<String>,
     nouvel_album: Option<String>,
     miroir: bool,
+    sans_raw: Option<bool>,
 ) -> Result<Regle, String> {
     if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
         return Err(e);
@@ -214,8 +218,27 @@ pub async fn ajouter_double(
     };
     envoi::poser_temoin(chemin).map_err(|e| format!("fichier témoin impossible à poser : {e}"))?;
     let regle = etat.envoi.base().ajouter_double(chemin, &id, &nom, miroir).map_err(erreur)?;
+    let regle = appliquer_sans_raw(&etat, regle, sans_raw)?;
     etat.envoi.regles_changees();
     Ok(regle)
+}
+
+/// RAW files left out from the start (before the first pass).
+fn appliquer_sans_raw(etat: &Etat, regle: Regle, sans_raw: Option<bool>) -> Result<Regle, String> {
+    if sans_raw != Some(true) {
+        return Ok(regle);
+    }
+    let base = etat.envoi.base();
+    base.definir_sans_raw(regle.id, true).map_err(erreur)?;
+    base.regle(regle.id).map_err(erreur)
+}
+
+/// Includes or leaves out RAW files (DNG, ARW, CR2...) for a rule.
+#[tauri::command]
+pub fn definir_sans_raw(etat: State<'_, Etat>, regle: i64, sans_raw: bool) -> Result<(), String> {
+    etat.envoi.base().definir_sans_raw(regle, sans_raw).map_err(erreur)?;
+    etat.envoi.regles_changees();
+    Ok(())
 }
 
 /// Turns mirrored deletions on or off for a two-way rule.

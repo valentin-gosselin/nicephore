@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{Erreur, Resultat, maintenant_ms};
 
 /// Current schema version (`PRAGMA user_version`).
-const VERSION: i32 = 3;
+const VERSION: i32 = 4;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE regles (
@@ -94,6 +94,9 @@ CREATE TABLE suppressions (
     PRIMARY KEY (regle, cote, asset_id)
 );
 ";
+
+/// Version 4: RAW files may be left out of a rule.
+const SCHEMA_V4: &str = "ALTER TABLE regles ADD COLUMN sans_raw INTEGER NOT NULL DEFAULT 0;";
 
 /// A deletion seen on one side, to repeat on the other (two-way rules
 /// with mirrored deletions).
@@ -222,6 +225,8 @@ pub struct Regle {
     pub rangement: Rangement,
     /// Two-way rules: deletions are repeated on the other side.
     pub miroir: bool,
+    /// RAW files (DNG, ARW, CR2...) left out, both ways.
+    pub sans_raw: bool,
     pub actif: bool,
     pub cree_le: i64,
 }
@@ -369,6 +374,9 @@ impl Base {
         if depuis < 3 {
             self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V3} PRAGMA user_version = 3; COMMIT;"))?;
         }
+        if depuis < 4 {
+            self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V4} PRAGMA user_version = 4; COMMIT;"))?;
+        }
         Ok(())
     }
 
@@ -377,7 +385,7 @@ impl Base {
     pub fn regles(&self) -> Resultat<Vec<Regle>> {
         let mut requete = self
             .cnx
-            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement, miroir FROM regles ORDER BY dossier")?;
+            .prepare("SELECT id, dossier, cible, album_id, nom_album, actif, cree_le, sens, selection, rangement, miroir, sans_raw FROM regles ORDER BY dossier")?;
         let lignes = requete.query_map([], |r| {
             let cible = match r.get::<_, String>(2)?.as_str() {
                 "album" => Cible::Album {
@@ -402,6 +410,7 @@ impl Base {
                 selection,
                 rangement,
                 miroir: r.get(10)?,
+                sans_raw: r.get(11)?,
                 actif: r.get(5)?,
                 cree_le: r.get(6)?,
             })
@@ -432,6 +441,11 @@ impl Base {
         let regle = self.ajouter(dossier, Sens::Double, &cible, Some(&selection), Rangement::Plat)?;
         self.cnx.execute("UPDATE regles SET miroir = ?2 WHERE id = ?1", params![regle.id, miroir])?;
         self.regle(regle.id)
+    }
+
+    pub fn definir_sans_raw(&self, regle: i64, sans_raw: bool) -> Resultat<()> {
+        let n = self.cnx.execute("UPDATE regles SET sans_raw = ?2 WHERE id = ?1", params![regle, sans_raw])?;
+        if n == 0 { Err(Erreur::RegleInconnue) } else { Ok(()) }
     }
 
     pub fn definir_miroir(&self, regle: i64, miroir: bool) -> Resultat<()> {

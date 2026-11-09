@@ -908,6 +908,7 @@ pub fn lancer() {
             commandes_envoi::recevoir_de_nouveau,
             commandes_envoi::ajouter_double,
             commandes_envoi::definir_miroir,
+            commandes_envoi::definir_sans_raw,
             commandes_envoi::suppressions_en_attente,
             commandes_envoi::confirmer_suppressions,
             commandes_envoi::refuser_suppressions,

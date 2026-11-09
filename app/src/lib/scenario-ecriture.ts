@@ -242,6 +242,10 @@ export async function lancerScenarioEcriture() {
       await verifier('fichier texte ignoré sans erreur', !page().includes('non envoyé'));
       await verifier('albums créés dans le journal', page().includes('Album créé') && page().includes('Envoyé'));
       await capture('e6-envoi');
+      (await element<HTMLButtonElement>('button', (b) => b.textContent?.trim() === 'Fichiers RAW inclus'))?.click();
+      await attendre(1200);
+      type VueRaw = { sens: string; sansRaw: boolean };
+      await verifier('fichiers RAW laissés de côté depuis la carte', (await invoke<VueRaw[]>('regles_envoi'))[0]?.sansRaw === true && page().includes('Fichiers RAW laissés de côté'));
       await cliquer('Mettre l’envoi en pause');
       await verifier('pause', page().includes('En pause.'));
       await cliquer('Reprendre l’envoi');
@@ -264,6 +268,7 @@ export async function lancerScenarioEcriture() {
       const boite = () => document.querySelector('[role="dialog"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
       await verifier('estimation de la réception dans la boîte', /\d+ photos? .* à recevoir/.test(boite()), boite().slice(0, 200));
       await verifier('rangement par année et mois proposé pour une période', !!document.querySelector<HTMLInputElement>('input[name="rangement"][value="anneeMois"]')?.checked);
+      await verifier('case RAW dans la boîte, cochée', !!document.querySelector<HTMLInputElement>('[role="dialog"] input[type="checkbox"]')?.checked && boite().includes('Inclure les fichiers RAW'));
       await capture('e6b-boite-reception');
       (await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Annuler'))?.click();
       await attendre(500);

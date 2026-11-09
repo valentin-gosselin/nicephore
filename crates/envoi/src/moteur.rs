@@ -397,6 +397,7 @@ impl Moteur {
         let a_empreinter: Vec<FichierLocal> = inventaire
             .fichiers
             .into_iter()
+            .filter(|f| !(regle.sans_raw && analyse::est_raw(&f.chemin)))
             .filter(|f| connus.get(&f.chemin).is_none_or(|c| c.taille != f.taille || c.modifie_ms != f.modifie_ms))
             .filter(|f| {
                 let stable = analyse::stable(f, maintenant, delai);
@@ -816,7 +817,10 @@ impl Moteur {
         let r = racine.clone();
         let _ = tokio::task::spawn_blocking(move || nettoyer_partiels(&r)).await;
         let selection = regle.selection.clone().ok_or_else(|| Erreur::Regle("sélection manquante".into()))?;
-        let distants = client.assets_de_selection(&selection).await?;
+        let mut distants = client.assets_de_selection(&selection).await?;
+        if regle.sans_raw {
+            distants.retain(|a| !analyse::est_raw(&a.nom_fichier));
+        }
         if self.interrompu(generation) {
             return Ok((None, Vec::new()));
         }
@@ -829,6 +833,10 @@ impl Moteur {
         {
             let base = self.base();
             for (asset_id, recu) in &connus {
+                // Left-out RAW files are not "gone": never deleted nor re-sent.
+                if regle.sans_raw && analyse::est_raw(&recu.chemin) {
+                    continue;
+                }
                 let present_ici = analyse::absolu(&racine, &recu.chemin).exists();
                 let sur_serveur = ids.contains(asset_id.as_str());
                 match recu.etat {
