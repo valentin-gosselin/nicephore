@@ -944,6 +944,7 @@ pub fn lancer() {
             banc::capture,
             banc::quitter,
             banc::geler_interface,
+            banc::tenir_base,
             banc::stats_images
         ])
         .build(tauri::generate_context!())

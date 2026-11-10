@@ -98,7 +98,7 @@ pub fn reglages_app(etat: State<'_, Etat>) -> ReglagesVue {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn definir_reglages_app(etat: State<'_, Etat>, reglages: Reglages) -> Result<(), String> {
     reglages::enregistrer(&etat.dossier_config, &reglages)?;
     *etat.reglages.write().expect("verrou des réglages") = reglages;
@@ -107,7 +107,7 @@ pub fn definir_reglages_app(etat: State<'_, Etat>, reglages: Reglages) -> Result
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn definir_demarrage_auto(etat: State<'_, Etat>, actif: bool) -> Result<(), String> {
     if actif && etat.portable.is_some() {
         return Err("pas de démarrage avec la session en mode portable".into());
@@ -129,7 +129,7 @@ fn erreur(e: envoi::Erreur) -> String {
     e.to_string()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn regles_envoi(etat: State<'_, Etat>) -> Result<Vec<RegleVue>, String> {
     if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
         return Err(e);
@@ -148,7 +148,7 @@ pub fn regles_envoi(etat: State<'_, Etat>) -> Result<Vec<RegleVue>, String> {
         .collect())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible, sans_raw: Option<bool>) -> Result<Regle, String> {
     if let Some(e) = etat.erreur_base_envoi.read().expect("verrou de l'erreur").clone() {
         return Err(e);
@@ -164,7 +164,7 @@ pub fn ajouter_regle_envoi(etat: State<'_, Etat>, dossier: String, cible: Cible,
 }
 
 /// Adds a download rule: a selection of the server copied into a folder.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ajouter_reception(
     etat: State<'_, Etat>,
     dossier: String,
@@ -227,7 +227,7 @@ pub async fn ajouter_double(
 /// it): the folder is sent (`cible`: library or one album per folder), and
 /// the photos of `selection` found nowhere in the folder come down into the
 /// sub-folder `dossier_recus` (empty: the folder itself), by year and month.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ajouter_double_bibliotheque(
     etat: State<'_, Etat>,
     dossier: String,
@@ -260,7 +260,7 @@ fn appliquer_sans_raw(etat: &Etat, regle: Regle, sans_raw: Option<bool>) -> Resu
 }
 
 /// Includes or leaves out RAW files (DNG, ARW, CR2...) for a rule.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn definir_sans_raw(etat: State<'_, Etat>, regle: i64, sans_raw: bool) -> Result<(), String> {
     etat.envoi.base().definir_sans_raw(regle, sans_raw).map_err(erreur)?;
     etat.envoi.regles_changees();
@@ -268,7 +268,7 @@ pub fn definir_sans_raw(etat: State<'_, Etat>, regle: i64, sans_raw: bool) -> Re
 }
 
 /// Turns mirrored deletions on or off for a two-way rule.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn definir_miroir(etat: State<'_, Etat>, regle: i64, miroir: bool) -> Result<(), String> {
     let base = etat.envoi.base();
     let r = base.regle(regle).map_err(erreur)?;
@@ -281,12 +281,12 @@ pub fn definir_miroir(etat: State<'_, Etat>, regle: i64, miroir: bool) -> Result
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn suppressions_en_attente(etat: State<'_, Etat>, regle: i64) -> Result<Vec<envoi::Suppression>, String> {
     etat.envoi.base().suppressions(regle).map_err(erreur)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn confirmer_suppressions(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
     let n = etat.envoi.base().confirmer_suppressions(regle).map_err(erreur)?;
     etat.envoi.reveiller();
@@ -295,7 +295,7 @@ pub fn confirmer_suppressions(etat: State<'_, Etat>, regle: i64) -> Result<usize
 
 /// Refused deletions: what was deleted here comes back from the album, what
 /// left the album goes back into it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn refuser_suppressions(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
     let n = etat.envoi.base().refuser_suppressions(regle).map_err(erreur)?;
     etat.envoi.reveiller();
@@ -327,7 +327,7 @@ pub async fn estimer_reception(
 }
 
 /// Downloads again what was deleted here or given up.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn recevoir_de_nouveau(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
     let n = etat.envoi.base().recevoir_de_nouveau(regle).map_err(erreur)?;
     etat.envoi.reveiller();
@@ -359,7 +359,7 @@ pub async fn estimer_dossier(etat: State<'_, Etat>, dossier: String) -> Result<E
     })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn activer_regle_envoi(etat: State<'_, Etat>, id: i64, actif: bool) -> Result<(), String> {
     etat.envoi.base().activer_regle(id, actif).map_err(erreur)?;
     etat.envoi.regles_changees();
@@ -368,7 +368,7 @@ pub fn activer_regle_envoi(etat: State<'_, Etat>, id: i64, actif: bool) -> Resul
 
 /// Forgets a rule: neither the local files nor the photos on the server
 /// are touched.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn supprimer_regle_envoi(etat: State<'_, Etat>, id: i64) -> Result<(), String> {
     etat.envoi.base().supprimer_regle(id).map_err(erreur)?;
     etat.envoi.regles_changees();
@@ -390,17 +390,17 @@ pub fn pause_envoi(etat: State<'_, Etat>, pause: bool) {
     etat.envoi.mettre_en_pause(pause);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn journal_envoi(etat: State<'_, Etat>, limite: u32) -> Result<Vec<EntreeJournal>, String> {
     etat.envoi.base().journal(limite.min(1_000)).map_err(erreur)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn echecs_envoi(etat: State<'_, Etat>, regle: i64) -> Result<Vec<FichierEnEchec>, String> {
     etat.envoi.base().echecs(regle).map_err(erreur)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn reessayer_envoi(etat: State<'_, Etat>, regle: i64) -> Result<usize, String> {
     let n = etat.envoi.base().reessayer(regle).map_err(erreur)?;
     etat.envoi.reveiller();

@@ -132,6 +132,20 @@ pub fn geler_interface(ms: u64) {
     }
 }
 
+/// Holds the upload base for `ms` milliseconds from another thread (bench
+/// only), like the engine during a long pass: commands waiting on it must
+/// not freeze the interface.
+#[tauri::command]
+pub fn tenir_base(etat: tauri::State<'_, crate::Etat>, ms: u64) {
+    if mode_banc() {
+        let moteur = std::sync::Arc::clone(&etat.envoi);
+        std::thread::spawn(move || {
+            let _base = moteur.base();
+            std::thread::sleep(Duration::from_millis(ms.min(10_000)));
+        });
+    }
+}
+
 #[tauri::command]
 pub fn quitter(app: tauri::AppHandle) {
     if mode_banc() {

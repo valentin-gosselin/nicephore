@@ -220,6 +220,14 @@ if [ -n "$fichier" ]; then
     else
         echo "banc: ÉCHEC : gel de l'interface non signalé" >>"$sortie/sortie.txt"
     fi
+    # Only the freeze made on purpose: waiting on the upload base must not
+    # freeze the interface.
+    gels=$(grep -ac "interface figée depuis" "$sortie/sortie.txt" || true)
+    if [ "$gels" = "1" ]; then
+        echo "banc: ok : la base occupée ne fige pas l'interface" >>"$sortie/sortie.txt"
+    else
+        echo "banc: ÉCHEC : $gels gels de l'interface au lieu d'un seul" >>"$sortie/sortie.txt"
+    fi
 fi
 grep -a 'banc' "$sortie/sortie.txt" | sed 's/^.*banc: //' > "$sortie/mesures.txt" || true
 cat "$sortie/mesures.txt"

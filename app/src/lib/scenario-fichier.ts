@@ -84,8 +84,20 @@ export async function lancerScenarioFichier() {
     await capture('f5-video');
     // The freeze watchdog: the main thread held 5 s (checked in the log by
     // banc.sh).
+    // Right click: no browser menu outside text fields.
+    const clic = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    document.querySelector('.zone')?.dispatchEvent(clic);
+    await verifier('pas de menu du navigateur au clic droit', clic.defaultPrevented);
     await invoke('geler_interface', { ms: 5000 });
     await attendre(2500);
+    // The engine holds its base 5 s while the interface asks for it: the
+    // command waits, the interface does not (banc.sh counts one freeze).
+    await invoke('tenir_base', { ms: 5000 });
+    await attendre(200);
+    const debut = Date.now();
+    await invoke('suppressions_en_attente', { regle: 0 }).catch(() => null);
+    await verifier('la commande a bien attendu la base', Date.now() - debut > 3000, `${Date.now() - debut} ms`);
+    await attendre(1500);
   } catch (e) {
     await journal(`scénario interrompu : ${e}`);
   }

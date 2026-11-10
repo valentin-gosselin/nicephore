@@ -82,7 +82,7 @@ pub struct FichierOuvert {
 
 /// Opens a local file: its details and neighbours, and its folder made
 /// readable by the interface (not its sub-folders).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ouvrir_fichier_local(app: AppHandle, chemin: String) -> Result<FichierOuvert, String> {
     let fichier = PathBuf::from(&chemin);
     let meta = std::fs::metadata(&fichier).map_err(|e| format!("{chemin} : {e}"))?;
@@ -116,7 +116,7 @@ pub fn ouvrir_fichier_local(app: AppHandle, chemin: String) -> Result<FichierOuv
 
 /// URL to play a video of this computer (through the local relay: the web
 /// view cannot play videos from Tauri's own protocols on Linux).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn url_video_locale(etat: State<'_, Etat>, chemin: String) -> Result<String, String> {
     let fichier = PathBuf::from(&chemin);
     if !fichier.is_file() || !VIDEOS.contains(&extension(&fichier).as_str()) {
@@ -250,7 +250,7 @@ const TYPES_MIME: &[&str] = &[
 /// Makes Nicéphore the default viewer for photos and videos (on request).
 /// Linux: `xdg-mime default` with Nicéphore's desktop entry. Windows does
 /// not let an app do it: its "Default apps" settings page is opened.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn definir_visionneuse_par_defaut() -> Result<String, String> {
     #[cfg(target_os = "linux")]
     {

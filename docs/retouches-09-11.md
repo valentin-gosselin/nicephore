@@ -91,3 +91,25 @@
 - Sur la carte d'un dossier, l'option RAW était un lien discret, pas reconnu comme cliquable :
   c'est maintenant un interrupteur « Inclure les fichiers RAW (DNG, ARW, CR2…) ». Banc
   `--jetable` 62/62.
+
+## Cause des gels et de l'arrêt du 9 novembre : trouvée et corrigée
+
+- Capturé sur le vif par la veille de l'interface (gels de 3,7 et 4 s vers 1 h, pile d'appels du
+  fil principal relevée avec eu-stack) : une commande de l'interface (`regles_envoi`, appelée à
+  chaque fichier envoyé par la page Synchro) tournait sur le fil principal et attendait le verrou de
+  la base d'envoi, tenu par le moteur pendant ses longues opérations. Le fil principal ne lisait
+  plus les messages de l'affichage ; au-delà d'1 Mo en attente, KWin coupe la connexion (19 h 07).
+- Correctifs :
+  - toutes les commandes qui touchent la base d'envoi ou le disque passent hors du fil principal
+    (`#[tauri::command(async)]`) ;
+  - le moteur ne tient plus la base pendant les accès disque (présence des fichiers reçus vérifiée
+    avant), et regroupe ses écritures en transactions (vérification des empreintes, liens
+    dossier/serveur, réceptions).
+- Vérifié : le banc `--fichier` fait tenir la base 5 s par un autre fil pendant qu'une commande la
+  demande ; la commande attend bien 4,8 s, sans gel signalé. Avec la commande remise sur le fil
+  principal, le banc compte 2 gels et échoue. Banc `--jetable` 62/62, suite jetable du moteur 13/13.
+
+## Clic droit
+
+- Plus de menu du navigateur (recharger, inspecter…) au clic droit, sauf dans les champs de texte
+  (copier, coller). Vérifié au banc `--fichier`.

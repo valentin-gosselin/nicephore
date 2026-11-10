@@ -261,7 +261,7 @@ fn compte_actif(etat: &Etat) -> Result<String, String> {
     etat.virtuels.compte.lock().expect("verrou du compte").clone().ok_or_else(|| "non connecté".into())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn virtuels(etat: State<'_, Etat>) -> Result<Vec<VueVirtuel>, String> {
     let compte = compte_actif(&etat)?;
     #[cfg(target_os = "linux")]
@@ -392,13 +392,13 @@ pub struct OccupationOriginaux {
     budget: u64,
 }
 
-#[tauri::command]
-pub fn cache_originaux(etat: State<'_, Etat>) -> OccupationOriginaux {
+#[tauri::command(async)]
+pub fn cache_originaux(etat: State<'_, Etat>) -> Result<OccupationOriginaux, String> {
     let (octets, fichiers) = etat.originaux.occupation();
-    OccupationOriginaux { octets, fichiers, budget: BUDGET_ORIGINAUX }
+    Ok(OccupationOriginaux { octets, fichiers, budget: BUDGET_ORIGINAUX })
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn vider_cache_originaux(etat: State<'_, Etat>) -> Result<(), String> {
     etat.originaux.vider().map_err(|e| e.to_string())
 }

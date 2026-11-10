@@ -446,26 +446,28 @@ impl Moteur {
                 .map(|(i, (_, sha1))| ElementVerification { id: i.to_string(), checksum: sha1.clone() })
                 .collect();
             let resultats = client.verifier_envois(&elements).await?;
-            let base = self.base();
-            for resultat in resultats {
-                let Some((chemin, _)) = resultat.id.parse::<usize>().ok().and_then(|i| lot.get(i)) else { continue };
-                match (resultat.action.as_str(), resultat.reason.as_deref(), resultat.asset_id.as_deref()) {
-                    ("accept", _, _) => base.marquer_attente(regle.id, chemin)?,
-                    (_, Some("duplicate"), Some(id)) => {
-                        base.marquer_present(regle.id, chemin, id)?;
-                        if resultat.is_trashed {
-                            // In the server's trash: left there, not put back in an album.
-                            base.marquer_album_fait(regle.id, std::slice::from_ref(chemin))?;
-                            base.journaliser(Some(regle.id), Some(chemin), "dans_la_corbeille", None, Some(id))?;
+            self.base().en_transaction(|base| {
+                for resultat in resultats {
+                    let Some((chemin, _)) = resultat.id.parse::<usize>().ok().and_then(|i| lot.get(i)) else { continue };
+                    match (resultat.action.as_str(), resultat.reason.as_deref(), resultat.asset_id.as_deref()) {
+                        ("accept", _, _) => base.marquer_attente(regle.id, chemin)?,
+                        (_, Some("duplicate"), Some(id)) => {
+                            base.marquer_present(regle.id, chemin, id)?;
+                            if resultat.is_trashed {
+                                // In the server's trash: left there, not put back in an album.
+                                base.marquer_album_fait(regle.id, std::slice::from_ref(chemin))?;
+                                base.journaliser(Some(regle.id), Some(chemin), "dans_la_corbeille", None, Some(id))?;
+                            }
+                        }
+                        (_, raison, _) => {
+                            let raison = raison.unwrap_or("refusé par le serveur");
+                            base.marquer_ignore(regle.id, chemin, raison)?;
+                            base.journaliser(Some(regle.id), Some(chemin), "ignore", Some(raison), None)?;
                         }
                     }
-                    (_, raison, _) => {
-                        let raison = raison.unwrap_or("refusé par le serveur");
-                        base.marquer_ignore(regle.id, chemin, raison)?;
-                        base.journaliser(Some(regle.id), Some(chemin), "ignore", Some(raison), None)?;
-                    }
                 }
-            }
+                Ok(())
+            })?;
             self.etat.send_modify(|e| e.faits += lot.len() as u64);
         }
 
@@ -716,9 +718,13 @@ impl Moteur {
         // album photos.
         {
             let base = self.base();
-            for (asset_id, chemin) in base.fichiers_lies(regle.id)? {
-                base.lier_recu(regle.id, &asset_id, &chemin)?;
-            }
+            let lies = base.fichiers_lies(regle.id)?;
+            base.en_transaction(|base| {
+                for (asset_id, chemin) in &lies {
+                    base.lier_recu(regle.id, asset_id, chemin)?;
+                }
+                Ok(())
+            })?;
         }
         let (revoir_reception, candidats) = self.reception(client, regle, generation, regle.miroir).await?;
         if self.interrompu(generation) {
@@ -841,8 +847,16 @@ impl Moteur {
         // server copy may simply lie outside the selection (before its start
         // date): not "removed from the server", just not concerned.
         let avec_bibliotheque = regle.sens == crate::Sens::Double && !matches!(regle.cible, Cible::Album { .. });
-        {
-            let base = self.base();
+        // Which files are here, looked up before taking the base: tens of
+        // thousands of disk accesses must not hold it.
+        let presents: std::collections::HashSet<String> = tokio::task::spawn_blocking({
+            let racine = racine.clone();
+            let chemins: Vec<(String, String)> = connus.iter().map(|(a, r)| (a.clone(), r.chemin.clone())).collect();
+            move || chemins.into_iter().filter(|(_, c)| analyse::absolu(&racine, c).exists()).map(|(a, _)| a).collect()
+        })
+        .await
+        .map_err(|e| Erreur::Regle(e.to_string()))?;
+        self.base().en_transaction(|base| {
             for (asset_id, recu) in &connus {
                 if avec_bibliotheque && recu.sha1.is_empty() && !ids.contains(asset_id.as_str()) {
                     base.oublier_recu(regle.id, asset_id)?;
@@ -852,7 +866,7 @@ impl Moteur {
                 if regle.sans_raw && analyse::est_raw(&recu.chemin) {
                     continue;
                 }
-                let present_ici = analyse::absolu(&racine, &recu.chemin).exists();
+                let present_ici = presents.contains(asset_id);
                 let sur_serveur = ids.contains(asset_id.as_str());
                 match recu.etat {
                     EtatRecu::Recu if miroir && !sur_serveur && present_ici => {
@@ -878,7 +892,8 @@ impl Moteur {
                     _ => {}
                 }
             }
-        }
+            Ok(())
+        })?;
         // New on the server. A file already here under its name with the
         // same content is adopted; otherwise a free local name is reserved.
         let nouveaux: Vec<&AssetDistant> = distants.iter().filter(|a| !connus.contains_key(&a.id)).collect();
@@ -906,18 +921,32 @@ impl Moteur {
         .await
         .map_err(|e| Erreur::Regle(e.to_string()))?;
         {
-            let base = self.base();
+            // Free names first (they look at the disk), then one short write.
             let mut pris: std::collections::HashSet<String> = connus.values().map(|r| r.chemin.to_lowercase()).collect();
-            for (i, asset) in nouveaux.iter().enumerate() {
+            let mut places: Vec<(usize, String, bool)> = Vec::new();
+            for (i, _) in nouveaux.iter().enumerate() {
                 if let Some(relatif) = adoptes.get(&i) {
                     pris.insert(relatif.to_lowercase());
-                    base.noter_recu_present(regle.id, asset, relatif)?;
+                    places.push((i, relatif.clone(), true));
+                }
+            }
+            for (i, asset) in nouveaux.iter().enumerate() {
+                if adoptes.contains_key(&i) {
                     continue;
                 }
                 let dossier = sous_dossier_regle(regle, &asset.date_locale);
-                let chemin = nom_libre(&racine, &dossier, &asset.nom_fichier, &asset.id, &mut pris);
-                base.reserver_recu(regle.id, asset, &chemin)?;
+                places.push((i, nom_libre(&racine, &dossier, &asset.nom_fichier, &asset.id, &mut pris), false));
             }
+            self.base().en_transaction(|base| {
+                for (i, chemin, adopte) in &places {
+                    if *adopte {
+                        base.noter_recu_present(regle.id, nouveaux[*i], chemin)?;
+                    } else {
+                        base.reserver_recu(regle.id, nouveaux[*i], chemin)?;
+                    }
+                }
+                Ok(())
+            })?;
         }
         if self.interrompu(generation) {
             return Ok((None, Vec::new()));

@@ -389,6 +389,22 @@ impl Base {
         Ok(())
     }
 
+    /// Runs `f` in one transaction: many small writes, a single commit, so
+    /// the base is held briefly (the interface waits on it).
+    pub fn en_transaction<R>(&self, f: impl FnOnce(&Self) -> Resultat<R>) -> Resultat<R> {
+        self.cnx.execute_batch("BEGIN IMMEDIATE")?;
+        match f(self) {
+            Ok(r) => {
+                self.cnx.execute_batch("COMMIT")?;
+                Ok(r)
+            }
+            Err(e) => {
+                let _ = self.cnx.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
     // ---- Rules ----
 
     pub fn regles(&self) -> Resultat<Vec<Regle>> {
