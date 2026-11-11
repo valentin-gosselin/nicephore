@@ -84,11 +84,17 @@ pub struct MontageWindows {
     point: PathBuf,
 }
 
-fn identite(point: &Path) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    point.hash(&mut h);
-    format!("Nicephore!{:016x}", h.finish())
+/// Registration ID of the folder: the provider name, the user, then a key
+/// per folder. Windows joins the three parts with `!`, so none may contain
+/// one. The key is an FNV-1a hash of the lowercased path (Windows paths
+/// ignore case), stable across Rust versions unlike `DefaultHasher`, so a
+/// folder registered by an older build is found again by a newer one.
+fn identite(point: &Path, utilisateur: SecurityId) -> SyncRootId {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for octet in point.to_string_lossy().to_lowercase().bytes() {
+        h = (h ^ u64::from(octet)).wrapping_mul(0x0100_0000_01b3);
+    }
+    SyncRootIdBuilder::new("Nicephore").user_security_id(utilisateur).account_name(format!("{h:016x}")).build()
 }
 
 fn date(rfc3339: &str) -> Option<FileTime> {
@@ -105,9 +111,15 @@ fn creer_espaces(point: &Path, arbre: &Arbre) -> Result<(), String> {
             match &enfant.genre {
                 Genre::Dossier { .. } => {
                     if !chemin.exists() {
+                        // The root is registered as always full: Windows never
+                        // asks for a folder's content, so each folder must say
+                        // its children are all here (we create them just below),
+                        // as Microsoft's CloudMirror sample does. Without this,
+                        // the creation fails with 0x8007017C.
                         PlaceholderCreateInfo::new(&enfant.nom)
                             .metadata(Metadata::directory())
                             .blob(b"dossier".to_vec())
+                            .has_no_children()
                             .mark_in_sync()
                             .create(&dossier)
                             .map_err(|e| format!("{} : {e}", chemin.display()))?;
@@ -173,13 +185,17 @@ impl Drop for MontageWindows {
 /// `assets`, and connects to it.
 pub fn monter(point: &Path, assets: &[AssetDistant], rangement: Rangement, source: Arc<dyn Source>) -> Result<MontageWindows, String> {
     let utilisateur = SecurityId::current_user().map_err(|e| e.to_string())?;
-    let id = SyncRootIdBuilder::new(identite(point)).user_security_id(utilisateur).build();
+    let id = identite(point, utilisateur);
     if !id.is_registered().map_err(|e| e.to_string())? {
         if std::fs::read_dir(point).map_err(|e| e.to_string())?.next().is_some() {
             return Err("le dossier doit être vide : ses fichiers seraient masqués".into());
         }
+        // The icon shown next to the folder in Explorer: the first icon of
+        // our own executable (Windows refuses a registration without one).
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let info = SyncRootInfo::default()
             .with_display_name("Nicéphore")
+            .with_icon(format!("{},0", exe.display()))
             .with_version(env!("CARGO_PKG_VERSION"))
             .with_hydration_type(HydrationType::Full)
             .with_hydration_policy(HydrationPolicy::AutoDehydrationAllowed)

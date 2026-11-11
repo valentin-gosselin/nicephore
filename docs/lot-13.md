@@ -26,3 +26,20 @@ Fin de l'étape 4. Même service que sous Linux, avec l'API Cloud Files de Windo
   (types, traits, envoi entre fils). Il n'a jamais tourné.
 - Première vraie compilation : l'intégration continue Windows (`ci.yml`) au premier envoi sur
   GitHub ; premier essai réel : dans la VM Windows du PC fixe, ou sur un PC Windows.
+
+## Première compilation Windows (10/11/2026)
+
+- Compilée ici, de façon croisée, dans la toolbox `immich-bureau` (MinGW installé par
+  `podman exec -u root immich-bureau dnf install -y mingw64-gcc mingw64-gcc-c++`) :
+  `npx tauri build --target x86_64-pc-windows-gnu --no-bundle` depuis `app/`. Passée du premier
+  coup ; clippy propre sur les deux cibles après avoir réservé `par_service` à Linux.
+- L'exe a besoin de `WebView2Loader.dll` à côté (produit dans le même dossier), et du runtime
+  WebView2, présent sur Windows 10 et 11 à jour.
+- Toujours jamais lancée : premier essai par Valentin sur un PC Windows au travail, en fichiers
+  virtuels.
+
+Premier essai réel (10/11/2026, PC du travail) : l'appli tourne, mais le montage du dossier virtuel paniquait (« provider name must not contain exclamation points »). L'identifiant passait la clé du dossier dans le nom du fournisseur, avec un `!`, que Windows réserve comme séparateur. Corrigé : fournisseur `Nicephore`, clé du dossier (FNV-1a du chemin en minuscules, stable d'une version de Rust à l'autre) dans le nom de compte.
+
+Deuxième essai : « icon cannot be empty (0x80070057) ». Windows exige une icône à l'enregistrement du dossier ; on passe la première icône de notre exe (`<chemin de l'exe>,0`).
+
+Troisième essai : enregistrement et connexion passent, mais la création du premier dossier fantôme échoue (« L'opération de cloud n'est pas valide », 0x8007017C). Le dossier est enregistré « toujours complet » (AlwaysFull) : Windows ne demande jamais le contenu d'un dossier, donc chaque dossier fantôme doit être créé avec DISABLE_ON_DEMAND_POPULATION (`has_no_children`), comme dans l'exemple CloudMirror de Microsoft. Les notifications passent aussi au-dessus des fenêtres (z-index 1000 au lieu de 60, les dialogues sont à 70) : l'erreur était cachée sous la fenêtre de synchro.

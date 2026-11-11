@@ -85,6 +85,7 @@ pub(crate) fn rangement(r: envoi::Rangement) -> virtuel::Rangement {
 /// Linux, installed mode: the folders are served by the service process
 /// (`service_virtuel`), so they outlive the app. Portable mode and the
 /// benchmark keep them in the app.
+#[cfg(target_os = "linux")]
 fn par_service(etat: &Etat) -> bool {
     // The write scenario tests the service too, in its private config.
     let banc = std::env::var_os("NICEPHORE_BANC_DOSSIER").is_some() && std::env::var_os("NICEPHORE_BANC_SERVICE").is_none();
@@ -136,17 +137,19 @@ impl Virtuels {
         }
         self.demonter_tout();
         self.erreurs.lock().expect("verrou des erreurs").clear();
-        let etat = app.state::<Etat>();
         #[cfg(target_os = "linux")]
-        if par_service(&etat) {
-            // The service follows the active account; it only has to run.
-            if !lire(&etat.dossier_config, compte).is_empty() {
-                if let Err(e) = crate::service_virtuel::demarrer() {
-                    tracing::warn!("{e}");
+        {
+            let etat = app.state::<Etat>();
+            if par_service(&etat) {
+                // The service follows the active account; it only has to run.
+                if !lire(&etat.dossier_config, compte).is_empty() {
+                    if let Err(e) = crate::service_virtuel::demarrer() {
+                        tracing::warn!("{e}");
+                    }
+                    let _ = crate::service_virtuel::definir_demarrage(true);
                 }
-                let _ = crate::service_virtuel::definir_demarrage(true);
+                return;
             }
-            return;
         }
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
