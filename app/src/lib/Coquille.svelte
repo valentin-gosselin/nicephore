@@ -20,7 +20,7 @@
   import Connexion from './Connexion.svelte';
   import MenuCompte from './MenuCompte.svelte';
   import Deverrouillage from './Deverrouillage.svelte';
-  import Notifications from './Notifications.svelte';
+  import PileNotifications from './PileNotifications.svelte';
   import { compteAjoute, session, verifierSession } from './session.svelte';
 
   let { children }: { children: Snippet } = $props();
@@ -184,7 +184,7 @@
   {/if}
 </div>
 
-<Notifications />
+<PileNotifications />
 
 <style>
   /* Height of the Immich web navbar. */
