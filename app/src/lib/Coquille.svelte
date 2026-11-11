@@ -85,6 +85,10 @@
       } else if (scenario === 'comptes') {
         const { lancerScenarioComptes } = await import('./scenario-comptes');
         void lancerScenarioComptes();
+      } else if (scenario === 'vitrine') {
+        while (!session.connexion) await new Promise((r) => setTimeout(r, 200));
+        const { lancerScenarioVitrine } = await import('./scenario-vitrine');
+        void lancerScenarioVitrine();
       } else if (scenario === 'mise-a-jour') {
         // Once connected (development key of the disposable server).
         while (!session.connexion) await new Promise((r) => setTimeout(r, 200));

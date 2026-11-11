@@ -1,5 +1,5 @@
-# Builds and publishes a release when a tag v* is pushed: AppImage and rpm
-# (Linux), installer and portable zip (Windows), with signed update
+# Builds and publishes a release when a tag v* is pushed: AppImage, deb and
+# rpm (Linux), installer and portable zip (Windows), with signed update
 # artifacts and the latest.json manifest read by the in-app updater.
 #
 # Needs, in the repository settings:

@@ -204,3 +204,25 @@ puis la plus courte (`location` avant `edit_location_dialog_title`). Dix
 textes changent de clé ; dans quelques petites langues encore peu traduites,
 la bonne clé n'a pas de traduction et le texte retombe en anglais plutôt que
 de garder un faux sens.
+
+### Préparation de la v0.1.0 (11/11, soir)
+
+- Version 0.1.0 partout (Cargo, package.json, tauri.conf.json).
+- Clé de signature des mises à jour générée : clé privée et mot de passe
+  hors du dépôt (`~/.config/claude-secrets/nicephore-signature/`, à ranger
+  dans Vaultwarden), clé publique posée dans la variable GitHub
+  `NICEPHORE_CLE_PUBLIQUE`. Les deux secrets `TAURI_SIGNING_PRIVATE_KEY` et
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` sont posés par Valentin.
+- Paquet `.deb` en plus de l'AppImage et du rpm ; deb et rpm dépendent de
+  `fuse3` (fusermount3, pour les fichiers virtuels).
+- README réécrit avec des captures : `scripts/vitrine.sh demarrer` monte un
+  second serveur Immich local (port 2298, projet Docker
+  `nicephore-immich-vitrine`) rempli de 51 photos CC0 de Wikimedia Commons
+  (`tests/vitrine/photos.json` : sources, auteurs, lieux, dates de
+  « voyages »), puis `vitrine.sh captures` lance `banc.sh --vitrine` en
+  anglais : fenêtre agrandie, frise, recherche, albums, visionneuse, carte,
+  explorer, ajout d'un dossier synchronisé (`banc/<date>/v*.png`). Le profil
+  du banc vitrine est entièrement privé (config, données et cache), pour que
+  l'historique de recherche réel n'apparaisse pas.
+- Écart repéré avec Immich web : la frise met chaque jour sur sa propre
+  ligne, Immich range plusieurs jours côte à côte quand ils tiennent.

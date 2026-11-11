@@ -40,6 +40,15 @@ if [ "${1:-}" = "--fichier" ]; then
     fichier=1
     shift
 fi
+# --vitrine: tour of the showcase server for the README screenshots (see
+# scripts/vitrine.sh, which starts that server and runs this).
+vitrine=""
+if [ "${1:-}" = "--vitrine" ]; then
+    jetable=1
+    vitrine=1
+    export NICEPHORE_IMMICH_JETABLE="${NICEPHORE_IMMICH_VITRINE:-${XDG_CACHE_HOME:-$HOME/.cache}/nicephore-immich-vitrine}"
+    shift
+fi
 mise_a_jour=""
 if [ "${1:-}" = "--mise-a-jour" ]; then
     jetable=1
@@ -74,6 +83,10 @@ fi
 if [ -n "$fichier" ]; then
     export NICEPHORE_BANC_SCENARIO=fichier
 fi
+if [ -n "$vitrine" ]; then
+    export NICEPHORE_BANC_SCENARIO=vitrine
+    unset NICEPHORE_BANC_SERVICE
+fi
 if [ -n "$portable" ]; then
     # No development key: the login screen is the way in.
     unset IMMICH_URL IMMICH_API_KEY IMMICH_KEY
@@ -103,7 +116,7 @@ PY
     arguments="\"$sortie/local/b-nouvelle.jpg\""
 elif [ -n "$portable" ]; then
     export NICEPHORE_PORTABLE="$sortie/donnees"
-elif [ -n "$jetable" ]; then
+elif [ -n "$jetable" ] && [ -z "$vitrine" ]; then
     # Photos for the upload scenario: variants of a seeded photo (new
     # checksums), one copy already on the server, one file to skip.
     python3 -I "$racine/tests/immich-jetable/dossier-envoi.py" "$donnees_jetable/images" "$sortie/photos" "$sortie/deuxbib"
@@ -114,6 +127,11 @@ fi
 config_privee=""
 if [ -n "$jetable" ] && [ -z "$portable" ]; then
     config_privee="export XDG_CONFIG_HOME=\"$sortie/config\""
+    # The showcase also keeps the web view's storage (recent searches...)
+    # apart: none of the user's own history in the screenshots.
+    if [ -n "$vitrine" ]; then
+        config_privee="$config_privee XDG_DATA_HOME=\"$sortie/donnees\" XDG_CACHE_HOME=\"$sortie/cache\""
+    fi
 fi
 
 # A tray host, as a desktop panel provides one (app/src-tauri/examples/hote-zone.rs):
@@ -215,7 +233,7 @@ else
     garder_bus=1
     lancer
     garder_bus=
-    if [ -n "$jetable" ] && [ -z "$portable" ] && [ -z "$fichier" ] && [ -z "$mise_a_jour" ]; then
+    if [ -n "$jetable" ] && [ -z "$portable" ] && [ -z "$fichier" ] && [ -z "$mise_a_jour" ] && [ -z "$vitrine" ]; then
         # The virtual folders service outlives the app: its folder is still
         # served, then stopping the service unmounts it.
         if mount | grep -q "$sortie/persistant"; then

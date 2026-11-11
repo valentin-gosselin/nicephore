@@ -4,7 +4,7 @@ members = ["crates/api_immich", "crates/cache_vignettes", "crates/envoi", "crate
 
 [workspace.package]
 edition = "2024"
-version = "0.0.1"
+version = "0.1.0"
 rust-version = "1.90"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/valentin-gosselin/nicephore"
