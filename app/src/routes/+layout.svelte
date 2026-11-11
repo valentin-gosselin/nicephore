@@ -1,5 +1,7 @@
 <script lang="ts">
   import '../app.css';
+  // Interface language, also for the @immich/ui components (applied on import).
+  import '../lib/i18n.svelte';
   import { TooltipProvider } from '@immich/ui';
   import { onMount } from 'svelte';
   import Coquille from '../lib/Coquille.svelte';

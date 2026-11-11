@@ -5,7 +5,7 @@ télécharger avant qu'un programme n'ouvre un fichier.
 
 ## Interface
 
-- Quatrième choix dans « Ajouter un dossier » : « Voir une sélection sans la télécharger ». Même
+- Quatrième choix dans « Ajouter un dossier » : « Voir une sélection sans la télécharger » (renommé « Fichiers virtuels » le 11/11). Même
   choix que pour recevoir (album, personne, favoris, période, toute la photothèque ; à plat ou par
   année et mois), dans un dossier vide. Avant de valider : nombre de photos et volume visibles.
 - Section « Dossiers virtuels » sur la page Synchro : dossier, sélection, « N fichiers visibles,

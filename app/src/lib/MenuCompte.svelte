@@ -5,6 +5,7 @@
   import { goto } from '$app/navigation';
   import { comptes as listerComptes, urlImage, type CompteMemorise, type Connexion } from './api';
   import { notifier } from './notifications.svelte';
+  import { locale, t } from './i18n.svelte';
   import { basculerCompte, deconnecter, session } from './session.svelte';
 
   let { connexion }: { connexion: Connexion } = $props();
@@ -21,7 +22,7 @@
       .split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)
-      .map((m) => m[0]?.toLocaleUpperCase('fr'))
+      .map((m) => m[0]?.toLocaleUpperCase(locale()))
       .join('') || '?';
 
   async function basculer(c: CompteMemorise) {
@@ -29,7 +30,7 @@
     try {
       await basculerCompte(c.cle);
     } catch (e) {
-      notifier(`Changement de compte impossible : ${e}`, 'erreur');
+      notifier(t('Changement de compte impossible : {e}', { e: String(e) }), 'erreur');
     }
   }
   let racine: HTMLDivElement;
@@ -67,7 +68,7 @@
     type="button"
     class="avatar"
     style:background={u.profileImagePath ? 'transparent' : (couleurs[u.avatarColor ?? 'primary'] ?? couleurs.primary)}
-    aria-label={`Compte de ${u.name}`}
+    aria-label={t('Compte de {nom}', { nom: u.name })}
     aria-haspopup="menu"
     aria-expanded={ouvert}
     title={u.name}
@@ -95,7 +96,7 @@
             <span class="block truncate">{c.nom || c.email || c.urlServeur}</span>
             <span class="block truncate text-xs opacity-60">{c.email}</span>
           </span>
-          {#if c.scelle}<svg viewBox="0 0 24 24" width="14" height="14" aria-label="Protégé par une phrase de passe" class="opacity-60"><path fill="currentColor" d={mdiLock} /></svg>{/if}
+          {#if c.scelle}<svg viewBox="0 0 24 24" width="14" height="14" aria-label={t('Protégé par une phrase de passe')} class="opacity-60"><path fill="currentColor" d={mdiLock} /></svg>{/if}
         </button>
       {/each}
       <button
@@ -108,12 +109,12 @@
         }}
       >
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={mdiAccountPlusOutline} /></svg>
-        Ajouter un compte
+        {t('Ajouter un compte')}
       </button>
       <div class="separateur"></div>
       <button type="button" class="entree" role="menuitem" onclick={() => aller('/reglages')}>
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={mdiCogOutline} /></svg>
-        Réglages
+        {t('Réglages')}
       </button>
       {#if connexion.origine !== 'environnement'}
         <button
@@ -126,7 +127,7 @@
           }}
         >
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={mdiLogout} /></svg>
-          Se déconnecter
+          {t('Se déconnecter')}
         </button>
       {/if}
     </div>

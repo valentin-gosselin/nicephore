@@ -4,6 +4,7 @@
 
 import { detailMois, listeMois, type AssetResume, type DetailMois, type Filtre, type Mois } from './api';
 import { disposer } from './disposition';
+import { locale, t } from './i18n.svelte';
 
 export type Asset = {
   id: string;
@@ -32,7 +33,9 @@ type EtatSection = 'vide' | 'chargement' | 'charge' | 'erreur';
 export class Section {
   readonly cle: string;
   nombre: number;
-  readonly libelle: string;
+  /** Month number (1-12), NaN for a flat list. */
+  private readonly numero: number;
+  private cacheLibelle: { locale: string; texte: string } | null = null;
   readonly annee: number;
   etat: EtatSection = 'vide';
   assets: Asset[] = [];
@@ -48,17 +51,27 @@ export class Section {
     if (mois.timeBucket === CLE_LISTE) {
       // Flat list (search results): one untitled section.
       this.annee = NaN;
-      this.libelle = '';
+      this.numero = NaN;
       return;
     }
     const [annee, numero] = mois.timeBucket.split('-').map(Number);
     this.annee = annee;
-    const libelle = new Date(Date.UTC(annee, numero - 1, 1)).toLocaleDateString('fr-FR', {
-      month: 'long',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
-    this.libelle = libelle.charAt(0).toUpperCase() + libelle.slice(1);
+    this.numero = numero;
+  }
+
+  /** Month title in the interface language (empty for a flat list). */
+  get libelle(): string {
+    if (Number.isNaN(this.numero)) return '';
+    const loc = locale();
+    if (this.cacheLibelle?.locale !== loc) {
+      const texte = new Date(Date.UTC(this.annee, this.numero - 1, 1)).toLocaleDateString(loc, {
+        month: 'long',
+        year: 'numeric',
+        timeZone: 'UTC',
+      });
+      this.cacheLibelle = { locale: loc, texte: texte.charAt(0).toUpperCase() + texte.slice(1) };
+    }
+    return this.cacheLibelle.texte;
   }
 }
 
@@ -142,22 +155,23 @@ function versAssets(detail: DetailMois): Asset[] {
   });
 }
 
-const formatJour = new Intl.DateTimeFormat('fr-FR', {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-  timeZone: 'UTC',
-});
+const formatJour = (loc: string) =>
+  new Intl.DateTimeFormat(loc, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 
 function libelleJour(jour: string): string {
   const aujourdhui = new Date();
   const local = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  if (jour === local(aujourdhui)) return "Aujourd'hui";
+  if (jour === local(aujourdhui)) return t("Aujourd'hui");
   const hier = new Date(aujourdhui.getTime() - 86_400_000);
-  if (jour === local(hier)) return 'Hier';
-  const texte = formatJour.format(new Date(`${jour}T00:00:00Z`));
+  if (jour === local(hier)) return t('Hier');
+  const texte = formatJour(locale()).format(new Date(`${jour}T00:00:00Z`));
   return texte.charAt(0).toUpperCase() + texte.slice(1);
 }
 

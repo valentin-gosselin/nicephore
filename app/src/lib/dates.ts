@@ -1,5 +1,6 @@
 // Capture dates and their time zones. Immich keeps the date with an offset
 // plus an IANA zone ("Europe/Paris") or a fixed offset ("UTC+1").
+import { locale } from './i18n.svelte';
 
 const decalageFixe = /^UTC([+-])(\d{1,2})(?::?(\d{2}))?$/;
 
@@ -61,11 +62,11 @@ export function formaterDate(iso: string, fuseau: string | null | undefined): st
   const fixe = fuseau?.match(decalageFixe);
   if (fixe) {
     const minutes = (Number(fixe[2]) * 60 + Number(fixe[3] ?? 0)) * (fixe[1] === '-' ? -1 : 1);
-    return new Date(new Date(iso).getTime() + minutes * 60_000).toLocaleString('fr-FR', { ...options, timeZone: 'UTC' });
+    return new Date(new Date(iso).getTime() + minutes * 60_000).toLocaleString(locale(), { ...options, timeZone: 'UTC' });
   }
   try {
-    return new Date(iso).toLocaleString('fr-FR', { ...options, timeZone: fuseau ?? undefined });
+    return new Date(iso).toLocaleString(locale(), { ...options, timeZone: fuseau ?? undefined });
   } catch {
-    return new Date(iso).toLocaleString('fr-FR', options);
+    return new Date(iso).toLocaleString(locale(), options);
   }
 }

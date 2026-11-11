@@ -113,3 +113,79 @@
 
 - Plus de menu du navigateur (recharger, inspecter…) au clic droit, sauf dans les champs de texte
   (copier, coller). Vérifié au banc `--fichier`.
+
+## Fichiers déplacés dans un dossier synchronisé (10/11)
+
+- Constaté après le rangement d'Images : 16 522 photos liées à leur copie du serveur passaient en
+  « effacé ici ». Le moteur les cherchait à leur ancien chemin, et la table des envois gardait
+  l'ancien chemin à côté du nouveau (16 525 photos comptées deux fois).
+- Plus grave, vérifié au banc : dans un dossier en miroir, une photo simplement déplacée était
+  retirée de l'album après le délai de grâce.
+- Correctifs, valables pour tout dossier synchronisé :
+  - les chemins qui ont quitté le dossier sont oubliés à chaque passage. Rien n'est oublié si le
+    dossier paraît vide (disque débranché) ou là où il est illisible ;
+  - une photo reçue ou liée qui n'est plus à son chemin est retrouvée par son contenu sous son
+    nouveau chemin ; elle n'est ni « effacée ici », ni retéléchargée, ni retirée de l'album ;
+  - les photos marquées à tort « effacé ici » reviennent d'elles-mêmes à « reçu ».
+  - Côté serveur, rien ne change : les photos y sont suivies par leur identifiant Immich, qu'Immich
+    range ou renomme ses fichiers.
+- Vérifié : deux nouveaux cas dans la suite jetable du moteur (déplacement en double sens avec la
+  photothèque, déplacement en miroir), qui échouent tous les deux sur l'ancien moteur. Suite 13/13.
+
+## Contrôles façon Immich (10/11)
+
+- Vidéo : la barre de lecture du vrai Immich (media-chrome, licence MIT) remplace celle du moteur
+  web. Elle a lecture, temps, volume qui s'ouvre au survol, plein écran, vitesse dans « … » et
+  barre de progression fine, dans la visionneuse et pour les vidéos de l'ordinateur. Les flèches
+  gauche et droite restent à la navigation entre fichiers.
+- Listes déroulantes (tri des albums, des lieux, des personnes, type de la recherche) : le menu
+  Select d'@immich/ui.
+- Dates (recherche, dialogue de synchro, date de prise de vue) : le calendrier DatePicker et
+  l'heure TimeInput d'@immich/ui, en français (`setLocale` et `setTranslations` dans le layout).
+- Vérifié : banc `--fichier` 19/19 (commandes du lecteur, pause par son bouton), banc `--jetable`
+  65/65 (aucune liste du système, menu de tri, saisie de la date de prise de vue et d'une période
+  au clavier).
+
+## Types de synchronisation nommés court (11/11)
+
+Les quatre choix de « Ajouter un dossier synchronisé » étaient des phrases. Ils prennent des noms courts, avec les mots de l'app mobile Immich (« Sauvegarde ») et des clients de synchro habituels (« Fichiers virtuels ») : Sauvegarde (Ce dossier → Immich), Copie locale (Immich → ce dossier), Fichiers virtuels (À la demande), Synchro complète (Immich ↔ ce dossier). La légende devient « Type de synchronisation ». Vérifié par le banc (« types de synchro nommés court », capture e11-types-synchro).
+
+## Panneau de recherche et panneau latéral façon Immich web (11/11)
+
+Recherche, repris du client web Immich (SearchBar, SearchFilters et leurs sections) :
+- Le champ du haut ouvre le même panneau : recherches récentes (5, effaçables), « Filtrer par » (Rechercher par type, Personnes, Date, Lieux, Étiquettes, Média), « Filtres avancés » (Appareil photo : marque, modèle, objectif ; Étoile d'évaluation ; Bibliothèque : Favoris, Archive, Pas dans un album), « Effacer tout » et « Recherche ». Textes repris de la traduction française officielle d'Immich.
+- Les boutons de « Filtrer par » prennent la valeur choisie (« Alice + 1 personne », « Cette année », la ville...), comme dans Immich.
+- Les listes de pays, régions, villes, marques, modèles et objectifs viennent de `GET /search/suggestions`, filtrées par les choix déjà faits (commande `suggestions_recherche`). Champ à liste filtrable `ChampChoix`, au style du Combobox d'Immich.
+- Nouveaux critères envoyés au serveur : région (`state`), marque, modèle, objectif, pas dans un album, note, étiquettes, et le type « Chemin complet ou dossier » (`originalPath`). Ils passent par l'adresse `/recherche?...` comme les autres.
+- La page de résultats perd sa barre de filtres : les critères actifs y sont des puces façon Immich (libellé, valeur, croix pour retirer le filtre).
+
+Panneau latéral, repris de UserSidebar (NavbarItem et NavbarGroup d'@immich/ui) :
+- Les trois albums modifiés en dernier sous « Albums », dépliables (choix retenu).
+- En bas, le stockage (quota de l'utilisateur s'il en a un, sinon le disque du serveur, comme Immich), « Serveur en ligne » et sa version, et l'encadré « Nouvelle mise à jour ! » quand le serveur connaît une version plus récente (administrateurs seulement). Commande `infos_serveur`, rafraîchie chaque minute.
+- Le mode replié (fenêtre étroite) garde les icônes seules.
+
+Banc (`--jetable`) : étapes 15 et 16 (albums récents, stockage, serveur en ligne ; panneau de recherche, filtres avancés, suggestions, recherche lancée, puces, retrait d'une puce), captures e10 à e12.
+
+Banc : le nettoyage des services du bus privé (ajouté le 11/11 contre la fuite mémoire) tuait aussi le service des dossiers virtuels, que le banc vérifie justement vivant après la fermeture de l'appli. Le nettoyage (`nettoyer_bus`) passe après ce contrôle, et remplace le `pkill` par chemin du binaire, qui aurait pu tuer le service de la vraie session.
+
+### Au pixel près (11/11, après comparaison avec Immich web)
+
+- État par défaut identique à Immich : « Rechercher par type » ouvert, filtres avancés repliés (dépliage animé par grid-template-rows, contenu inerte une fois replié).
+- Les filtres suivent le compte et le serveur comme dans Immich (commande `options_recherche`) : « Étiquettes » et la note seulement si l'utilisateur les a activées dans ses préférences, « Contexte » et « OCR » seulement si le serveur a la recherche intelligente et l'OCR.
+- Le bouton « Rechercher par type » affiche le type choisi quand ce n'est pas « Contexte ».
+- Classes du client web reprises telles quelles : champ `py-4 ps-14`, `rounded-3xl` puis `rounded-t-3xl` à l'ouverture, ombre `0 8px 20px rgba(0,0,0,.12)`, panneau `rounded-b-3xl` sur `immich-dark-gray` (#212121) en texte gray-300, séparateurs `bg-light-200 / dark:bg-dark-600`, ouverture en `fly` (25 px, 250 ms), une seule rangée de visages jusqu'à « Voir toutes les personnes », filtre des personnes et historique au style d'Immich.
+- En-tête disposé comme la barre de navigation d'Immich : 76 px de haut, une première colonne de la largeur du panneau latéral (256 px), puis la recherche jusqu'à 64rem.
+- Police d'Immich dans toute l'appli : Google Sans (SIL OFL 1.1, licence dans `app/static/polices/OFL.txt`), le fichier livré par Immich réduit au latin, aux flèches et à la ponctuation (89 Ko en woff2 au lieu de 4,8 Mo), mêmes réglages (`size-adjust` et `ascent-override` à 106,25 %, espacement 0,1 px). Couleurs `immich-*` déclarées dans `app.css`.
+- Listes des champs à choix (pays, appareil...) en `fixed`, placées depuis le champ comme le Combobox d'Immich : plus rognées par le panneau qui défile, ouvertes vers le haut s'il manque 225 px en bas, refermées quand le champ sort de la vue (retour de Valentin, 11/11).
+- Cadre de la barre focalisable (`tabindex="-1"`, comme Immich) : un clic sur le texte du panneau ne le referme plus.
+
+## Interface multilingue (11/11)
+
+- Mécanique maison sans dépendance, `app/src/lib/i18n.svelte.ts` : le texte français sert de clé (`t('Rechercher par type')`, `tp(n, '{n} photo', '{n} photos')`), `locale()` pour les dates et nombres. Repli : langue choisie, puis anglais, puis français. Langues chargées à la demande.
+- Anglais écrit pour Nicéphore (`traductions/en.json`, 621 textes), formulation officielle d'Immich pour ce qui est commun.
+- Autres langues : traductions de la communauté Immich (Weblate), pour les 186 textes que Nicéphore partage avec Immich. `npm run traductions` (`app/scripts/traductions-immich.mjs`) les récupère depuis immich-app/immich et écrit un fichier par langue (76 langues). Correspondances automatiques par texte français ou anglais identique, plus `traductions/immich-cles.json` pour forcer une clé (avec renommage des valeurs, `{n}` vers `{count}`) ou en refuser une. Les pluriels ICU d'Immich (`{count, plural, one {...} few {...} other {...}}`) sont évalués par `t`/`tp` avec les catégories de la langue.
+- La publication (`.github/workflows/publication.yml`) lance `npm run traductions` avant de construire : chaque version embarque les dernières traductions de la communauté.
+- Réglages : liste « Langue » (Comme le système, Français, English, puis les langues d'Immich avec la part traduite).
+- Conversion des 59 fichiers faite par trois agents Sonnet sur des lots disjoints, d'après un fichier modèle (`BarreLaterale.svelte`). Bancs en français inchangés (80/80, 19/19) ; banc en anglais pour les captures (ses contrôles cherchent du français, d'où les échecs attendus).
+- Reste en français : les messages d'erreur venant de Rust, le nom du dossier réel « Depuis Immich ».
+- Alignés sur le français d'Immich pour hériter de ses traductions (11/11, accord de Valentin) : « Cacher les personnes non nommées », « Rechercher des albums », « Rechercher une personne », « Aucune personne nommée « {nom} » » (avec le nom cherché), « Réduire » (bouton de fenêtre). Format `{count, number}` d'Immich pris en charge (« ajouté(s) aux favoris »). Non alignés car Immich perdrait une information : nom de l'album, « toujours dans la photothèque », explication du GPS, nom du tag, titre de la fiche fusionnée. 191 textes communs.

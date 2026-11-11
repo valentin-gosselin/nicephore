@@ -1,0 +1,29 @@
+{
+  "Ajouter": "Ավելացնել",
+  "Ajouter un lieu": "Ավելացնել տեղ",
+  "Ajouter un tag": "Ավելացնել պիտակ",
+  "Ajouter une description": "Ավելացնել մեկնաբանություն",
+  "Ajouter à un album": "Ավելացնել ալբոմին",
+  "Ajouté aux favoris": "Ավելացվել է հավածներում",
+  "Compte": "Հաշիվ",
+  "Corbeille": "Աղբ",
+  "Date": "Ամսաթիվ",
+  "Enregistrer": "Պահե",
+  "Fuseau horaire": "Ժամային գոտի",
+  "Mettre à la corbeille": "Տեղափոխել աղբաման",
+  "Mise en favori": "Ավելացվել է հավածներում",
+  "Modifier le lieu": "Փոխել տեղը",
+  "Partagés avec moi": "Ինձ հետ կիսված",
+  "Pas dans un album": "Ալբոմում չկա",
+  "Pays": "Երկիր",
+  "Photos": "Նկարներ",
+  "Recherche": "Փնտրե",
+  "Rechercher": "Փնտրե",
+  "Rechercher par ville...": "Որոնե քաղաք…",
+  "Sombre": "Մութ",
+  "Ville": "Քաղաք",
+  "À propos": "Մասին",
+  "_immichUi": {
+    "save": "Պահե"
+  }
+}

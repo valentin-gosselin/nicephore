@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { stylesCarte } from './api';
   import Dialogue from './Dialogue.svelte';
+  import { t } from './i18n.svelte';
   import { Map as Carte, Marker, NavigationControl } from './maplibre';
   import { theme } from './theme.svelte';
 
@@ -49,15 +50,15 @@
   });
 </script>
 
-<Dialogue titre={nombre > 1 ? `Lieu de ${nombre} éléments` : 'Lieu de la prise de vue'} largeur={720} {onfermer}>
+<Dialogue titre={nombre > 1 ? t('Lieu de {n} éléments', { n: nombre }) : t('Lieu de la prise de vue')} largeur={720} {onfermer}>
   <div class="space-y-3">
-    <Text size="small" color="muted">Cliquez sur la carte pour placer l’épingle.</Text>
+    <Text size="small" color="muted">{t('Cliquez sur la carte pour placer l’épingle.')}</Text>
     <div bind:this={conteneur} class="h-[420px] w-full overflow-hidden rounded-xl"></div>
     <div class="flex items-center justify-between gap-3">
       <Text size="small" color="muted">
-        {choix ? `${choix.lat.toFixed(5)}, ${choix.lon.toFixed(5)}` : 'Aucun lieu choisi'}
+        {choix ? `${choix.lat.toFixed(5)}, ${choix.lon.toFixed(5)}` : t('Aucun lieu choisi')}
       </Text>
-      <Button disabled={!choix} onclick={() => choix && onvalider(choix.lat, choix.lon)}>Enregistrer</Button>
+      <Button disabled={!choix} onclick={() => choix && onvalider(choix.lat, choix.lon)}>{t('Enregistrer')}</Button>
     </div>
   </div>
 </Dialogue>

@@ -161,6 +161,90 @@ impl ClientImmich {
         self.get_json("server/version", &[]).await
     }
 
+    /// `GET /search/suggestions`: the values known to the server (countries,
+    /// camera makes...), narrowed by the choices already made.
+    pub async fn suggestions(
+        &self,
+        genre: GenreSuggestion,
+        pays: Option<&str>,
+        region: Option<&str>,
+        marque: Option<&str>,
+        modele: Option<&str>,
+    ) -> Resultat<Vec<String>> {
+        let type_ = match genre {
+            GenreSuggestion::Pays => "country",
+            GenreSuggestion::Region => "state",
+            GenreSuggestion::Ville => "city",
+            GenreSuggestion::Marque => "camera-make",
+            GenreSuggestion::Modele => "camera-model",
+            GenreSuggestion::Objectif => "camera-lens-model",
+        };
+        let mut parametres = vec![("type", type_)];
+        for (cle, valeur) in [("country", pays), ("state", region), ("make", marque), ("model", modele)] {
+            if let Some(v) = valeur {
+                parametres.push((cle, v));
+            }
+        }
+        let valeurs: Vec<Option<String>> = self.get_json("search/suggestions", &parametres).await?;
+        let mut valeurs: Vec<String> = valeurs.into_iter().flatten().filter(|v| !v.trim().is_empty()).collect();
+        valeurs.sort_by_key(|v| v.to_lowercase());
+        valeurs.dedup();
+        Ok(valeurs)
+    }
+
+    /// Which search filters to offer, as the Immich web app decides.
+    pub async fn options_recherche(&self) -> Resultat<OptionsRecherche> {
+        let preferences: serde_json::Value = self.get_json("users/me/preferences", &[]).await?;
+        let fonctions: serde_json::Value = self.get_json("server/features", &[]).await?;
+        let actif = |v: &serde_json::Value| v.as_bool().unwrap_or(false);
+        Ok(OptionsRecherche {
+            etiquettes: actif(&preferences["tags"]["enabled"]),
+            notes: actif(&preferences["ratings"]["enabled"]),
+            contexte: fonctions["smartSearch"].as_bool().unwrap_or(true),
+            ocr: actif(&fonctions["ocr"]),
+        })
+    }
+
+    /// Storage (quota or server disk), version and available update.
+    pub async fn infos_serveur(&self) -> Resultat<InfosServeur> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Quota {
+            quota_size_in_bytes: Option<u64>,
+            #[serde(default)]
+            quota_usage_in_bytes: u64,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Disque {
+            disk_size_raw: u64,
+            disk_use_raw: u64,
+        }
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Verification {
+            release_version: Option<String>,
+        }
+        let version = self.version().await?;
+        let quota: Quota = self.get_json("users/me", &[]).await?;
+        let (utilise, total) = match quota.quota_size_in_bytes {
+            Some(taille) => (quota.quota_usage_in_bytes, taille),
+            None => {
+                let disque: Disque = self.get_json("server/storage", &[]).await?;
+                (disque.disk_use_raw, disque.disk_size_raw)
+            }
+        };
+        // Admin-only on the server: anyone else just gets no update notice.
+        let nouvelle_version = self
+            .get_json::<Verification>("server/version-check", &[])
+            .await
+            .ok()
+            .and_then(|v| v.release_version)
+            .map(|v| v.trim_start_matches('v').to_string())
+            .filter(|v| version_plus_recente(v, &version));
+        Ok(InfosServeur { version: version.to_string(), utilise, total, nouvelle_version })
+    }
+
     /// `GET /users/me`: also validates the API key.
     pub async fn moi(&self) -> Resultat<Utilisateur> {
         self.get_json("users/me", &[]).await
@@ -198,6 +282,7 @@ impl ClientImmich {
                 ModeRecherche::Contenu | ModeRecherche::FichierNom => corps["originalFileName"] = texte.into(),
                 ModeRecherche::Description => corps["description"] = texte.into(),
                 ModeRecherche::Texte => corps["ocr"] = texte.into(),
+                ModeRecherche::Chemin => corps["originalPath"] = texte.into(),
             }
         }
         if let Some(t) = &criteres.type_media {
@@ -227,6 +312,26 @@ impl ClientImmich {
             corps["isFavorite"] = true.into();
         }
         corps["visibility"] = if criteres.archive { "archive" } else { "timeline" }.into();
+        for (cle, valeur) in [
+            ("state", &criteres.region),
+            ("make", &criteres.marque),
+            ("model", &criteres.modele),
+            ("lensModel", &criteres.objectif),
+        ] {
+            if let Some(v) = valeur {
+                corps[cle] = v.as_str().into();
+            }
+        }
+        if criteres.pas_dans_album {
+            corps["isNotInAlbum"] = true.into();
+        }
+        if let Some(note) = criteres.note.filter(|n| (1..=5).contains(n)) {
+            corps["rating"] = note.into();
+        }
+        if !criteres.etiquettes.is_empty() {
+            criteres.etiquettes.iter().try_for_each(|id| valider_id(id))?;
+            corps["tagIds"] = serde_json::json!(criteres.etiquettes);
+        }
 
         let chemin = if intelligente { "search/smart" } else { "search/metadata" };
         let reponse = self
@@ -770,6 +875,13 @@ fn valider_ids(ids: &[String]) -> Resultat<()> {
         return Err(Erreur::Configuration(format!("{} éléments : il en faut entre 1 et 5 000", ids.len())));
     }
     ids.iter().try_for_each(|id| valider_id(id))
+}
+
+/// Whether `candidate` ("3.4.0") is newer than the running server.
+fn version_plus_recente(candidate: &str, actuelle: &VersionServeur) -> bool {
+    let mut parties = candidate.split('.').map(|p| p.parse::<u32>().unwrap_or(0));
+    let v = (parties.next().unwrap_or(0), parties.next().unwrap_or(0), parties.next().unwrap_or(0));
+    v > (actuelle.major, actuelle.minor, actuelle.patch)
 }
 
 /// Asset ids are UUIDs; validating them prevents path injection.

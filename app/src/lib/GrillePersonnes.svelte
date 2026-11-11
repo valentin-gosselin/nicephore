@@ -2,19 +2,20 @@
   // Grid of people with their face, name and photo count, sortable by
   // number of photos or by name. Explorer shows the first ones; the People
   // page shows everyone, with a name filter and hidden people on request.
-  import { Heading, LoadingSpinner, Text } from '@immich/ui';
+  import { Heading, LoadingSpinner, Select, Text } from '@immich/ui';
   import { mdiEyeOff, mdiHeart } from '@mdi/js';
   import { onMount } from 'svelte';
+  import { locale, t, tp } from './i18n.svelte';
   import { nombresPersonnes, personnes as chargerPersonnes, urlImage, type Personne } from './api';
 
   let { limite, complet = false }: { limite?: number; complet?: boolean } = $props();
 
   type Tri = 'nombre' | 'az' | 'za';
-  const TRIS: { valeur: Tri; libelle: string }[] = [
-    { valeur: 'nombre', libelle: 'Nombre de photos' },
-    { valeur: 'az', libelle: 'Nom, de A à Z' },
-    { valeur: 'za', libelle: 'Nom, de Z à A' },
-  ];
+  const TRIS: { valeur: Tri; libelle: string }[] = $derived([
+    { valeur: 'nombre', libelle: t('Nombre de photos') },
+    { valeur: 'az', libelle: t('Nom, de A à Z') },
+    { valeur: 'za', libelle: t('Nom, de Z à A') },
+  ]);
 
   function lireTri(): Tri {
     try {
@@ -40,18 +41,18 @@
   const nombreMasquees = $derived((personnes ?? []).filter((p) => p.isHidden).length);
 
   const triees = $derived.by(() => {
-    const texte = filtre.trim().toLocaleLowerCase('fr');
+    const texte = filtre.trim().toLocaleLowerCase(locale());
     const liste = (personnes ?? []).filter(
       (p) =>
         (masquees || !p.isHidden) &&
         (sansNom || p.name || texte) &&
-        (!texte || p.name.toLocaleLowerCase('fr').includes(texte)),
+        (!texte || p.name.toLocaleLowerCase(locale()).includes(texte)),
     );
     return liste.sort((a, b) => {
       // Unnamed faces after named people, whatever the order.
       if (!a.name !== !b.name) return a.name ? -1 : 1;
-      if (tri === 'nombre') return (comptes[b.id] ?? -1) - (comptes[a.id] ?? -1) || a.name.localeCompare(b.name, 'fr');
-      const ordre = a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' });
+      if (tri === 'nombre') return (comptes[b.id] ?? -1) - (comptes[a.id] ?? -1) || a.name.localeCompare(b.name, locale());
+      const ordre = a.name.localeCompare(b.name, locale(), { sensitivity: 'base' });
       return tri === 'az' ? ordre : -ordre;
     });
   });
@@ -70,7 +71,7 @@
   });
 
   const lien = (p: Personne) => `/personne?id=${p.id}&nom=${encodeURIComponent(p.name)}`;
-  const nombre = (n: number | undefined) => (n == null ? '' : `${n.toLocaleString('fr-FR')} photo${n > 1 ? 's' : ''}`);
+  const nombre = (n: number | undefined) => (n == null ? '' : tp(n, '{n} photo', '{n} photos'));
 
   onMount(() => {
     chargerPersonnes(complet)
@@ -81,32 +82,32 @@
 
 <section class="space-y-4">
   <div class="flex flex-wrap items-center gap-3">
-    <Heading size="small">Personnes</Heading>
-    {#if personnes}<Text size="small" color="muted">{nombreNommees} nommées sur {nombreNommees + nombreAnonymes}</Text>{/if}
+    <Heading size="small">{t('Personnes')}</Heading>
+    {#if personnes}<Text size="small" color="muted">{t('{n} nommées sur {total}', { n: nombreNommees, total: nombreNommees + nombreAnonymes })}</Text>{/if}
     {#if comptage}<LoadingSpinner size="small" />{/if}
     <span class="flex-1"></span>
     {#if limite}
-      <a href="/personnes" class="text-sm text-primary hover:underline">Toutes les personnes</a>
+      <a href="/personnes" class="text-sm text-primary hover:underline">{t('Toutes les personnes')}</a>
     {:else}
-      <input class="champ w-48" type="search" bind:value={filtre} placeholder="Chercher un nom" aria-label="Chercher un nom" />
+      <input class="champ w-48" type="search" bind:value={filtre} placeholder={t('Chercher un nom')} aria-label={t('Chercher un nom')} />
     {/if}
     <label class="flex items-center gap-2 text-sm">
-      <span class="opacity-70">Trier par</span>
-      <select
-        class="champ"
+      <span class="opacity-70">{t('Trier par')}</span>
+      <Select
+        class="w-52"
+        size="tiny"
+        title={t('Tri des personnes')}
+        options={TRIS.map((o) => ({ value: o.valeur, label: o.libelle }))}
         value={tri}
-        aria-label="Tri des personnes"
-        onchange={(e) => {
-          tri = e.currentTarget.value as Tri;
+        onChange={(valeur) => {
+          tri = valeur;
           try {
             localStorage.setItem('nicephore-tri-personnes', tri);
           } catch {
             // Only a convenience.
           }
         }}
-      >
-        {#each TRIS as t (t.valeur)}<option value={t.valeur}>{t.libelle}</option>{/each}
-      </select>
+      />
     </label>
   </div>
 
@@ -117,16 +118,16 @@
   {:else}
     <div class="grille">
       {#each affichees as p (p.id)}
-        <a href={lien(p)} class="personne" class:masquee={p.isHidden} title={p.name || 'Sans nom'}>
+        <a href={lien(p)} class="personne" class:masquee={p.isHidden} title={p.name || t('Sans nom')}>
           <span class="visage">
             <img src={urlImage('personne', p.id, p.updatedAt)} alt="" loading="lazy" />
             {#if p.isFavorite}
-              <svg class="marque" viewBox="0 0 24 24" width="18" height="18" aria-label="Favori"><path fill="currentColor" d={mdiHeart} /></svg>
+              <svg class="marque" viewBox="0 0 24 24" width="18" height="18" aria-label={t('Favori')}><path fill="currentColor" d={mdiHeart} /></svg>
             {:else if p.isHidden}
-              <svg class="marque" viewBox="0 0 24 24" width="18" height="18" aria-label="Masquée"><path fill="currentColor" d={mdiEyeOff} /></svg>
+              <svg class="marque" viewBox="0 0 24 24" width="18" height="18" aria-label={t('Masquée')}><path fill="currentColor" d={mdiEyeOff} /></svg>
             {/if}
           </span>
-          <span class="nom">{p.name || 'Sans nom'}</span>
+          <span class="nom">{p.name || t('Sans nom')}</span>
           <span class="compte">{nombre(comptes[p.id])}</span>
         </a>
       {/each}
@@ -135,12 +136,12 @@
       <div class="flex flex-wrap gap-4">
         {#if nombreAnonymes}
           <button class="text-sm text-primary hover:underline" onclick={() => (sansNom = !sansNom)}>
-            {sansNom ? 'Masquer les visages sans nom' : `Afficher aussi les ${nombreAnonymes} visages sans nom`}
+            {sansNom ? t('Cacher les personnes non nommées') : t('Afficher aussi les {n} visages sans nom', { n: nombreAnonymes })}
           </button>
         {/if}
         {#if nombreMasquees}
           <button class="text-sm text-primary hover:underline" onclick={() => (masquees = !masquees)}>
-            {masquees ? 'Cacher les personnes masquées' : `Afficher les ${nombreMasquees} personnes masquées`}
+            {masquees ? t('Cacher les personnes masquées') : t('Afficher les {n} personnes masquées', { n: nombreMasquees })}
           </button>
         {/if}
       </div>

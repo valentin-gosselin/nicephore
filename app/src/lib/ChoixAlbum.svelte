@@ -4,6 +4,7 @@
   import { onMount } from 'svelte';
   import { albums as chargerAlbums, urlImage, type Album } from './api';
   import Dialogue from './Dialogue.svelte';
+  import { t, tp } from './i18n.svelte';
 
   let {
     nombre,
@@ -35,7 +36,7 @@
   });
 </script>
 
-<Dialogue titre={`Ajouter ${nombre} élément${nombre > 1 ? 's' : ''} à un album`} {onfermer}>
+<Dialogue titre={tp(nombre, 'Ajouter {n} élément à un album', 'Ajouter {n} éléments à un album')} {onfermer}>
   <form
     class="mb-4 flex gap-2"
     onsubmit={(e) => {
@@ -43,8 +44,8 @@
       if (filtre.trim()) oncreer(filtre.trim());
     }}
   >
-    <Input bind:value={filtre} placeholder="Chercher un album ou nommer un nouvel album" class="flex-1" />
-    <Button type="submit" disabled={!filtre.trim()}>Créer</Button>
+    <Input bind:value={filtre} placeholder={t('Chercher un album ou nommer un nouvel album')} class="flex-1" />
+    <Button type="submit" disabled={!filtre.trim()}>{t('Créer')}</Button>
   </form>
   {#if erreur}
     <Text color="danger">{erreur}</Text>
@@ -62,12 +63,12 @@
             {/if}
             <span class="min-w-0">
               <span class="block truncate font-medium">{a.albumName}</span>
-              <span class="block text-xs opacity-60">{a.assetCount.toLocaleString('fr-FR')} éléments</span>
+              <span class="block text-xs opacity-60">{tp(a.assetCount, '{n} élément', '{n} éléments')}</span>
             </span>
           </button>
         </li>
       {:else}
-        <Text color="muted">Aucun album à ce nom : « Créer » en fera un nouveau.</Text>
+        <Text color="muted">{t('Aucun album à ce nom : « Créer » en fera un nouveau.')}</Text>
       {/each}
     </ul>
   {/if}

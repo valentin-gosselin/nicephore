@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { t } from '../../lib/i18n.svelte';
   import Chronologie from '../../lib/Chronologie.svelte';
   import { VUES } from '../../lib/vues';
 </script>
 
-<svelte:head><title>Archive · Nicéphore</title></svelte:head>
+<svelte:head><title>{t('Archive')} · Nicéphore</title></svelte:head>
 <Chronologie vue={VUES.archive} />

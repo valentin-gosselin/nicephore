@@ -47,7 +47,7 @@ export type AssetResume = {
 export type PageResultats = { assets: AssetResume[]; pageSuivante: number | null; total: number };
 
 /** contenu: smart search on what the image shows; the others match text fields. */
-export type ModeRecherche = 'contenu' | 'fichierNom' | 'description' | 'texte';
+export type ModeRecherche = 'contenu' | 'fichierNom' | 'description' | 'texte' | 'chemin';
 export type CriteresRecherche = {
   texte?: string;
   mode?: ModeRecherche;
@@ -59,6 +59,14 @@ export type CriteresRecherche = {
   au?: string;
   favoris?: boolean;
   archive?: boolean;
+  region?: string;
+  marque?: string;
+  modele?: string;
+  objectif?: string;
+  pasDansAlbum?: boolean;
+  /** Star rating, 1 to 5. */
+  note?: number;
+  etiquettes?: string[];
 };
 export type Lieu = { ville: string; asset: AssetResume };
 export type Personne = {
@@ -164,6 +172,17 @@ export const signalerDefilement = () => invoke<void>('signaler_defilement');
 export const rechercher = (criteres: CriteresRecherche, page: number) =>
   invoke<PageResultats>('rechercher', { criteres, page });
 export const lieux = () => invoke<Lieu[]>('lieux');
+export type GenreSuggestion = 'pays' | 'region' | 'ville' | 'marque' | 'modele' | 'objectif';
+/** Values known to the server, narrowed by the choices already made. */
+export const suggestionsRecherche = (
+  genre: GenreSuggestion,
+  filtres: { pays?: string; region?: string; marque?: string; modele?: string } = {},
+) => invoke<string[]>('suggestions_recherche', { genre, ...filtres });
+export type InfosServeur = { version: string; utilise: number; total: number; nouvelleVersion: string | null };
+export const infosServeur = () => invoke<InfosServeur>('infos_serveur');
+/** Search filters offered as in the Immich web app (user preferences, server features). */
+export type OptionsRecherche = { etiquettes: boolean; notes: boolean; contexte: boolean; ocr: boolean };
+export const optionsRecherche = () => invoke<OptionsRecherche>('options_recherche');
 export const personnes = (avecMasquees = false) => invoke<Personne[]>('personnes', { avecMasquees });
 export const personne = (id: string) => invoke<Personne>('personne', { id });
 export const personnesProches = (id: string) => invoke<Personne[]>('personnes_proches', { id });

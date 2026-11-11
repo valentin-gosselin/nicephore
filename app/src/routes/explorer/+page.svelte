@@ -1,19 +1,20 @@
 <script lang="ts">
   // Explore: the most photographed people (all of them on the People page)
   // and the places of the library, sortable by number of photos or by name.
-  import { Heading, LoadingSpinner, Text } from '@immich/ui';
+  import { Heading, LoadingSpinner, Select, Text } from '@immich/ui';
   import { onMount } from 'svelte';
   import { lieux as chargerLieux, nombresVilles, urlImage, type Lieu } from '../../lib/api';
   import { urlRecherche } from '../../lib/criteres-url';
   import GrillePersonnes from '../../lib/GrillePersonnes.svelte';
+  import { locale, t, tp } from '../../lib/i18n.svelte';
   import { apercuFlou } from '../../lib/miniatures';
 
   type Tri = 'nombre' | 'az' | 'za';
-  const TRIS: { valeur: Tri; libelle: string }[] = [
-    { valeur: 'nombre', libelle: 'Nombre de photos' },
-    { valeur: 'az', libelle: 'Nom, de A à Z' },
-    { valeur: 'za', libelle: 'Nom, de Z à A' },
-  ];
+  const TRIS: { valeur: Tri; libelle: string }[] = $derived([
+    { valeur: 'nombre', libelle: t('Nombre de photos') },
+    { valeur: 'az', libelle: t('Nom, de A à Z') },
+    { valeur: 'za', libelle: t('Nom, de Z à A') },
+  ]);
 
   function lireTri(): Tri {
     try {
@@ -32,13 +33,13 @@
 
   const tries = $derived(
     [...(lieux ?? [])].sort((a, b) => {
-      if (tri === 'nombre') return (comptes[b.ville] ?? -1) - (comptes[a.ville] ?? -1) || a.ville.localeCompare(b.ville, 'fr');
-      const ordre = a.ville.localeCompare(b.ville, 'fr', { sensitivity: 'base' });
+      if (tri === 'nombre') return (comptes[b.ville] ?? -1) - (comptes[a.ville] ?? -1) || a.ville.localeCompare(b.ville, locale());
+      const ordre = a.ville.localeCompare(b.ville, locale(), { sensitivity: 'base' });
       return tri === 'az' ? ordre : -ordre;
     }),
   );
 
-  const nombre = (n: number | undefined) => (n == null ? '' : `${n.toLocaleString('fr-FR')} photo${n > 1 ? 's' : ''}`);
+  const nombre = (n: number | undefined) => (n == null ? '' : tp(n, '{n} photo', '{n} photos'));
 
   onMount(() => {
     chargerLieux()
@@ -51,7 +52,7 @@
   });
 </script>
 
-<svelte:head><title>Explorer · Nicéphore</title></svelte:head>
+<svelte:head><title>{t('Explorer')} · Nicéphore</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
   <div class="space-y-10 p-6">
@@ -59,26 +60,26 @@
 
     <section class="space-y-4">
       <div class="flex flex-wrap items-center gap-3">
-        <Heading size="small">Lieux</Heading>
-        {#if lieux}<Text size="small" color="muted">{lieux.length} villes</Text>{/if}
+        <Heading size="small">{t('Lieux')}</Heading>
+        {#if lieux}<Text size="small" color="muted">{tp(lieux.length, '{n} ville', '{n} villes')}</Text>{/if}
         <span class="flex-1"></span>
         <label class="flex items-center gap-2 text-sm">
-          <span class="opacity-70">Trier par</span>
-          <select
-            class="tri"
-            aria-label="Tri des lieux"
+          <span class="opacity-70">{t('Trier par')}</span>
+          <Select
+            class="w-52"
+            size="tiny"
+            title={t('Tri des lieux')}
+            options={TRIS.map((o) => ({ value: o.valeur, label: o.libelle }))}
             value={tri}
-            onchange={(e) => {
-              tri = e.currentTarget.value as Tri;
+            onChange={(valeur) => {
+              tri = valeur;
               try {
                 localStorage.setItem('nicephore-tri-lieux', tri);
               } catch {
                 // Only a convenience.
               }
             }}
-          >
-            {#each TRIS as t (t.valeur)}<option value={t.valeur}>{t.libelle}</option>{/each}
-          </select>
+          />
         </label>
       </div>
       {#if erreur}
@@ -86,7 +87,7 @@
       {:else if !lieux}
         <LoadingSpinner />
       {:else if lieux.length === 0}
-        <Text color="muted">Aucun lieu : les photos n’ont pas de position GPS.</Text>
+        <Text color="muted">{t('Aucun lieu : les photos n’ont pas de position GPS.')}</Text>
       {:else}
         <div class="grille-lieux">
           {#each tries as l (l.ville)}
@@ -109,14 +110,6 @@
 </div>
 
 <style>
-  .tri {
-    border-radius: 8px;
-    padding: 3px 8px;
-    font-size: 13px;
-    background: transparent;
-    border: 1px solid color-mix(in oklab, currentColor 20%, transparent);
-    color-scheme: light dark;
-  }
   .grille-lieux {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

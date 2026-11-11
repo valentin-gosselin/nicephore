@@ -78,6 +78,16 @@ export async function lancerScenarioFichier() {
       return location.search.includes('e-video') && !!v && v.readyState >= 2 && v.videoWidth === 960;
     }, 150);
     await verifier('vidéo de l’ordinateur lue', lue, texte().slice(0, 120));
+    // The controls of Immich (media-chrome), not those of the web engine.
+    const controleur = document.querySelector('media-controller');
+    const lecteur = document.querySelector<HTMLVideoElement>('video.video-locale');
+    await verifier(
+      'commandes vidéo façon Immich',
+      !!controleur?.querySelector('media-play-button') && !!controleur.querySelector('media-time-range') && !lecteur?.controls,
+    );
+    controleur?.querySelector<HTMLElement>('media-play-button')?.click();
+    await attendre(400);
+    await verifier('pause par le bouton du lecteur', !!lecteur?.paused);
     await attendre(800);
     const dimVideo = (await fenetre.innerSize()).toLogical(await fenetre.scaleFactor());
     await verifier('fenêtre aux proportions de la vidéo', Math.abs(dimVideo.width / (dimVideo.height - 48) - 960 / 720) < 0.05, `${Math.round(dimVideo.width)} × ${Math.round(dimVideo.height)}`);

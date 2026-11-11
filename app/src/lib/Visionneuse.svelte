@@ -14,9 +14,11 @@
   } from '@mdi/js';
   import { onMount } from 'svelte';
   import { definirFavori, mettreCorbeille, restaurerCorbeille, urlImage, urlVideo } from './api';
+  import { t } from './i18n.svelte';
   import { notifier } from './notifications.svelte';
   import type { Chronologie, Position } from './modele-chronologie.svelte';
   import PanneauInfos from './PanneauInfos.svelte';
+  import LecteurVideo from './LecteurVideo.svelte';
 
   let {
     chrono,
@@ -97,9 +99,9 @@
     try {
       await definirFavori([courant.id], nouveau);
       chrono.marquerFavoris(new Set([courant.id]), nouveau);
-      notifier(nouveau ? 'Ajouté aux favoris' : 'Retiré des favoris', 'succes');
+      notifier(nouveau ? t('Ajouté aux favoris') : t('Retiré des favoris'), 'succes');
     } catch (e) {
-      notifier(`Favori impossible : ${e}`, 'erreur');
+      notifier(t('Favori impossible : {e}', { e: String(e) }), 'erreur');
     }
   }
 
@@ -109,8 +111,8 @@
     try {
       await mettreCorbeille([courant.id]);
       await chrono.rafraichir([position.section]);
-      notifier('Mis à la corbeille', 'info', {
-        libelle: 'Annuler',
+      notifier(t('Mis à la corbeille'), 'info', {
+        libelle: t('Annuler'),
         executer: async () => {
           await restaurerCorbeille([courant.id]);
           await chrono.rafraichir([position.section]);
@@ -124,7 +126,7 @@
         else onfermer(position);
       }
     } catch (e) {
-      notifier(`Corbeille impossible : ${e}`, 'erreur');
+      notifier(t('Corbeille impossible : {e}', { e: String(e) }), 'erreur');
     }
   }
 
@@ -237,8 +239,7 @@
             <div class="absolute bottom-6 left-1/2 -translate-x-1/2"><LoadingSpinner /></div>
           {/if}
         {:else if video}
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video class="max-h-full max-w-full" src={video} controls autoplay onended={() => lecture && void aller(1)}></video>
+          <LecteurVideo src={video} classeVideo="h-full w-full object-contain" onended={() => lecture && void aller(1)} />
         {:else}
           <LoadingSpinner size="giant" />
         {/if}
@@ -251,33 +252,33 @@
       {/key}
     {/if}
     <div class="barre absolute left-0 right-0 top-0 flex justify-between p-3" data-tauri-drag-region>
-      <IconButton icon={mdiClose} aria-label="Fermer" variant="ghost" color="secondary" shape="round" onclick={() => onfermer(position)} />
+      <IconButton icon={mdiClose} aria-label={t('Fermer')} variant="ghost" color="secondary" shape="round" onclick={() => onfermer(position)} />
       <div class="flex gap-1">
         <IconButton
           icon={lecture ? mdiPause : mdiPlay}
-          aria-label={lecture ? 'Arrêter le diaporama (D)' : 'Diaporama (D)'}
+          aria-label={lecture ? t('Arrêter le diaporama (D)') : t('Diaporama (D)')}
           variant="ghost"
           color="secondary"
           shape="round"
           onclick={() => (lecture = !lecture)}
         />
-        <IconButton icon={mdiFullscreen} aria-label="Plein écran (F)" variant="ghost" color="secondary" shape="round" onclick={basculerPleinEcran} />
+        <IconButton icon={mdiFullscreen} aria-label={t('Plein écran (F)')} variant="ghost" color="secondary" shape="round" onclick={basculerPleinEcran} />
         <IconButton
           icon={favori ? mdiHeart : mdiHeartOutline}
-          aria-label={favori ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+          aria-label={favori ? t('Retirer des favoris') : t('Ajouter aux favoris')}
           variant="ghost"
           color="secondary"
           shape="round"
           onclick={basculerFavori}
         />
-        <IconButton icon={mdiTrashCanOutline} aria-label="Mettre à la corbeille (Suppr)" variant="ghost" color="secondary" shape="round" onclick={corbeille} />
-        <IconButton icon={mdiInformationOutline} aria-label="Infos (I)" variant="ghost" color="secondary" shape="round" onclick={() => (infos = !infos)} />
+        <IconButton icon={mdiTrashCanOutline} aria-label={t('Mettre à la corbeille (Suppr)')} variant="ghost" color="secondary" shape="round" onclick={corbeille} />
+        <IconButton icon={mdiInformationOutline} aria-label={t('Infos (I)')} variant="ghost" color="secondary" shape="round" onclick={() => (infos = !infos)} />
       </div>
     </div>
-    <button class="fleche left-2" aria-label="Précédente" onclick={() => aller(-1)}>
+    <button class="fleche left-2" aria-label={t('Précédente')} onclick={() => aller(-1)}>
       <svg viewBox="0 0 24 24" width="36" height="36"><path fill="currentColor" d={mdiChevronLeft} /></svg>
     </button>
-    <button class="fleche right-2" aria-label="Suivante" onclick={() => aller(1)}>
+    <button class="fleche right-2" aria-label={t('Suivante')} onclick={() => aller(1)}>
       <svg viewBox="0 0 24 24" width="36" height="36"><path fill="currentColor" d={mdiChevronRight} /></svg>
     </button>
   </div>

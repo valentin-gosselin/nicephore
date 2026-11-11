@@ -1,6 +1,7 @@
 <script lang="ts">
   import { mdiCheckCircle, mdiCheckboxBlankCircleOutline, mdiHeart, mdiPlay } from '@mdi/js';
   import { urlImage } from './api';
+  import { t } from './i18n.svelte';
   import type { TuileVisible } from './modele-chronologie.svelte';
   import { defilement } from './defilement.svelte';
   import { apercuFlou, dejaAffichees } from './miniatures';
@@ -61,7 +62,7 @@
     class="image-tuile bg-gray-200 dark:bg-gray-800"
     style:background-image={flou ? `url(${flou})` : undefined}
     onclick={surClic}
-    aria-label={asset.image ? 'Photo' : 'Vidéo'}
+    aria-label={asset.image ? t('Photo') : t('Vidéo')}
     aria-pressed={modeSelection ? selectionnee : undefined}
   >
     {#if src}
@@ -93,7 +94,7 @@
   <button
     type="button"
     class="coche"
-    aria-label={selectionnee ? 'Désélectionner' : 'Sélectionner'}
+    aria-label={selectionnee ? t('Désélectionner') : t('Sélectionner')}
     onclick={(e) => onbasculer(tuile, e.shiftKey)}
   >
     <!-- Plain SVG: one icon component per tile costs frames while scrolling. -->

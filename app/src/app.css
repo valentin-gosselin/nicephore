@@ -2,6 +2,28 @@
 @import '@immich/ui/theme/default.css';
 @source '../node_modules/@immich/ui';
 
+/* The Immich web app colors and font, so the shared parts look the same.
+   Google Sans (SIL Open Font License, static/polices/OFL.txt), as shipped
+   by Immich, cut down to Latin, arrows and punctuation. */
+@theme {
+  --color-immich-primary: rgb(66 80 175);
+  --color-immich-fg: rgb(0 0 0);
+  --color-immich-dark-primary: rgb(172 203 250);
+  --color-immich-dark-bg: rgb(10 10 10);
+  --color-immich-dark-fg: rgb(229 231 235);
+  --color-immich-dark-gray: rgb(33 33 33);
+}
+
+@font-face {
+  font-family: 'GoogleSans';
+  src: url('/polices/GoogleSans.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: block;
+  ascent-override: 106.25%;
+  size-adjust: 106.25%;
+}
+
 html,
 body {
   height: 100%;
@@ -12,7 +34,8 @@ body {
 
 body {
   @apply bg-light text-dark;
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'GoogleSans', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0.1px;
   -webkit-font-smoothing: antialiased;
 }
 

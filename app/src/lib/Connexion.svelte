@@ -4,6 +4,7 @@
   // An API key remains available as an advanced option.
   import { Alert, Button, Field, Heading, Input, PasswordInput, Switch, Text } from '@immich/ui';
   import { onMount } from 'svelte';
+  import { t } from './i18n.svelte';
   import {
     infosPortable,
     modesConnexion,
@@ -54,7 +55,7 @@
         // Only a convenience.
       }
     } catch (raison) {
-      erreur = `Serveur Immich introuvable à cette adresse : ${raison}`;
+      erreur = t('Serveur Immich introuvable à cette adresse : {raison}', { raison: String(raison) });
     } finally {
       enCours = false;
     }
@@ -93,87 +94,89 @@
   <div class="w-full max-w-md space-y-6">
     <div class="flex items-center gap-3">
       <img src="/icone.svg" alt="" class="h-12 w-12" />
-      <Heading size="large">{onannuler ? 'Ajouter un compte' : 'Nicéphore'}</Heading>
+      <Heading size="large">{onannuler ? t('Ajouter un compte') : 'Nicéphore'}</Heading>
     </div>
 
     {#if !modes}
       <form class="space-y-5" onsubmit={chercherServeur}>
-        <Text color="muted">Adresse de votre serveur Immich, la même que dans le navigateur.</Text>
-        <Field label="Adresse du serveur" required>
-          <Input bind:value={url} placeholder="photos.exemple.fr ou 192.168.1.10:2283" autocomplete="url" />
+        <Text color="muted">{t('Adresse de votre serveur Immich, la même que dans le navigateur.')}</Text>
+        <Field label={t('Adresse du serveur')} required>
+          <Input bind:value={url} placeholder={t('photos.exemple.fr ou 192.168.1.10:2283')} autocomplete="url" />
         </Field>
-        {#if erreur}<Alert color="danger" title="Connexion impossible">{erreur}</Alert>{/if}
-        <Button type="submit" fullWidth loading={enCours} disabled={!url.trim()}>Continuer</Button>
+        {#if erreur}<Alert color="danger" title={t('Connexion impossible')}>{erreur}</Alert>{/if}
+        <Button type="submit" fullWidth loading={enCours} disabled={!url.trim()}>{t('Continuer')}</Button>
       </form>
     {:else}
       <form class="space-y-5" onsubmit={seConnecterAuServeur}>
         <div class="flex items-center justify-between gap-3">
           <Text size="small" color="muted" class="break-all">{modes.urlServeur}</Text>
           <button type="button" class="shrink-0 text-sm text-primary hover:underline" onclick={() => (modes = null)}>
-            Changer
+            {t('Changer')}
           </button>
         </div>
 
         {#if avecCle}
-          <Field label="Clé API" required>
+          <Field label={t('Clé API')} required>
             <PasswordInput bind:value={cle} autocomplete="off" />
           </Field>
-          <Text size="small" color="muted">À créer dans Immich : Paramètres du compte, Clés API.</Text>
+          <Text size="small" color="muted">{t('À créer dans Immich : Paramètres du compte, Clés API.')}</Text>
         {:else}
-          <Field label="Adresse e-mail" required>
+          <Field label={t('Adresse e-mail')} required>
             <Input bind:value={email} type="email" autocomplete="username" />
           </Field>
-          <Field label="Mot de passe" required>
+          <Field label={t('Mot de passe')} required>
             <PasswordInput bind:value={motDePasse} autocomplete="current-password" />
           </Field>
         {/if}
         {#if modes.oauth}
-          <Text size="small" color="muted">La connexion OAuth de ce serveur n’est pas encore prise en charge.</Text>
+          <Text size="small" color="muted">{t('La connexion OAuth de ce serveur n’est pas encore prise en charge.')}</Text>
         {/if}
 
         <label class="flex items-center justify-between gap-4">
           <span>
-            <Text>Rester connecté</Text>
+            <Text>{t('Rester connecté')}</Text>
             <Text size="small" color="muted">
               {#if portable}
-                {avecCle ? 'La clé est gardée' : 'Seul le jeton de session est gardé'} à côté de Nicéphore, chiffré par une
-                phrase de passe demandée à chaque lancement. Jamais votre mot de passe.
+                {avecCle
+                  ? t('La clé est gardée à côté de Nicéphore, chiffrée par une phrase de passe demandée à chaque lancement. Jamais votre mot de passe.')
+                  : t('Seul le jeton de session est gardé à côté de Nicéphore, chiffré par une phrase de passe demandée à chaque lancement. Jamais votre mot de passe.')}
               {:else}
-                {avecCle ? 'La clé est gardée' : 'Seul le jeton de session est gardé'} dans le trousseau du système, jamais
-                votre mot de passe.
+                {avecCle
+                  ? t('La clé est gardée dans le trousseau du système, jamais votre mot de passe.')
+                  : t('Seul le jeton de session est gardé dans le trousseau du système, jamais votre mot de passe.')}
               {/if}
             </Text>
           </span>
           <Switch bind:checked={memoriser} />
         </label>
         {#if portable && memoriser}
-          <Field label="Phrase de passe (8 caractères au moins)" required>
+          <Field label={t('Phrase de passe (8 caractères au moins)')} required>
             <PasswordInput bind:value={phrase} autocomplete="new-password" />
           </Field>
-          <Field label="La même, pour vérifier" required>
+          <Field label={t('La même, pour vérifier')} required>
             <PasswordInput bind:value={phraseBis} autocomplete="new-password" />
           </Field>
-          {#if phraseBis && phrase !== phraseBis}<Text size="small" color="danger">Les deux phrases diffèrent.</Text>{/if}
+          {#if phraseBis && phrase !== phraseBis}<Text size="small" color="danger">{t('Les deux phrases diffèrent.')}</Text>{/if}
         {/if}
-        {#if erreur}<Alert color="danger" title="Connexion impossible">{erreur}</Alert>{/if}
+        {#if erreur}<Alert color="danger" title={t('Connexion impossible')}>{erreur}</Alert>{/if}
         <Button
           type="submit"
           fullWidth
           loading={enCours}
           disabled={(avecCle ? !cle : !email || !motDePasse) || !phraseValide}
         >
-          Se connecter
+          {t('Se connecter')}
         </Button>
         {#if modes.passwordLogin}
           <button type="button" class="w-full text-center text-sm opacity-70 hover:opacity-100" onclick={() => (avecCle = !avecCle)}>
-            {avecCle ? 'Utiliser mon e-mail et mon mot de passe' : 'Utiliser une clé API à la place'}
+            {avecCle ? t('Utiliser mon e-mail et mon mot de passe') : t('Utiliser une clé API à la place')}
           </button>
         {/if}
       </form>
     {/if}
     {#if onannuler}
       <button type="button" class="w-full text-center text-sm opacity-70 hover:opacity-100" onclick={onannuler}>
-        Annuler, revenir au compte actuel
+        {t('Annuler, revenir au compte actuel')}
       </button>
     {/if}
   </div>

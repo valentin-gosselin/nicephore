@@ -4,6 +4,7 @@
   import { mdiClose } from '@mdi/js';
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
+  import { t } from './i18n.svelte';
 
   let {
     titre,
@@ -23,7 +24,7 @@
 
   onMount(() => {
     // First field of the dialog gets the focus.
-    boite.querySelector<HTMLElement>('input, textarea, button:not([aria-label="Fermer"])')?.focus();
+    boite.querySelector<HTMLElement>(`input, textarea, button:not([aria-label="${t('Fermer')}"])`)?.focus();
   });
 </script>
 
@@ -40,7 +41,7 @@
   >
     <div class="flex items-center justify-between px-5 pt-4">
       <h2 class="text-lg font-semibold">{titre}</h2>
-      <IconButton icon={mdiClose} aria-label="Fermer" variant="ghost" color="secondary" shape="round" onclick={onfermer} />
+      <IconButton icon={mdiClose} aria-label={t('Fermer')} variant="ghost" color="secondary" shape="round" onclick={onfermer} />
     </div>
     <div class="min-h-0 overflow-y-auto px-5 pb-5 pt-2">
       {@render children()}

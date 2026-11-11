@@ -38,6 +38,25 @@ async function cliquer(libelle: string) {
   return !!b;
 }
 
+/** Types digits into a date or time segment of Immich, as on a keyboard. */
+async function taperSegment(segment: HTMLElement | null, chiffres: string) {
+  if (!segment) return;
+  segment.focus();
+  for (const c of chiffres) {
+    segment.dispatchEvent(new KeyboardEvent('keydown', { key: c, code: `Digit${c}`, bubbles: true, cancelable: true }));
+    await attendre(40);
+  }
+}
+
+/** Types a "YYYY-MM-DD" date into the Immich date field named `groupe`. */
+async function taperDate(groupe: string, date: string) {
+  const segment = (type: string) => element<HTMLElement>(`[role="dialog"] [aria-label="${groupe}"] [data-segment="${type}"]`);
+  const [annee, mois, jour] = date.split('-');
+  await taperSegment(await segment('day'), jour);
+  await taperSegment(await segment('month'), mois);
+  await taperSegment(await segment('year'), annee);
+}
+
 /** Types into a field bound with Svelte (`bind:value` listens to input). */
 function saisir(champ: HTMLInputElement | null, texte: string) {
   if (!champ) return;
@@ -85,6 +104,20 @@ export async function lancerScenarioEcriture() {
 
     // 2. Open it from the Albums page.
     await aller('/albums');
+    // Menus of Immich, not of the system: the sort menu opens and sorts.
+    await verifier('aucune liste déroulante du système', document.querySelectorAll('select').length === 0);
+    const tri = await element<HTMLButtonElement>('[data-select-trigger]');
+    tri?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+    const choixTri = await element<HTMLElement>('[role="option"]', (o) => (o.textContent ?? '').includes('Nom, de A à Z'));
+    await capture('e1b-menu-tri');
+    choixTri?.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }));
+    choixTri?.click();
+    await attendre(500);
+    await verifier(
+      'menu de tri façon Immich',
+      localStorage.getItem('nicephore-tri-albums') === 'az' && (tri?.textContent ?? '').includes('Nom, de A à Z'),
+      `${localStorage.getItem('nicephore-tri-albums')} ${tri?.textContent?.trim() ?? 'pas de menu'}`,
+    );
     const carte = await element<HTMLAnchorElement>('a.album', (a) => (a.textContent ?? '').includes(nomAlbum));
     carte?.click();
     await attendre(2500);
@@ -203,8 +236,12 @@ export async function lancerScenarioEcriture() {
     await attendre(2000);
     await verifier('tag retiré', !panneau().includes('Retirer le tag Banc') && !document.querySelector('[aria-label="Retirer le tag Banc"]'));
     (await element<HTMLButtonElement>('.visionneuse .panneau .modifiable'))?.click();
-    const champDate = await element<HTMLInputElement>('[role="dialog"] input[type="datetime-local"]');
-    saisir(champDate, '2020-06-15T14:30');
+    await verifier('date et heure façon Immich', !document.querySelector('[role="dialog"] input[type="datetime-local"]'));
+    const segment = (groupe: string, type: string) => element<HTMLElement>(`[role="dialog"] [aria-label="${groupe}"] [data-segment="${type}"]`);
+    await taperDate('Date', '2020-06-15');
+    await taperSegment(await segment('Heure', 'hour'), '14');
+    await taperSegment(await segment('Heure', 'minute'), '30');
+    await capture('e4b-date');
     (await element<HTMLButtonElement>('[role="dialog"] button[type="submit"]'))?.click();
     await attendre(3500);
     await verifier('date modifiée', panneau().includes('15 juin 2020'), panneau().slice(0, 160));
@@ -263,12 +300,18 @@ export async function lancerScenarioEcriture() {
       // server received by year and month.
       await aller('/synchro');
       (await element<HTMLButtonElement>('button', (b) => b.textContent?.includes('Ajouter un dossier') ?? false))?.click();
+      await element('input[name="sens"]');
+      await verifier(
+        'types de synchro nommés court',
+        ['Sauvegarde', 'Copie locale', 'Fichiers virtuels', 'Synchro complète'].every((t) => page().includes(t)),
+      );
+      await capture('e11-types-synchro');
       (await element<HTMLInputElement>('input[name="sens"][value="descendante"]'))?.click();
       await attendre(300);
       (await element<HTMLInputElement>('input[name="quoi"][value="periode"]'))?.click();
       await attendre(300);
-      saisir(await element<HTMLInputElement>('input[aria-label="Du"]'), '2025-02-01');
-      saisir(await element<HTMLInputElement>('input[aria-label="Au"]'), '2025-02-28');
+      await taperDate('Du', '2025-02-01');
+      await taperDate('Au', '2025-02-28');
       await attendre(2500);
       const boite = () => document.querySelector('[role="dialog"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
       await verifier('estimation de la réception dans la boîte', /\d+ photos? .* à recevoir/.test(boite()), boite().slice(0, 200));
@@ -445,6 +488,79 @@ export async function lancerScenarioEcriture() {
     await verifier('réduction acceptée', reduite);
     await invoke('montrer_fenetre');
     await attendre(800);
+
+    {
+      // 15. Sidebar like Immich: recent albums under "Albums", storage, server.
+      await aller('/');
+      await attendre(1500);
+      const barre = () => document.querySelector('nav[aria-label="Navigation principale"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      await verifier('albums récents sous « Albums »', !!document.querySelector('nav .albums-recents a[href^="/album?id="]'), barre().slice(0, 200));
+      await verifier('stockage du serveur', /Stockage .* sur .* utilisé/.test(barre()), barre().slice(-160));
+      await verifier('serveur en ligne et sa version', /Serveur en ligne v\d+\.\d+\.\d+/.test(barre()), barre().slice(-80));
+      await capture('e10-barre-laterale');
+
+      // 16. Search panel of the Immich web app, then the chips of the results.
+      const champ = await element<HTMLInputElement>('input[aria-label="Rechercher"]');
+      champ?.focus();
+      champ?.click();
+      await attendre(500);
+      const panneau = () => document.getElementById('panneau-recherche');
+      const texte = () => panneau()?.textContent?.replace(/\s+/g, ' ') ?? '';
+      await verifier(
+        'panneau de recherche façon Immich',
+        ['Filtrer par', 'Rechercher par type', 'Personnes', 'Date', 'Lieux', 'Média', 'Filtres avancés', 'Effacer tout', 'Contexte'].every((t) => texte().includes(t)),
+        texte().slice(0, 200),
+      );
+      const avancesOuverts = () => !panneau()?.querySelector('[inert]');
+      await verifier('par défaut, filtres avancés repliés comme Immich', !avancesOuverts());
+      const pastilles = () => [...(panneau()?.querySelectorAll('button') ?? [])].map((b) => (b.textContent ?? '').trim());
+      await verifier('« Étiquettes » masqué quand le compte les désactive', !pastilles().includes('Étiquettes'), pastilles().join(' | '));
+      await capture('e10b-panneau-defaut');
+      const bouton = (libelle: string) =>
+        element<HTMLButtonElement>('#panneau-recherche button', (b) => (b.textContent ?? '').trim() === libelle);
+      (await bouton('Lieux'))?.click();
+      await attendre(500);
+      const pays = await element<HTMLInputElement>('#panneau-recherche [data-libelle="Pays"] input');
+      pays?.focus();
+      await attendre(600);
+      const liste = document.querySelector<HTMLElement>('#panneau-recherche [data-libelle="Pays"] [role="listbox"]');
+      const r = liste?.getBoundingClientRect();
+      const visible = !!r && r.height > 0 && document.elementFromPoint(r.left + r.width / 2, r.bottom - 4)?.closest('[role="listbox"]') === liste;
+      await verifier('liste des pays entière, non rognée par le panneau', visible && getComputedStyle(liste!).position === 'fixed', r ? `${Math.round(r.top)}-${Math.round(r.bottom)}` : 'pas de liste');
+      await capture('e10c-liste-pays');
+      // A click on the panel's text: the panel stays open, the list closes.
+      const textePanneau = panneau()?.querySelector('p, span') as HTMLElement | null;
+      textePanneau?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      (panneau()?.closest('[tabindex="-1"]') as HTMLElement | null)?.focus();
+      await attendre(400);
+      await verifier('un clic dans le panneau le laisse ouvert', !!panneau() && !document.querySelector('[data-libelle="Pays"] [role="listbox"]'));
+      (await bouton('Média'))?.click();
+      await attendre(300);
+      (await bouton('Image'))?.click();
+      await attendre(300);
+      (await bouton('Filtres avancés'))?.click();
+      await attendre(800);
+      await verifier('filtres avancés dépliés : appareil photo et bibliothèque', avancesOuverts() && ['Appareil photo', 'Marque', 'Modèle d\'objectif', 'Pas dans un album'].every((t) => texte().includes(t)));
+      const marques = await invoke<string[]>('suggestions_recherche', { genre: 'marque' }).then(
+        (v) => v,
+        () => null,
+      );
+      await verifier('suggestions du serveur (marques)', Array.isArray(marques), JSON.stringify(marques));
+      (await bouton('Favoris'))?.click();
+      await attendre(300);
+      await capture('e11-panneau-recherche');
+      (await bouton('Recherche'))?.click();
+      await attendre(2000);
+      const puces = () => [...document.querySelectorAll('.puce')].map((p) => p.getAttribute('data-cle'));
+      await verifier('recherche lancée avec les filtres', location.pathname === '/recherche' && location.search.includes('type=image') && location.search.includes('favoris=1'), location.search);
+      await verifier('puces des filtres façon Immich', puces().includes('type') && puces().includes('favoris'), puces().join(','));
+      await verifier('panneau refermé après la recherche', !panneau());
+      await capture('e12-puces-recherche');
+      (await element<HTMLButtonElement>('.puce[data-cle="favoris"] button'))?.click();
+      await attendre(1500);
+      await verifier('retirer une puce retire le filtre', !location.search.includes('favoris') && puces().join(',') === 'type', location.search);
+
+    }
 
     await journal(`scénario terminé : ${reussites} réussites, ${echecs} échecs`);
   } catch (e) {

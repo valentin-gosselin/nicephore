@@ -305,6 +305,8 @@ pub enum ModeRecherche {
     Description,
     /// Text read in the images (OCR).
     Texte,
+    /// Path of the original file on the server.
+    Chemin,
 }
 
 /// Search text and filters, all optional.
@@ -333,6 +335,59 @@ pub struct CriteresRecherche {
     pub favoris: bool,
     #[serde(default)]
     pub archive: bool,
+    /// Region (state) of the place.
+    #[serde(default)]
+    pub region: Option<String>,
+    /// Camera make, model and lens.
+    #[serde(default)]
+    pub marque: Option<String>,
+    #[serde(default)]
+    pub modele: Option<String>,
+    #[serde(default)]
+    pub objectif: Option<String>,
+    #[serde(default)]
+    pub pas_dans_album: bool,
+    /// Star rating, 1 to 5.
+    #[serde(default)]
+    pub note: Option<u8>,
+    #[serde(default)]
+    pub etiquettes: Vec<String>,
+}
+
+/// What `GET /search/suggestions` lists.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum GenreSuggestion {
+    Pays,
+    Region,
+    Ville,
+    Marque,
+    Modele,
+    Objectif,
+}
+
+/// Search filters the Immich web app offers to this user: tags and ratings
+/// follow the user's preferences, context and OCR the server's features.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OptionsRecherche {
+    pub etiquettes: bool,
+    pub notes: bool,
+    pub contexte: bool,
+    pub ocr: bool,
+}
+
+/// Storage and version shown at the bottom of the sidebar.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InfosServeur {
+    pub version: String,
+    /// Bytes used and available: the user's quota when they have one, the
+    /// server disk otherwise (as the Immich web app does).
+    pub utilise: u64,
+    pub total: u64,
+    /// Newer Immich release known to the server, if any (admins only).
+    pub nouvelle_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

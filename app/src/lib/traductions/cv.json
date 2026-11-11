@@ -1,0 +1,23 @@
+{
+  "Ajouter": "Хуш",
+  "Ajouter un lieu": "Вырӑн хуш",
+  "Ajouter un tag": "Тег хуш",
+  "Ajouter une description": "Ҫырса кӑтартни хуш",
+  "Ajouter à un album": "Альбома хуш",
+  "Ajouté aux favoris": "Суйласа илнине хушнӑ",
+  "Albums": "Албумсем",
+  "Carte": "Карттӑ",
+  "Compte": "Шута ҫырни",
+  "Explorer": "Тишкер",
+  "Favori": "Юратнӑ",
+  "Favoris": "Юратнисем",
+  "Les favoris": "Юратнисем",
+  "Lieu": "Тӗл",
+  "Lieux": "Тӗлсем",
+  "Mise en favori": "Суйласа илнине хушнӑ",
+  "Photos": "Сӑнӳкерчӗксем",
+  "Rechercher vos photos": "Сӑнӳкерчӗксене шырӑр",
+  "{n} élément ajouté aux favoris|{n} éléments ajoutés aux favoris": "Суйласа илнине {n, number} хушнӑ",
+  "À propos": "Ҫинчен",
+  "_immichUi": {}
+}

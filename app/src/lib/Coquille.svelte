@@ -4,13 +4,14 @@
   import { LoadingSpinner, Text } from '@immich/ui';
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
-  import { mdiArrowLeft, mdiArrowRight, mdiMagnify } from '@mdi/js';
+  import { mdiArrowLeft, mdiArrowRight } from '@mdi/js';
   import { IconButton } from '@immich/ui';
   import { afterNavigate, goto } from '$app/navigation';
   import { avance, historique, noterNavigation, retour } from './navigation.svelte';
   import { page } from '$app/state';
-  import { lireCriteres, nomsPersonnes, urlRecherche } from './criteres-url';
+  import { t } from './i18n.svelte';
   import BarreLaterale from './BarreLaterale.svelte';
+  import BarreRecherche from './BarreRecherche.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -24,20 +25,7 @@
 
   let { children }: { children: Snippet } = $props();
 
-  let champRecherche = $state<HTMLInputElement>();
-  let texteRecherche = $state('');
-
-  // Keep the field in sync with the search being shown.
-  $effect(() => {
-    if (page.url.pathname === '/recherche') texteRecherche = page.url.searchParams.get('texte') ?? '';
-  });
-
-  function chercher(e: SubmitEvent) {
-    e.preventDefault();
-    const criteres = page.url.pathname === '/recherche' ? lireCriteres(page.url.searchParams) : {};
-    void goto(urlRecherche({ ...criteres, texte: texteRecherche }, nomsPersonnes(page.url.searchParams)));
-    champRecherche?.blur();
-  }
+  let barreRecherche = $state<BarreRecherche>();
 
   afterNavigate((navigation) =>
     noterNavigation(navigation.type, navigation.type === 'popstate' ? navigation.delta : undefined),
@@ -58,8 +46,7 @@
     }
     if ((e.ctrlKey && e.key.toLowerCase() === 'k') || (e.key === '/' && !(e.target instanceof HTMLInputElement))) {
       e.preventDefault();
-      champRecherche?.focus();
-      champRecherche?.select();
+      barreRecherche?.focaliser();
     }
   }
 
@@ -127,11 +114,17 @@
   {:else if session.connexion}
     <!-- The header is the title bar: empty areas move the window, a double
          click maximizes it. -->
-    <header class="flex h-14 shrink-0 items-center gap-3 border-b border-gray-200 px-3 dark:border-gray-800" data-tauri-drag-region>
+    <!-- Laid out like the Immich web navbar: a first column as wide as the
+         sidebar, then the search bar (up to 64rem), then the account. -->
+    <header
+      class="barre-navigation flex shrink-0 items-center border-b border-gray-200 py-2 pe-3 dark:border-gray-800"
+      data-tauri-drag-region
+    >
+      <div class="flex shrink-0 items-center gap-3 ps-3 {repliee ? 'pe-3' : 'w-64'}" data-tauri-drag-region>
       <div class="flex">
         <IconButton
           icon={mdiArrowLeft}
-          aria-label="Retour (Alt+←)"
+          aria-label={t('Retour (Alt+←)')}
           variant="ghost"
           color="secondary"
           shape="round"
@@ -140,7 +133,7 @@
         />
         <IconButton
           icon={mdiArrowRight}
-          aria-label="Avancer (Alt+→)"
+          aria-label={t('Avancer (Alt+→)')}
           variant="ghost"
           color="secondary"
           shape="round"
@@ -149,24 +142,19 @@
         />
       </div>
       <img src="/icone.svg" alt="" class="pointer-events-none h-7 w-7" />
-      <span class="pointer-events-none select-none text-lg font-semibold tracking-tight">Nicéphore</span>
-      <span class="h-full flex-1" data-tauri-drag-region></span>
-      <form class="recherche flex w-full max-w-xl items-center" role="search" onsubmit={chercher}>
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" class="loupe"><path fill="currentColor" d={mdiMagnify} /></svg>
-        <input
-          bind:this={champRecherche}
-          bind:value={texteRecherche}
-          type="search"
-          placeholder="Rechercher dans vos photos (Ctrl+K)"
-          aria-label="Rechercher"
-        />
-      </form>
+      {#if !repliee}<span class="pointer-events-none select-none text-lg font-semibold tracking-tight">Nicéphore</span>{/if}
+      </div>
+      <!-- The search takes the free width up to 64rem; only what is left
+           beyond goes to the drag area. -->
+      <div class="min-w-0 max-w-5xl" style:flex="1000 1 0%">
+        <BarreRecherche bind:this={barreRecherche} />
+      </div>
       {#if versionDisponible}
-        <a href="/reglages" class="nouvelle shrink-0 rounded-full px-3 py-1 text-xs font-medium" onclick={() => (versionDisponible = null)}>
-          Nicéphore {versionDisponible} disponible
+        <a href="/reglages" class="nouvelle ms-4 shrink-0 rounded-full px-3 py-1 text-xs font-medium" onclick={() => (versionDisponible = null)}>
+          {t('Nicéphore {version} disponible', { version: versionDisponible })}
         </a>
       {/if}
-      <span class="h-full flex-1" data-tauri-drag-region></span>
+      <span class="h-full min-w-6 flex-1" data-tauri-drag-region></span>
       <MenuCompte connexion={session.connexion} />
       <span class="mx-1 h-6 w-px bg-gray-300 dark:bg-gray-700"></span>
       <BoutonsFenetre />
@@ -195,30 +183,12 @@
 <Notifications />
 
 <style>
+  /* Height of the Immich web navbar. */
+  .barre-navigation {
+    height: calc(4.5rem + 4px);
+  }
   .nouvelle {
     color: var(--immich-ui-primary-500);
     background: color-mix(in oklab, var(--immich-ui-primary-500) 14%, transparent);
-  }
-  .recherche {
-    position: relative;
-  }
-  .recherche .loupe {
-    position: absolute;
-    left: 12px;
-    opacity: 0.55;
-    pointer-events: none;
-  }
-  .recherche input {
-    width: 100%;
-    border-radius: 9999px;
-    padding: 7px 16px 7px 40px;
-    font-size: 14px;
-    background: color-mix(in oklab, currentColor 7%, transparent);
-    border: 1px solid transparent;
-    outline: none;
-  }
-  .recherche input:focus {
-    border-color: var(--immich-ui-primary-500);
-    background: transparent;
   }
 </style>

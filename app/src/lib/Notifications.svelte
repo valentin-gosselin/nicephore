@@ -1,10 +1,11 @@
 <script lang="ts">
   import { Icon } from '@immich/ui';
   import { mdiClose } from '@mdi/js';
+  import { t } from './i18n.svelte';
   import { notifications, retirer } from './notifications.svelte';
 </script>
 
-<div class="pointer-events-none fixed bottom-5 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2">
+<div class="pointer-events-none fixed bottom-5 left-1/2 z-[1000] flex -translate-x-1/2 flex-col items-center gap-2">
   {#each notifications as n (n.id)}
     <div
       class="pointer-events-auto flex max-w-[640px] items-center gap-4 rounded-xl px-4 py-3 text-sm shadow-lg"
@@ -25,7 +26,7 @@
           {n.action.libelle}
         </button>
       {/if}
-      <button class="shrink-0 opacity-60 hover:opacity-100" aria-label="Fermer" onclick={() => retirer(n.id)}>
+      <button class="shrink-0 opacity-60 hover:opacity-100" aria-label={t('Fermer')} onclick={() => retirer(n.id)}>
         <Icon icon={mdiClose} size="16" />
       </button>
     </div>

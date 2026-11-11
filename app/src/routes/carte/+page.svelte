@@ -10,6 +10,7 @@
   import { onMount, tick } from 'svelte';
   import { assetsParIds, marqueurs as chargerMarqueurs, stylesCarte, type Marqueur, type StylesCarte } from '../../lib/api';
   import Chronologie from '../../lib/Chronologie.svelte';
+  import { locale, t, tp } from '../../lib/i18n.svelte';
   import { ChronologieListe } from '../../lib/modele-liste.svelte';
   import { theme } from '../../lib/theme.svelte';
   import type { Vue } from '../../lib/vues';
@@ -81,7 +82,8 @@
   }
 
   async function montrer(ids: string[], ville: string) {
-    const titre = `${ids.length}${ids.length >= MAX_SELECTION ? '+' : ''} photo${ids.length > 1 ? 's' : ''}${ville ? ` · ${ville}` : ''}`;
+    const plus = ids.length >= MAX_SELECTION ? '+' : '';
+    const titre = `${tp(ids.length, '{n}{plus} photo', '{n}{plus} photos', { plus })}${ville ? ` · ${ville}` : ''}`;
     selection = { cle: ++numero, ids, titre };
     await tick();
     carte?.resize();
@@ -100,7 +102,7 @@
     });
   }
 
-  const vue = (titre: string): Vue => ({ id: 'carte', titre, chemin: '/carte', filtre: {}, vide: 'Aucune photo ici.' });
+  const vue = (titre: string): Vue => ({ id: 'carte', titre, chemin: '/carte', filtre: {}, vide: t('Aucune photo ici.') });
 
   // Follow the light/dark theme.
   $effect(() => {
@@ -171,7 +173,7 @@
   });
 </script>
 
-<svelte:head><title>Carte · Nicéphore</title></svelte:head>
+<svelte:head><title>{t('Carte')} · Nicéphore</title></svelte:head>
 
 <div class="flex h-full">
   <div class="relative min-w-0 flex-1">
@@ -182,17 +184,17 @@
       <div class="absolute inset-0 flex items-center justify-center"><LoadingSpinner size="giant" /></div>
     {/if}
     {#if erreur}
-      <div class="absolute inset-x-0 top-0 p-4"><Text color="danger">Carte indisponible : {erreur}</Text></div>
+      <div class="absolute inset-x-0 top-0 p-4"><Text color="danger">{t('Carte indisponible : {erreur}', { erreur })}</Text></div>
     {:else if !chargement}
       <div class="compteur absolute bottom-3 left-3 rounded-full px-3 py-1 text-xs">
-        {nombre.toLocaleString('fr-FR')} photos géolocalisées
+        {t('{n} photos géolocalisées', { n: nombre.toLocaleString(locale()) })}
       </div>
     {/if}
   </div>
   {#if selection}
     <aside class="panneau flex w-[440px] shrink-0 flex-col border-l border-gray-200 dark:border-gray-800">
       <div class="flex justify-end px-2 pt-2">
-        <IconButton icon={mdiClose} aria-label="Fermer la sélection" variant="ghost" color="secondary" shape="round" onclick={fermerSelection} />
+        <IconButton icon={mdiClose} aria-label={t('Fermer la sélection')} variant="ghost" color="secondary" shape="round" onclick={fermerSelection} />
       </div>
       <div class="min-h-0 flex-1">
         {#key selection.cle}

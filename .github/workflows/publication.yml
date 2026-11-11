@@ -49,6 +49,11 @@ jobs:
         working-directory: app
         run: npm ci
 
+      # Each version ships the latest Immich community translations.
+      - name: Traductions de la communauté Immich
+        working-directory: app
+        run: npm run traductions
+
       - name: Construction et brouillon de version
         id: tauri
         uses: tauri-apps/tauri-action@v0

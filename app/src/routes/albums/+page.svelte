@@ -1,22 +1,23 @@
 <script lang="ts">
   // Albums: the user's own, then those shared with them, sortable and
   // filterable, with a button to create one.
-  import { Button, Heading, Input, LoadingSpinner, Text } from '@immich/ui';
+  import { Button, Heading, Input, LoadingSpinner, Select, Text } from '@immich/ui';
   // (Input is used in the creation dialog.)
   import { mdiPlus } from '@mdi/js';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { albums as chargerAlbums, creerAlbum, urlImage, type Album } from '../../lib/api';
   import Dialogue from '../../lib/Dialogue.svelte';
+  import { locale, t, tp } from '../../lib/i18n.svelte';
   import { notifier } from '../../lib/notifications.svelte';
 
   type Tri = 'recent' | 'az' | 'za' | 'dates';
-  const TRIS: { valeur: Tri; libelle: string }[] = [
+  const TRIS = $derived<{ valeur: Tri; libelle: string }[]>([
     { valeur: 'recent', libelle: 'Modifiés récemment' },
     { valeur: 'dates', libelle: 'Date des photos' },
     { valeur: 'az', libelle: 'Nom, de A à Z' },
     { valeur: 'za', libelle: 'Nom, de Z à A' },
-  ];
+  ].map((e) => ({ valeur: e.valeur as Tri, libelle: t(e.libelle) })));
 
   let liste = $state<Album[] | null>(null);
   let erreur = $state<string | null>(null);
@@ -39,9 +40,9 @@
   function trier(a: Album, b: Album) {
     switch (tri) {
       case 'az':
-        return a.albumName.localeCompare(b.albumName, 'fr', { sensitivity: 'base' });
+        return a.albumName.localeCompare(b.albumName, locale(), { sensitivity: 'base' });
       case 'za':
-        return b.albumName.localeCompare(a.albumName, 'fr', { sensitivity: 'base' });
+        return b.albumName.localeCompare(a.albumName, locale(), { sensitivity: 'base' });
       case 'dates':
         return (b.endDate ?? '').localeCompare(a.endDate ?? '');
       default:
@@ -53,12 +54,13 @@
   const miens = $derived(visibles.filter((a) => a.possede));
   const partages = $derived(visibles.filter((a) => !a.possede));
 
-  const mois = new Intl.DateTimeFormat('fr-FR', { month: 'short', year: 'numeric' });
+  const mois = () => new Intl.DateTimeFormat(locale(), { month: 'short', year: 'numeric' });
   function periode(a: Album) {
     if (!a.startDate || !a.endDate) return '';
-    const debut = mois.format(new Date(a.startDate));
-    const fin = mois.format(new Date(a.endDate));
-    return debut === fin ? debut : `${debut} à ${fin}`;
+    const format = mois();
+    const debut = format.format(new Date(a.startDate));
+    const fin = format.format(new Date(a.endDate));
+    return debut === fin ? debut : t('{debut} à {fin}', { debut, fin });
   }
 
   async function creer(e: SubmitEvent) {
@@ -68,7 +70,7 @@
       creation = false;
       void goto(`/album?id=${album.id}`);
     } catch (raison) {
-      notifier(`Création impossible : ${raison}`, 'erreur');
+      notifier(t('Création impossible : {raison}', { raison: String(raison) }), 'erreur');
     }
   }
 
@@ -90,38 +92,38 @@
         </span>
         <span class="mt-2 block truncate font-medium">{a.albumName}</span>
         <span class="block text-xs opacity-60">
-          {a.assetCount.toLocaleString('fr-FR')} élément{a.assetCount > 1 ? 's' : ''}{periode(a) ? ` · ${periode(a)}` : ''}{a.shared ? ' · partagé' : ''}
+          {tp(a.assetCount, '{n} élément', '{n} éléments')}{periode(a) ? ` · ${periode(a)}` : ''}{a.shared ? ` · ${t('partagé')}` : ''}
         </span>
       </a>
     {/each}
   </div>
 {/snippet}
 
-<svelte:head><title>Albums · Nicéphore</title></svelte:head>
+<svelte:head><title>{t('Albums')} · Nicéphore</title></svelte:head>
 
 <div class="h-full overflow-y-auto">
   <div class="space-y-8 p-6">
     <div class="flex flex-wrap items-center gap-3">
-      <Heading size="small">Albums</Heading>
+      <Heading size="small">{t('Albums')}</Heading>
       {#if liste}<Text size="small" color="muted">{liste.length}</Text>{/if}
       <span class="flex-1"></span>
-      <input class="tri w-56" type="search" bind:value={filtre} placeholder="Filtrer les albums" aria-label="Filtrer les albums" />
-      <select
-        class="tri"
-        aria-label="Tri des albums"
+      <input class="tri w-56" type="search" bind:value={filtre} placeholder={t('Filtrer les albums')} aria-label={t('Filtrer les albums')} />
+      <Select
+        class="w-56"
+        size="tiny"
+        title={t('Tri des albums')}
+        options={TRIS.map((o) => ({ value: o.valeur, label: o.libelle }))}
         value={tri}
-        onchange={(e) => {
-          tri = e.currentTarget.value as Tri;
+        onChange={(valeur) => {
+          tri = valeur;
           try {
             localStorage.setItem('nicephore-tri-albums', tri);
           } catch {
             // Only a convenience.
           }
         }}
-      >
-        {#each TRIS as t (t.valeur)}<option value={t.valeur}>{t.libelle}</option>{/each}
-      </select>
-      <Button leadingIcon={mdiPlus} onclick={() => ((nom = ''), (description = ''), (creation = true))}>Nouvel album</Button>
+      />
+      <Button leadingIcon={mdiPlus} onclick={() => ((nom = ''), (description = ''), (creation = true))}>{t('Nouvel album')}</Button>
     </div>
 
     {#if erreur}
@@ -129,11 +131,11 @@
     {:else if !liste}
       <LoadingSpinner />
     {:else if liste.length === 0}
-      <Text color="muted">Aucun album pour l’instant. Sélectionnez des photos puis « Ajouter à un album », ou créez-en un ici.</Text>
+      <Text color="muted">{t('Aucun album pour l’instant. Sélectionnez des photos puis « Ajouter à un album », ou créez-en un ici.')}</Text>
     {:else}
       {@render grille(miens)}
       {#if partages.length}
-        <Heading size="small">Partagés avec moi</Heading>
+        <Heading size="small">{t('Partagés avec moi')}</Heading>
         {@render grille(partages)}
       {/if}
     {/if}
@@ -141,11 +143,11 @@
 </div>
 
 {#if creation}
-  <Dialogue titre="Nouvel album" onfermer={() => (creation = false)}>
+  <Dialogue titre={t('Nouvel album')} onfermer={() => (creation = false)}>
     <form class="space-y-3" onsubmit={creer}>
-      <Input bind:value={nom} placeholder="Nom de l’album" />
-      <textarea bind:value={description} placeholder="Description (facultative)" rows="3" class="zone"></textarea>
-      <Button type="submit" fullWidth disabled={!nom.trim()}>Créer l’album</Button>
+      <Input bind:value={nom} placeholder={t('Nom de l’album')} />
+      <textarea bind:value={description} placeholder={t('Description (facultative)')} rows="3" class="zone"></textarea>
+      <Button type="submit" fullWidth disabled={!nom.trim()}>{t('Créer l’album')}</Button>
     </form>
   </Dialogue>
 {/if}

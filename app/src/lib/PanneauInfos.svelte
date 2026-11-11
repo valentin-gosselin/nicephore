@@ -9,6 +9,7 @@
   import DialogueDate from './DialogueDate.svelte';
   import DialogueLieu from './DialogueLieu.svelte';
   import DialogueTag from './DialogueTag.svelte';
+  import { locale, t, tp } from './i18n.svelte';
   import { notifier } from './notifications.svelte';
   import TexteModifiable from './TexteModifiable.svelte';
 
@@ -51,7 +52,7 @@
   );
   const lieu = $derived([exif.city, exif.state, exif.country].filter(Boolean).join(', '));
   const taille = $derived(
-    exif.fileSizeInByte ? `${(exif.fileSizeInByte / 1_048_576).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo` : '',
+    exif.fileSizeInByte ? t('{taille} Mo', { taille: (exif.fileSizeInByte / 1_048_576).toLocaleString(locale(), { maximumFractionDigits: 1 }) }) : '',
   );
   const dimensions = $derived(exif.exifImageWidth ? `${exif.exifImageWidth} × ${exif.exifImageHeight}` : '');
   type Visage = { id: string; name: string; isHidden: boolean; updatedAt?: string };
@@ -63,7 +64,7 @@
     onquitter?.();
     void goto(`/personne?id=${p.id}&nom=${encodeURIComponent(p.name)}`);
   }
-  const tags = $derived(((infos?.tags ?? []) as { id: string; value: string }[]).map((t) => t.value));
+  const tags = $derived(((infos?.tags ?? []) as { id: string; value: string }[]).map((tag) => tag.value));
   const note = $derived<number>(exif.rating ?? 0);
 
   async function modifier(modification: ModificationInfos, message: string) {
@@ -76,7 +77,7 @@
       await charger(demande);
       if (modification.date !== undefined || modification.latitude !== undefined) setTimeout(() => charger(demande), 1500);
     } catch (e) {
-      notifier(`Modification impossible : ${e}`, 'erreur');
+      notifier(t('Modification impossible : {e}', { e: String(e) }), 'erreur');
     }
   }
 
@@ -84,10 +85,10 @@
     const demande = id;
     try {
       await etiqueter(nom, [demande], retirer);
-      notifier(retirer ? `Tag « ${nom} » retiré` : `Tag « ${nom} » ajouté`, 'succes');
+      notifier(retirer ? t('Tag « {nom} » retiré', { nom }) : t('Tag « {nom} » ajouté', { nom }), 'succes');
       await charger(demande);
     } catch (e) {
-      notifier(`Tag impossible : ${e}`, 'erreur');
+      notifier(t('Tag impossible : {e}', { e: String(e) }), 'erreur');
     }
   }
 </script>
@@ -97,7 +98,7 @@
 {/snippet}
 
 <aside class="panneau h-full w-80 shrink-0 overflow-y-auto bg-gray-950 p-5 text-sm">
-  <h2 class="mb-4 text-base font-semibold">Infos</h2>
+  <h2 class="mb-4 text-base font-semibold">{t('Infos')}</h2>
   {#if erreur}
     <p class="text-red-400">{erreur}</p>
   {:else if !infos}
@@ -107,31 +108,31 @@
       <div>
         <TexteModifiable
           valeur={exif.description ?? ''}
-          vide="Ajouter une description"
-          onvalider={(v) => modifier({ description: v }, 'Description enregistrée')}
+          vide={t('Ajouter une description')}
+          onvalider={(v) => modifier({ description: v }, t('Description enregistrée'))}
         />
       </div>
       {#if personnes.length}
         <div>
-          <dt>Personnes</dt>
+          <dt>{t('Personnes')}</dt>
           <dd class="mt-1 grid grid-cols-3 gap-x-2 gap-y-3">
             {#each personnes as p (p.id)}
               <a
                 href={`/personne?id=${p.id}`}
                 class="personne"
-                title={p.name ? `Toutes les photos de ${p.name}` : 'Personne sans nom'}
+                title={p.name ? t('Toutes les photos de {nom}', { nom: p.name }) : t('Personne sans nom')}
                 onclick={(e) => voirPersonne(e, p)}
               >
                 <img src={urlImage('personne', p.id, p.updatedAt ?? null)} alt="" loading="lazy" />
-                <span class:absent={!p.name}>{p.name || 'Sans nom'}</span>
+                <span class:absent={!p.name}>{p.name || t('Sans nom')}</span>
               </a>
             {/each}
           </dd>
         </div>
       {/if}
       <div>
-        <dt>Note</dt>
-        <dd><div class="flex gap-0.5" role="radiogroup" aria-label="Note">
+        <dt>{t('Note')}</dt>
+        <dd><div class="flex gap-0.5" role="radiogroup" aria-label={t('Note')}>
           {#each [1, 2, 3, 4, 5] as n (n)}
             <button
               type="button"
@@ -139,8 +140,8 @@
               class:allumee={n <= note}
               role="radio"
               aria-checked={n === note}
-              aria-label={`${n} étoile${n > 1 ? 's' : ''}`}
-              onclick={() => modifier({ note: n === note ? null : n }, n === note ? 'Note retirée' : `${n} étoile${n > 1 ? 's' : ''}`)}
+              aria-label={tp(n, '{n} étoile', '{n} étoiles')}
+              onclick={() => modifier({ note: n === note ? null : n }, n === note ? t('Note retirée') : tp(n, '{n} étoile', '{n} étoiles'))}
             >
               {@render icone(n <= note ? mdiStar : mdiStarOutline, 20)}
             </button>
@@ -148,7 +149,7 @@
         </div></dd>
       </div>
       <div>
-        <dt>Date</dt>
+        <dt>{t('Date')}</dt>
         <dd>
           <button type="button" class="modifiable" onclick={() => (dialogue = 'date')}>
             {date}{@render icone(mdiPencilOutline)}
@@ -156,33 +157,33 @@
         </dd>
       </div>
       <div>
-        <dt>Lieu</dt>
+        <dt>{t('Lieu')}</dt>
         <dd>
           <button type="button" class="modifiable" class:absent={!lieu} onclick={() => (dialogue = 'lieu')}>
-            {lieu || 'Ajouter un lieu'}{@render icone(mdiPencilOutline)}
+            {lieu || t('Ajouter un lieu')}{@render icone(mdiPencilOutline)}
           </button>
         </dd>
       </div>
       <div>
-        <dt>Tags</dt>
+        <dt>{t('Tags')}</dt>
         <dd class="flex flex-wrap gap-1.5">
-          {#each tags as t (t)}
+          {#each tags as tag (tag)}
             <span class="tag">
-              {t}
-              <button type="button" aria-label={`Retirer le tag ${t}`} onclick={() => changerTag(t, true)}>{@render icone(mdiClose, 14)}</button>
+              {tag}
+              <button type="button" aria-label={t('Retirer le tag {tag}', { tag })} onclick={() => changerTag(tag, true)}>{@render icone(mdiClose, 14)}</button>
             </span>
           {/each}
-          <button type="button" class="tag ajout" onclick={() => (dialogue = 'tag')}>{@render icone(mdiPlus, 14)} Tag</button>
+          <button type="button" class="tag ajout" onclick={() => (dialogue = 'tag')}>{@render icone(mdiPlus, 14)} {t('Tag')}</button>
         </dd>
       </div>
       <div>
-        <dt>Fichier</dt>
+        <dt>{t('Fichier')}</dt>
         <dd class="break-all">{infos.originalFileName}</dd>
         <dd class="opacity-70">{[dimensions, taille].filter(Boolean).join(' · ')}</dd>
       </div>
       {#if appareil}
         <div>
-          <dt>Appareil</dt>
+          <dt>{t('Appareil')}</dt>
           <dd>{appareil}</dd>
           {#if exif.lensModel}<dd class="opacity-70">{exif.lensModel}</dd>{/if}
           {#if reglages}<dd class="opacity-70">{reglages}</dd>{/if}
@@ -199,7 +200,7 @@
     fuseauInitial={exif.timeZone ?? null}
     onvalider={(d, f) => {
       dialogue = null;
-      void modifier({ date: d, fuseau: f }, 'Date enregistrée');
+      void modifier({ date: d, fuseau: f }, t('Date enregistrée'));
     }}
     onfermer={() => (dialogue = null)}
   />
@@ -210,7 +211,7 @@
     longitude={exif.longitude ?? null}
     onvalider={(lat, lon) => {
       dialogue = null;
-      void modifier({ latitude: lat, longitude: lon }, 'Lieu enregistré');
+      void modifier({ latitude: lat, longitude: lon }, t('Lieu enregistré'));
     }}
     onfermer={() => (dialogue = null)}
   />

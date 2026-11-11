@@ -8,13 +8,17 @@
     "dev": "vite dev --port 5173 --strictPort",
     "build": "vite build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "traductions": "node scripts/traductions-immich.mjs"
   },
   "dependencies": {
+    "@internationalized/date": "^3.12.4",
     "@mdi/js": "^7.4.47",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.4",
+    "luxon": "^3.7.2",
     "maplibre-gl": "^6.15.0",
+    "media-chrome": "^4.19.4",
     "thumbhash": "^0.1.1"
   },
   "devDependencies": {
@@ -24,6 +28,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tailwindcss/vite": "^4.3.5",
     "@tauri-apps/cli": "^2.12.4",
+    "@types/luxon": "^3.7.6",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",
     "tailwindcss": "^4.3.5",

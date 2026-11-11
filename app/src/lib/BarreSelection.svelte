@@ -41,6 +41,7 @@
   import DialogueLieu from './DialogueLieu.svelte';
   import DialogueTag from './DialogueTag.svelte';
   import type { Chronologie } from './modele-chronologie.svelte';
+  import { t, tp } from './i18n.svelte';
   import { notifier, remplacer } from './notifications.svelte';
   import type { Selection } from './selection.svelte';
   import type { Vue } from './vues';
@@ -51,7 +52,6 @@
   let choixAlbum = $state(false);
   let dialogue = $state<'date' | 'lieu' | 'tag' | null>(null);
   const nombre = $derived(selection.taille);
-  const pluriel = (n: number, mot: string) => `${n.toLocaleString('fr-FR')} ${mot}${n > 1 ? 's' : ''}`;
 
   /** Runs an action on the selection, then reloads the months it touched. */
   async function agir(
@@ -69,7 +69,7 @@
       if (message) notifier(message(ids.length), 'succes');
       return ids;
     } catch (e) {
-      notifier(`L’action a échoué : ${e}`, 'erreur');
+      notifier(t('L’action a échoué : {e}', { e: String(e) }), 'erreur');
       return null;
     } finally {
       enCours = false;
@@ -83,7 +83,10 @@
     const retirees = vue.id === 'favoris' && !favori;
     const fait = await agir(
       (liste) => definirFavori(liste, favori),
-      (n) => (favori ? `${pluriel(n, 'élément')} ajouté${n > 1 ? 's' : ''} aux favoris` : `${pluriel(n, 'élément')} retiré${n > 1 ? 's' : ''} des favoris`),
+      (n) =>
+        favori
+          ? tp(n, '{n} élément ajouté aux favoris', '{n} éléments ajoutés aux favoris')
+          : tp(n, '{n} élément retiré des favoris', '{n} éléments retirés des favoris'),
       retirees,
     );
     if (fait && !retirees) chrono.marquerFavoris(ids, favori);
@@ -92,21 +95,24 @@
   const archiver = (archive: boolean) =>
     agir(
       (ids) => definirArchive(ids, archive),
-      (n) => `${pluriel(n, 'élément')} ${archive ? 'archivé' : 'désarchivé'}${n > 1 ? 's' : ''}`,
+      (n) =>
+        archive
+          ? tp(n, '{n} élément archivé', '{n} éléments archivés')
+          : tp(n, '{n} élément désarchivé', '{n} éléments désarchivés'),
     );
 
   async function corbeille() {
     const ids = await agir(mettreCorbeille, null);
     if (!ids) return;
-    notifier(`${pluriel(ids.length, 'élément')} mis à la corbeille`, 'info', {
-      libelle: 'Annuler',
+    notifier(tp(ids.length, '{n} élément mis à la corbeille', '{n} éléments mis à la corbeille'), 'info', {
+      libelle: t('Annuler'),
       executer: async () => {
         try {
           await restaurerCorbeille(ids);
           await chrono.rafraichir(chrono.sections.map((_, i) => i).filter((i) => chrono.sections[i].etat === 'charge'));
-          notifier('Restauration faite', 'succes');
+          notifier(t('Restauration faite'), 'succes');
         } catch (e) {
-          notifier(`Restauration impossible : ${e}`, 'erreur');
+          notifier(t('Restauration impossible : {e}', { e: String(e) }), 'erreur');
         }
       },
     });
@@ -119,13 +125,14 @@
     try {
       const bilan = await ajouterALAlbum(album.id, ids);
       selection.vider();
-      const deja = bilan.dejaPresents ? ` (${bilan.dejaPresents} y étaient déjà)` : '';
-      notifier(`${pluriel(bilan.ajoutes, 'élément')} ajouté${bilan.ajoutes > 1 ? 's' : ''} à « ${album.albumName} »${deja}`, 'succes', {
-        libelle: 'Ouvrir',
+      const deja = bilan.dejaPresents ? t(' ({n} y étaient déjà)', { n: bilan.dejaPresents }) : '';
+      const message = tp(bilan.ajoutes, '{n} élément ajouté à « {album} »', '{n} éléments ajoutés à « {album} »', { album: album.albumName });
+      notifier(message + deja, 'succes', {
+        libelle: t('Ouvrir'),
         executer: () => void goto(`/album?id=${album.id}`),
       });
     } catch (e) {
-      notifier(`Ajout impossible : ${e}`, 'erreur');
+      notifier(t('Ajout impossible : {e}', { e: String(e) }), 'erreur');
     } finally {
       enCours = false;
     }
@@ -138,12 +145,12 @@
     try {
       const album = await creerAlbum(nom, '', ids);
       selection.vider();
-      notifier(`Album « ${album.albumName} » créé avec ${pluriel(ids.length, 'élément')}`, 'succes', {
-        libelle: 'Ouvrir',
+      notifier(tp(ids.length, 'Album « {album} » créé avec {n} élément', 'Album « {album} » créé avec {n} éléments', { album: album.albumName }), 'succes', {
+        libelle: t('Ouvrir'),
         executer: () => void goto(`/album?id=${album.id}`),
       });
     } catch (e) {
-      notifier(`Création impossible : ${e}`, 'erreur');
+      notifier(t('Création impossible : {e}', { e: String(e) }), 'erreur');
     } finally {
       enCours = false;
     }
@@ -152,7 +159,7 @@
   const retirerDeLAlbumCourant = () =>
     agir(
       (ids) => retirerDeLAlbum(vue.filtre.album!, ids),
-      (n) => `${pluriel(n, 'élément')} retiré${n > 1 ? 's' : ''} de l’album (toujours dans la photothèque)`,
+      (n) => tp(n, '{n} élément retiré de l’album (toujours dans la photothèque)', '{n} éléments retirés de l’album (toujours dans la photothèque)'),
     );
 
   async function changerDate(date: string, fuseau: string) {
@@ -162,11 +169,11 @@
     try {
       await modifierInfos(ids, { date, fuseau });
       selection.vider();
-      notifier(`Date de ${pluriel(ids.length, 'élément')} modifiée`, 'succes');
+      notifier(tp(ids.length, 'Date de {n} élément modifiée', 'Date de {n} éléments modifiée'), 'succes');
       // The photos move to another place in the timeline.
       setTimeout(() => chrono.actualiserMois().catch(() => {}), 1200);
     } catch (e) {
-      notifier(`Date impossible : ${e}`, 'erreur');
+      notifier(t('Date impossible : {e}', { e: String(e) }), 'erreur');
     } finally {
       enCours = false;
     }
@@ -179,9 +186,9 @@
     try {
       await modifierInfos(ids, { latitude, longitude });
       selection.vider();
-      notifier(`Lieu de ${pluriel(ids.length, 'élément')} enregistré`, 'succes');
+      notifier(tp(ids.length, 'Lieu de {n} élément enregistré', 'Lieu de {n} éléments enregistré'), 'succes');
     } catch (e) {
-      notifier(`Lieu impossible : ${e}`, 'erreur');
+      notifier(t('Lieu impossible : {e}', { e: String(e) }), 'erreur');
     } finally {
       enCours = false;
     }
@@ -194,27 +201,27 @@
     try {
       await etiqueter(nom, ids);
       selection.vider();
-      notifier(`Tag « ${nom} » ajouté à ${pluriel(ids.length, 'élément')}`, 'succes');
+      notifier(tp(ids.length, 'Tag « {nom} » ajouté à {n} élément', 'Tag « {nom} » ajouté à {n} éléments', { nom }), 'succes');
     } catch (e) {
-      notifier(`Tag impossible : ${e}`, 'erreur');
+      notifier(t('Tag impossible : {e}', { e: String(e) }), 'erreur');
     } finally {
       enCours = false;
     }
   }
 
-  const restaurer = () => agir(restaurerCorbeille, (n) => `${pluriel(n, 'élément')} restauré${n > 1 ? 's' : ''}`);
+  const restaurer = () => agir(restaurerCorbeille, (n) => tp(n, '{n} élément restauré', '{n} éléments restaurés'));
 
   async function telechargerSelection() {
     const dossier = await open({
       directory: true,
-      title: 'Dossier où enregistrer les originaux',
+      title: t('Dossier où enregistrer les originaux'),
       defaultPath: await pictureDir().catch(() => undefined),
     });
     if (typeof dossier !== 'string') return;
     const ids = selection.ids();
-    const suivi = notifier(`Téléchargement de ${pluriel(ids.length, 'élément')}…`, 'info', undefined, 0);
+    const suivi = notifier(tp(ids.length, 'Téléchargement de {n} élément…', 'Téléchargement de {n} éléments…'), 'info', undefined, 0);
     const arreter = await listen<{ fait: number; total: number; nom: string }>('telechargement', ({ payload }) =>
-      remplacer(suivi, `Téléchargement ${payload.fait} sur ${payload.total} : ${payload.nom}`, 'info', 0),
+      remplacer(suivi, t('Téléchargement {fait} sur {total} : {nom}', { fait: payload.fait, total: payload.total, nom: payload.nom }), 'info', 0),
     );
     try {
       const bilan = await telecharger(ids, dossier);
@@ -222,13 +229,13 @@
       remplacer(
         suivi,
         bilan.echecs.length
-          ? `${bilan.reussis} téléchargé(s), ${bilan.echecs.length} en échec :\n${bilan.echecs.slice(0, 3).join('\n')}`
-          : `${pluriel(bilan.reussis, 'original')} enregistré${bilan.reussis > 1 ? 's' : ''} dans ${bilan.dossier}`,
+          ? t('{reussis} téléchargé(s), {echecs} en échec :\n{liste}', { reussis: bilan.reussis, echecs: bilan.echecs.length, liste: bilan.echecs.slice(0, 3).join('\n') })
+          : tp(bilan.reussis, '{n} original enregistré dans {dossier}', '{n} originaux enregistrés dans {dossier}', { dossier: bilan.dossier }),
         bilan.echecs.length ? 'erreur' : 'succes',
         8000,
       );
     } catch (e) {
-      remplacer(suivi, `Téléchargement impossible : ${e}`, 'erreur', 9000);
+      remplacer(suivi, t('Téléchargement impossible : {e}', { e: String(e) }), 'erreur', 9000);
     } finally {
       arreter();
     }
@@ -236,11 +243,11 @@
 </script>
 
 <div class="barre flex h-14 items-center gap-2 px-3">
-  <IconButton icon={mdiClose} aria-label="Annuler la sélection (Échap)" variant="ghost" color="secondary" shape="round" onclick={() => selection.vider()} />
-  <Text fontWeight="semi-bold">{pluriel(nombre, 'sélectionné')}</Text>
+  <IconButton icon={mdiClose} aria-label={t('Annuler la sélection (Échap)')} variant="ghost" color="secondary" shape="round" onclick={() => selection.vider()} />
+  <Text fontWeight="semi-bold">{tp(nombre, '{n} sélectionné', '{n} sélectionnés')}</Text>
   <IconButton
     icon={mdiSelectAll}
-    aria-label="Tout sélectionner (Ctrl+A)"
+    aria-label={t('Tout sélectionner (Ctrl+A)')}
     variant="ghost"
     color="secondary"
     shape="round"
@@ -248,30 +255,30 @@
   />
   <span class="flex-1"></span>
   {#if vue.id === 'corbeille'}
-    <IconButton icon={mdiDeleteRestore} aria-label="Restaurer" variant="ghost" shape="round" disabled={enCours} onclick={restaurer} />
+    <IconButton icon={mdiDeleteRestore} aria-label={t('Restaurer')} variant="ghost" shape="round" disabled={enCours} onclick={restaurer} />
   {:else}
     <IconButton
       icon={selection.tousFavoris() ? mdiHeart : mdiHeartOutline}
-      aria-label={selection.tousFavoris() ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+      aria-label={selection.tousFavoris() ? t('Retirer des favoris') : t('Ajouter aux favoris')}
       variant="ghost"
       shape="round"
       disabled={enCours}
       onclick={basculerFavori}
     />
-    <IconButton icon={mdiImagePlusOutline} aria-label="Ajouter à un album" variant="ghost" shape="round" disabled={enCours} onclick={() => (choixAlbum = true)} />
+    <IconButton icon={mdiImagePlusOutline} aria-label={t('Ajouter à un album')} variant="ghost" shape="round" disabled={enCours} onclick={() => (choixAlbum = true)} />
     {#if vue.id === 'album' && vue.filtre.album}
-      <IconButton icon={mdiImageMinusOutline} aria-label="Retirer de l’album" variant="ghost" shape="round" disabled={enCours} onclick={retirerDeLAlbumCourant} />
+      <IconButton icon={mdiImageMinusOutline} aria-label={t('Retirer de l’album')} variant="ghost" shape="round" disabled={enCours} onclick={retirerDeLAlbumCourant} />
     {/if}
-    <IconButton icon={mdiCalendarEditOutline} aria-label="Modifier la date" variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'date')} />
-    <IconButton icon={mdiMapMarkerOutline} aria-label="Modifier le lieu" variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'lieu')} />
-    <IconButton icon={mdiTagPlusOutline} aria-label="Ajouter un tag" variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'tag')} />
-    <IconButton icon={mdiDownload} aria-label="Télécharger les originaux" variant="ghost" shape="round" disabled={enCours} onclick={telechargerSelection} />
+    <IconButton icon={mdiCalendarEditOutline} aria-label={t('Modifier la date')} variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'date')} />
+    <IconButton icon={mdiMapMarkerOutline} aria-label={t('Modifier le lieu')} variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'lieu')} />
+    <IconButton icon={mdiTagPlusOutline} aria-label={t('Ajouter un tag')} variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'tag')} />
+    <IconButton icon={mdiDownload} aria-label={t('Télécharger les originaux')} variant="ghost" shape="round" disabled={enCours} onclick={telechargerSelection} />
     {#if vue.id === 'archive'}
-      <IconButton icon={mdiArchiveArrowUpOutline} aria-label="Désarchiver" variant="ghost" shape="round" disabled={enCours} onclick={() => archiver(false)} />
+      <IconButton icon={mdiArchiveArrowUpOutline} aria-label={t('Désarchiver')} variant="ghost" shape="round" disabled={enCours} onclick={() => archiver(false)} />
     {:else}
-      <IconButton icon={mdiArchiveArrowDownOutline} aria-label="Archiver" variant="ghost" shape="round" disabled={enCours} onclick={() => archiver(true)} />
+      <IconButton icon={mdiArchiveArrowDownOutline} aria-label={t('Archiver')} variant="ghost" shape="round" disabled={enCours} onclick={() => archiver(true)} />
     {/if}
-    <IconButton icon={mdiTrashCanOutline} aria-label="Mettre à la corbeille (Suppr)" variant="ghost" color="danger" shape="round" disabled={enCours} onclick={corbeille} />
+    <IconButton icon={mdiTrashCanOutline} aria-label={t('Mettre à la corbeille (Suppr)')} variant="ghost" color="danger" shape="round" disabled={enCours} onclick={corbeille} />
   {/if}
 </div>
 

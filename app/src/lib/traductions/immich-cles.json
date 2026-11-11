@@ -1,0 +1,100 @@
+{
+  "Ajouter {n} élément à un album|Ajouter {n} éléments à un album": {
+    "cle": "add_to_album_item_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "Anniversaire de {personne}": {
+    "cle": "birthday_memory_title",
+    "valeurs": {
+      "personne": "name"
+    }
+  },
+  "Aucun résultat. Essayez un synonyme ou un mot-clé plus général": "search_no_result",
+  "Aucune personne nommée « {nom} »": {
+    "cle": "search_no_people_named",
+    "valeurs": {
+      "nom": "name"
+    }
+  },
+  "Filtrer par étiquettes ajoutées pour organiser votre bibliothèque.": "search_filter_tags_description",
+  "Il y a {n} ans": {
+    "cle": "years_ago",
+    "valeurs": {
+      "n": "years"
+    }
+  },
+  "Masquer cette personne": "hide_person",
+  "Masquée": "hidden",
+  "Mettre en favori": "to_favorite",
+  "Version d’Immich": "server_version",
+  "{nom} + {n} personne|{nom} + {n} personnes": {
+    "cle": "name_plus_more_people",
+    "valeurs": {
+      "nom": "name",
+      "n": "count"
+    }
+  },
+  "{nom} + {n} étiquette|{nom} + {n} étiquettes": {
+    "cle": "tag_plus_more_tags",
+    "valeurs": {
+      "nom": "tag",
+      "n": "count"
+    }
+  },
+  "{n} personne|{n} personnes": {
+    "cle": "people_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} sélectionné|{n} sélectionnés": {
+    "cle": "selected_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément ajouté aux favoris|{n} éléments ajoutés aux favoris": {
+    "cle": "added_to_favorites_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément archivé|{n} éléments archivés": {
+    "cle": "archived_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément désarchivé|{n} éléments désarchivés": {
+    "cle": "unarchived_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément mis à la corbeille|{n} éléments mis à la corbeille": {
+    "cle": "assets_moved_to_trash_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément restauré|{n} éléments restaurés": {
+    "cle": "assets_restored_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément retiré des favoris|{n} éléments retirés des favoris": {
+    "cle": "removed_from_favorites_count",
+    "valeurs": {
+      "n": "count"
+    }
+  },
+  "{n} élément|{n} éléments": {
+    "cle": "items_count",
+    "valeurs": {
+      "n": "count"
+    }
+  }
+}

@@ -9,6 +9,7 @@
   import TexteModifiable from '../../lib/TexteModifiable.svelte';
   import Chronologie from '../../lib/Chronologie.svelte';
   import Dialogue from '../../lib/Dialogue.svelte';
+  import { locale, t } from '../../lib/i18n.svelte';
   import { notifier } from '../../lib/notifications.svelte';
   import type { Vue } from '../../lib/vues';
 
@@ -24,12 +25,12 @@
       .then(([a, tous]) => {
         if (demande === id) infos = { ...a, possede: tous.some((x) => x.id === a.id && x.possede) };
       })
-      .catch((e) => notifier(`Album introuvable : ${e}`, 'erreur'));
+      .catch((e) => notifier(t('Album introuvable : {e}', { e: String(e) }), 'erreur'));
   });
 
   const vue = $derived<Vue>({
     id: 'album',
-    titre: infos?.albumName ?? 'Album',
+    titre: infos?.albumName ?? t('Album'),
     chemin: '/album',
     filtre: { album: id },
     vide: 'Cet album est vide. Sélectionnez des photos ailleurs puis « Ajouter à un album ».',
@@ -39,9 +40,9 @@
     try {
       await modifierAlbum(id, modification);
       infos = await chargerAlbum(id).then((a) => ({ ...a, possede: true }));
-      notifier(modification.nom !== undefined ? 'Album renommé' : 'Description enregistrée', 'succes');
+      notifier(modification.nom !== undefined ? t('Album renommé') : t('Description enregistrée'), 'succes');
     } catch (raison) {
-      notifier(`Modification impossible : ${raison}`, 'erreur');
+      notifier(t('Modification impossible : {raison}', { raison: String(raison) }), 'erreur');
     }
   }
 
@@ -49,27 +50,27 @@
     try {
       await supprimerAlbum(id);
       suppression = false;
-      notifier(`Album « ${infos?.albumName} » supprimé. Ses photos restent dans la photothèque.`, 'succes');
+      notifier(t('Album « {nom} » supprimé. Ses photos restent dans la photothèque.', { nom: infos?.albumName ?? '' }), 'succes');
       void goto('/albums');
     } catch (raison) {
-      notifier(`Suppression impossible : ${raison}`, 'erreur');
+      notifier(t('Suppression impossible : {raison}', { raison: String(raison) }), 'erreur');
     }
   }
 </script>
 
-<svelte:head><title>{infos?.albumName ?? 'Album'} · Nicéphore</title></svelte:head>
+<svelte:head><title>{infos?.albumName ?? t('Album')} · Nicéphore</title></svelte:head>
 
 {#snippet nomAlbum()}
   {#if infos}
     <TexteModifiable
       titre
       valeur={infos.albumName}
-      vide="Album sans nom"
+      vide={t('Album sans nom')}
       modifiable={infos.possede}
       onvalider={(v) => v && modifier({ nom: v })}
     />
   {:else}
-    <span class="text-lg font-semibold">Album</span>
+    <span class="text-lg font-semibold">{t('Album')}</span>
   {/if}
 {/snippet}
 
@@ -78,14 +79,14 @@
     {#if infos.possede || infos.description}
       <TexteModifiable
         valeur={infos.description}
-        vide="Ajouter une description"
+        vide={t('Ajouter une description')}
         modifiable={infos.possede}
         onvalider={(v) => modifier({ description: v })}
       />
     {/if}
     <span class="flex-1"></span>
     {#if infos.possede}
-      <IconButton icon={mdiDeleteOutline} aria-label="Supprimer l’album" variant="ghost" color="danger" shape="round" onclick={() => (suppression = true)} />
+      <IconButton icon={mdiDeleteOutline} aria-label={t('Supprimer l’album')} variant="ghost" color="danger" shape="round" onclick={() => (suppression = true)} />
     {/if}
   {/if}
 {/snippet}
@@ -95,15 +96,17 @@
 {/key}
 
 {#if suppression && infos}
-  <Dialogue titre="Supprimer l’album ?" onfermer={() => (suppression = false)}>
+  <Dialogue titre={t('Supprimer l’album ?')} onfermer={() => (suppression = false)}>
     <div class="space-y-4">
       <Text>
-        L’album « {infos.albumName} » sera supprimé. Ses {infos.assetCount.toLocaleString('fr-FR')} photos et vidéos
-        restent dans votre photothèque.
+        {t('L’album « {nom} » sera supprimé. Ses {n} photos et vidéos restent dans votre photothèque.', {
+          nom: infos.albumName,
+          n: infos.assetCount.toLocaleString(locale()),
+        })}
       </Text>
       <div class="flex justify-end gap-2">
-        <Button variant="ghost" color="secondary" onclick={() => (suppression = false)}>Annuler</Button>
-        <Button color="danger" onclick={supprimer}>Supprimer l’album</Button>
+        <Button variant="ghost" color="secondary" onclick={() => (suppression = false)}>{t('Annuler')}</Button>
+        <Button color="danger" onclick={supprimer}>{t('Supprimer l’album')}</Button>
       </div>
     </div>
   </Dialogue>

@@ -26,6 +26,8 @@
     type FichierOuvert,
   } from '../../lib/api';
   import BoutonsFenetre from '../../lib/BoutonsFenetre.svelte';
+  import LecteurVideo from '../../lib/LecteurVideo.svelte';
+  import { locale, t } from '../../lib/i18n.svelte';
   import { notifier } from '../../lib/notifications.svelte';
   import { session } from '../../lib/session.svelte';
 
@@ -153,10 +155,10 @@
     envoi = true;
     try {
       await envoyerFichierLocal(fichier.chemin);
-      notifier(`« ${fichier.nom} » envoyée vers Immich`, 'succes');
+      notifier(t('« {nom} » envoyée vers Immich', { nom: fichier.nom }), 'succes');
       etat = await etatFichierLocal(fichier.chemin);
     } catch (e) {
-      notifier(`Envoi impossible : ${e}`, 'erreur');
+      notifier(t('Envoi impossible : {e}', { e: String(e) }), 'erreur');
     } finally {
       envoi = false;
     }
@@ -169,11 +171,13 @@
   }
 
   const taille = (o: number) =>
-    o >= 1_048_576 ? `${(o / 1_048_576).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo` : `${Math.ceil(o / 1024)} ko`;
+    o >= 1_048_576
+      ? t('{taille} Mo', { taille: (o / 1_048_576).toLocaleString(locale(), { maximumFractionDigits: 1 }) })
+      : t('{n} ko', { n: Math.ceil(o / 1024) });
 </script>
 
 <svelte:window onkeydown={touche} />
-<svelte:head><title>{fichier?.nom ?? 'Photo'} · Nicéphore</title></svelte:head>
+<svelte:head><title>{fichier?.nom ?? t('Photo')} · Nicéphore</title></svelte:head>
 
 <div class="visionneuse-locale fixed inset-0 flex flex-col bg-black text-white">
   <div class="barre flex h-12 shrink-0 items-center gap-3 px-3" data-tauri-drag-region>
@@ -193,22 +197,22 @@
         </span>
       {/snippet}
       {#if !etat}
-        <span class="statut"><LoadingSpinner size="small" />{#if !compact} Vérification…{/if}</span>
+        <span class="statut"><LoadingSpinner size="small" />{#if !compact} {t('Vérification…')}{/if}</span>
       {:else if !etat.connecte}
-        {@render statut('opacity-70', mdiCloudOffOutline, 'Non connecté', 'Connectez-vous à Immich pour savoir si elle y est')}
+        {@render statut('opacity-70', mdiCloudOffOutline, t('Non connecté'), t('Connectez-vous à Immich pour savoir si elle y est'))}
       {:else if etat.surServeur}
         {@render statut(
           'sur-serveur',
           mdiCloudCheckOutline,
-          etat.dansLaCorbeille ? 'Dans la corbeille d’Immich' : 'Sur Immich',
-          etat.dansLaCorbeille ? 'Sur Immich, dans sa corbeille' : 'Déjà sur Immich',
+          etat.dansLaCorbeille ? t('Dans la corbeille d’Immich') : t('Sur Immich'),
+          etat.dansLaCorbeille ? t('Sur Immich, dans sa corbeille') : t('Déjà sur Immich'),
         )}
       {:else}
-        {@render statut('absente', mdiCloudOffOutline, 'Pas sur Immich', 'Cette photo n’est pas encore sur Immich')}
+        {@render statut('absente', mdiCloudOffOutline, t('Pas sur Immich'), t('Cette photo n’est pas encore sur Immich'))}
         {#if compact}
-          <IconButton icon={mdiCloudUploadOutline} aria-label="Envoyer maintenant" title="Envoyer maintenant" size="small" shape="round" disabled={envoi} onclick={envoyer} />
+          <IconButton icon={mdiCloudUploadOutline} aria-label={t('Envoyer maintenant')} title={t('Envoyer maintenant')} size="small" shape="round" disabled={envoi} onclick={envoyer} />
         {:else}
-          <Button size="small" leadingIcon={mdiCloudUploadOutline} loading={envoi} onclick={envoyer}>Envoyer maintenant</Button>
+          <Button size="small" leadingIcon={mdiCloudUploadOutline} loading={envoi} onclick={envoyer}>{t('Envoyer maintenant')}</Button>
         {/if}
       {/if}
     {/if}
@@ -233,32 +237,29 @@
         />
       {/key}
       <span class="mention absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-xs">
-        Aperçu du RAW ({apercu.largeur} × {apercu.hauteur})
+        {t('Aperçu du RAW ({largeur} × {hauteur})', { largeur: apercu.largeur, hauteur: apercu.hauteur })}
       </span>
     {:else if !fichier.affichable}
       <div class="flex h-full flex-col items-center justify-center gap-2 text-center opacity-80">
-        <p>Aperçu indisponible pour ce format ({fichier.nom.split('.').pop()?.toUpperCase()}).</p>
-        <p class="text-sm opacity-70">Il peut tout de même être envoyé vers Immich, qui sait l’afficher.</p>
+        <p>{t('Aperçu indisponible pour ce format ({format}).', { format: fichier.nom.split('.').pop()?.toUpperCase() ?? '' })}</p>
+        <p class="text-sm opacity-70">{t('Il peut tout de même être envoyé vers Immich, qui sait l’afficher.')}</p>
       </div>
     {:else if fichier.video && videoIlisible}
       <div class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center opacity-80">
-        <p>Cette vidéo ne peut pas être lue ici : son format n’est pas pris en charge par le système.</p>
-        <p class="text-sm opacity-70">Elle peut tout de même être envoyée vers Immich, qui la convertit pour la lecture.</p>
+        <p>{t('Cette vidéo ne peut pas être lue ici : son format n’est pas pris en charge par le système.')}</p>
+        <p class="text-sm opacity-70">{t('Elle peut tout de même être envoyée vers Immich, qui la convertit pour la lecture.')}</p>
       </div>
     {:else if fichier.video && video}
       {#key video}
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          class="video-locale h-full w-full object-contain"
+        <LecteurVideo
           src={video}
-          controls
-          autoplay
-          onloadedmetadata={(e) => ajuster(e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
+          classeVideo="video-locale h-full w-full object-contain"
+          onloadedmetadata={(v: HTMLVideoElement) => ajuster(v.videoWidth, v.videoHeight)}
           onerror={() => {
             videoIlisible = true;
             void ajuster(0, 0);
           }}
-        ></video>
+        />
       {/key}
     {:else}
       {#key fichier.chemin}
@@ -275,10 +276,10 @@
       {/key}
     {/if}
     {#if fichier && fichier.voisins.length > 1}
-      <button class="fleche left-2" aria-label="Précédente" onclick={() => aller(-1)}>
+      <button class="fleche left-2" aria-label={t('Précédente')} onclick={() => aller(-1)}>
         <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path fill="currentColor" d={mdiChevronLeft} /></svg>
       </button>
-      <button class="fleche right-2" aria-label="Suivante" onclick={() => aller(1)}>
+      <button class="fleche right-2" aria-label={t('Suivante')} onclick={() => aller(1)}>
         <svg viewBox="0 0 24 24" width="32" height="32" aria-hidden="true"><path fill="currentColor" d={mdiChevronRight} /></svg>
       </button>
     {/if}

@@ -4,23 +4,24 @@
   import { onMount } from 'svelte';
   import { tags as chargerTags, type Tag } from './api';
   import Dialogue from './Dialogue.svelte';
+  import { locale, t } from './i18n.svelte';
 
   let { nombre, onvalider, onfermer }: { nombre: number; onvalider: (nom: string) => void; onfermer: () => void } = $props();
 
   let tous = $state<Tag[] | null>(null);
   let nom = $state('');
   const proposes = $derived(
-    (tous ?? []).filter((t) => t.value.toLocaleLowerCase('fr').includes(nom.trim().toLocaleLowerCase('fr'))).slice(0, 30),
+    (tous ?? []).filter((tag) => tag.value.toLocaleLowerCase(locale()).includes(nom.trim().toLocaleLowerCase(locale()))).slice(0, 30),
   );
 
   onMount(() => {
     chargerTags()
-      .then((t) => (tous = t.sort((a, b) => a.value.localeCompare(b.value, 'fr'))))
+      .then((liste) => (tous = liste.sort((a, b) => a.value.localeCompare(b.value, locale()))))
       .catch(() => (tous = []));
   });
 </script>
 
-<Dialogue titre={nombre > 1 ? `Tag pour ${nombre} éléments` : 'Ajouter un tag'} {onfermer}>
+<Dialogue titre={nombre > 1 ? t('Tag pour {n} éléments', { n: nombre }) : t('Ajouter un tag')} {onfermer}>
   <form
     class="mb-3 flex gap-2"
     onsubmit={(e) => {
@@ -28,19 +29,19 @@
       if (nom.trim()) onvalider(nom.trim());
     }}
   >
-    <Input bind:value={nom} placeholder="Nom du tag (Voyages/Italie pour un sous-tag)" class="flex-1" />
-    <Button type="submit" disabled={!nom.trim()}>Ajouter</Button>
+    <Input bind:value={nom} placeholder={t('Nom du tag (Voyages/Italie pour un sous-tag)')} class="flex-1" />
+    <Button type="submit" disabled={!nom.trim()}>{t('Ajouter')}</Button>
   </form>
   {#if !tous}
     <LoadingSpinner />
   {:else if proposes.length}
     <div class="flex flex-wrap gap-2">
-      {#each proposes as t (t.id)}
-        <button class="pastille" onclick={() => onvalider(t.value)}>{t.value}</button>
+      {#each proposes as tag (tag.id)}
+        <button class="pastille" onclick={() => onvalider(tag.value)}>{tag.value}</button>
       {/each}
     </div>
   {:else}
-    <Text size="small" color="muted">Aucun tag existant de ce nom : « Ajouter » le créera.</Text>
+    <Text size="small" color="muted">{t('Aucun tag existant de ce nom : « Ajouter » le créera.')}</Text>
   {/if}
 </Dialogue>
 

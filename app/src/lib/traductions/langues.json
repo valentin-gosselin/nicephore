@@ -1,0 +1,311 @@
+{
+  "source": "immich-app/immich@main",
+  "total": 620,
+  "communs": 191,
+  "langues": [
+    {
+      "code": "bg",
+      "textes": 191
+    },
+    {
+      "code": "ca",
+      "textes": 191
+    },
+    {
+      "code": "da",
+      "textes": 191
+    },
+    {
+      "code": "de",
+      "textes": 191
+    },
+    {
+      "code": "es",
+      "textes": 191
+    },
+    {
+      "code": "et",
+      "textes": 191
+    },
+    {
+      "code": "ga",
+      "textes": 191
+    },
+    {
+      "code": "gl",
+      "textes": 191
+    },
+    {
+      "code": "he",
+      "textes": 191
+    },
+    {
+      "code": "hu",
+      "textes": 191
+    },
+    {
+      "code": "id",
+      "textes": 191
+    },
+    {
+      "code": "it",
+      "textes": 191
+    },
+    {
+      "code": "ja",
+      "textes": 191
+    },
+    {
+      "code": "nb-NO",
+      "textes": 191
+    },
+    {
+      "code": "nl",
+      "textes": 191
+    },
+    {
+      "code": "pl",
+      "textes": 191
+    },
+    {
+      "code": "pt",
+      "textes": 191
+    },
+    {
+      "code": "ru",
+      "textes": 191
+    },
+    {
+      "code": "sk",
+      "textes": 191
+    },
+    {
+      "code": "sl",
+      "textes": 191
+    },
+    {
+      "code": "sv",
+      "textes": 191
+    },
+    {
+      "code": "th",
+      "textes": 191
+    },
+    {
+      "code": "tr",
+      "textes": 191
+    },
+    {
+      "code": "vi",
+      "textes": 191
+    },
+    {
+      "code": "zh-Hans",
+      "textes": 191
+    },
+    {
+      "code": "cs",
+      "textes": 190
+    },
+    {
+      "code": "pt-BR",
+      "textes": 190
+    },
+    {
+      "code": "ro",
+      "textes": 190
+    },
+    {
+      "code": "bn",
+      "textes": 189
+    },
+    {
+      "code": "en-GB",
+      "textes": 189
+    },
+    {
+      "code": "fa",
+      "textes": 189
+    },
+    {
+      "code": "uk",
+      "textes": 189
+    },
+    {
+      "code": "zh-Hant",
+      "textes": 188
+    },
+    {
+      "code": "ko",
+      "textes": 187
+    },
+    {
+      "code": "be",
+      "textes": 186
+    },
+    {
+      "code": "yue-Hant",
+      "textes": 186
+    },
+    {
+      "code": "lt",
+      "textes": 178
+    },
+    {
+      "code": "ar",
+      "textes": 172
+    },
+    {
+      "code": "el",
+      "textes": 172
+    },
+    {
+      "code": "hr",
+      "textes": 172
+    },
+    {
+      "code": "ml",
+      "textes": 170
+    },
+    {
+      "code": "fi",
+      "textes": 168
+    },
+    {
+      "code": "eu",
+      "textes": 167
+    },
+    {
+      "code": "lv",
+      "textes": 165
+    },
+    {
+      "code": "hi",
+      "textes": 163
+    },
+    {
+      "code": "mr",
+      "textes": 163
+    },
+    {
+      "code": "ta",
+      "textes": 162
+    },
+    {
+      "code": "eo",
+      "textes": 160
+    },
+    {
+      "code": "sr-Latn",
+      "textes": 155
+    },
+    {
+      "code": "sr-Cyrl",
+      "textes": 153
+    },
+    {
+      "code": "te",
+      "textes": 117
+    },
+    {
+      "code": "nn",
+      "textes": 107
+    },
+    {
+      "code": "kn",
+      "textes": 103
+    },
+    {
+      "code": "sq",
+      "textes": 95
+    },
+    {
+      "code": "ka",
+      "textes": 91
+    },
+    {
+      "code": "gsw",
+      "textes": 84
+    },
+    {
+      "code": "mk",
+      "textes": 79
+    },
+    {
+      "code": "is",
+      "textes": 62
+    },
+    {
+      "code": "ms",
+      "textes": 47
+    },
+    {
+      "code": "kmr",
+      "textes": 46
+    },
+    {
+      "code": "mn",
+      "textes": 40
+    },
+    {
+      "code": "af",
+      "textes": 35
+    },
+    {
+      "code": "hy",
+      "textes": 24
+    },
+    {
+      "code": "cv",
+      "textes": 20
+    },
+    {
+      "code": "fil",
+      "textes": 17
+    },
+    {
+      "code": "ur",
+      "textes": 13
+    },
+    {
+      "code": "de-CH",
+      "textes": 12
+    },
+    {
+      "code": "az",
+      "textes": 10
+    },
+    {
+      "code": "gu",
+      "textes": 10
+    },
+    {
+      "code": "km",
+      "textes": 10
+    },
+    {
+      "code": "tl",
+      "textes": 10
+    },
+    {
+      "code": "bi",
+      "textes": 9
+    },
+    {
+      "code": "kk",
+      "textes": 9
+    },
+    {
+      "code": "pa",
+      "textes": 7
+    },
+    {
+      "code": "ne",
+      "textes": 5
+    },
+    {
+      "code": "uz",
+      "textes": 4
+    }
+  ]
+}

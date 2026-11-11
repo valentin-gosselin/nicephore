@@ -1,6 +1,7 @@
 <script lang="ts">
   // "On this day" strip above the timeline, like the Immich apps.
   import { onMount } from 'svelte';
+  import { t, tp } from './i18n.svelte';
   import { souvenirs as chargerSouvenirs, urlImage, type Souvenir } from './api';
   import { apercuFlou } from './miniatures';
   import { aujourdhui, titreSouvenir } from './souvenirs';
@@ -15,7 +16,7 @@
 </script>
 
 {#if liste.length}
-  <nav class="bandeau flex shrink-0 gap-3 overflow-x-auto px-5 py-3" aria-label="Souvenirs du jour">
+  <nav class="bandeau flex shrink-0 gap-3 overflow-x-auto px-5 py-3" aria-label={t('Souvenirs du jour')}>
     {#each liste as s (s.id)}
       {@const couverture = s.assets[0]}
       <a
@@ -26,7 +27,7 @@
         <img src={urlImage('apercu', couverture.id, couverture.thumbhash)} alt="" loading="lazy" />
         <span class="legende">
           <span class="font-semibold">{titreSouvenir(s)}</span>
-          <span class="text-xs opacity-80">{s.assets.length} élément{s.assets.length > 1 ? 's' : ''}</span>
+          <span class="text-xs opacity-80">{tp(s.assets.length, '{n} élément', '{n} éléments')}</span>
         </span>
       </a>
     {/each}

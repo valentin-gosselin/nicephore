@@ -3,6 +3,7 @@
   // a field; Enter or leaving the field saves, Escape cancels.
   import { mdiPencilOutline } from '@mdi/js';
   import { tick } from 'svelte';
+  import { t } from './i18n.svelte';
 
   let {
     valeur,
@@ -63,7 +64,7 @@
     class:grand={titre}
     class:absent={!valeur}
     class:fixe={!modifiable}
-    title={modifiable ? 'Cliquer pour modifier' : undefined}
+    title={modifiable ? t('Cliquer pour modifier') : undefined}
     onclick={commencer}
   >
     <span class="truncate">{valeur || vide}</span>

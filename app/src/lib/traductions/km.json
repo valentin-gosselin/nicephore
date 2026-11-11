@@ -1,0 +1,13 @@
+{
+  "Ajouter": "បន្ថែម",
+  "Ajouter un lieu": "បន្ថែមទីតាំង",
+  "Ajouter un tag": "បន្ថែមស្លាក",
+  "Ajouter une description": "បន្ថែមការពិពណ៌នា",
+  "Ajouter à un album": "បន្ថែមទៅក្នុងអាល់ប៊ុម",
+  "Ajouté aux favoris": "បានបន្ថែមទៅក្នុងចំណង់ចំណូលចិត្ត",
+  "Compte": "គណនី",
+  "Mise en favori": "បានបន្ថែមទៅក្នុងចំណង់ចំណូលចិត្ត",
+  "{n} élément ajouté aux favoris|{n} éléments ajoutés aux favoris": "បានបន្ថែម {n, number} ទៅក្នុងចំណង់ចំណូលចិត្ត",
+  "À propos": "អំពី",
+  "_immichUi": {}
+}

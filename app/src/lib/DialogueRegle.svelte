@@ -29,7 +29,9 @@
     type Rangement,
     type Selection,
   } from './api';
+  import ChampDate from './ChampDate.svelte';
   import Dialogue from './Dialogue.svelte';
+  import { locale, t, tp } from './i18n.svelte';
 
   let { onvalider, onfermer }: { onvalider: (d: Demande) => Promise<boolean>; onfermer: () => void } = $props();
 
@@ -71,15 +73,15 @@
   const MARGE = 1024 ** 3;
   const volume = (o: number) =>
     o >= 1024 ** 3
-      ? `${(o / 1024 ** 3).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Go`
-      : `${Math.max(1, Math.round(o / 1024 ** 2)).toLocaleString('fr-FR')} Mo`;
-  const elements = (n: number) => `${n.toLocaleString('fr-FR')} photo${n > 1 ? 's et vidéos' : ''}`;
+      ? t('{n} Go', { n: (o / 1024 ** 3).toLocaleString(locale(), { maximumFractionDigits: 1 }) })
+      : t('{n} Mo', { n: Math.max(1, Math.round(o / 1024 ** 2)).toLocaleString(locale()) });
+  const elements = (n: number) => tp(n, '{n} photo', '{n} photos et vidéos');
 
   const albumsProposes = $derived(
-    (albums ?? []).filter((a) => a.albumName.toLocaleLowerCase('fr').includes(filtre.trim().toLocaleLowerCase('fr'))),
+    (albums ?? []).filter((a) => a.albumName.toLocaleLowerCase(locale()).includes(filtre.trim().toLocaleLowerCase(locale()))),
   );
   const gensProposes = $derived(
-    (gens ?? []).filter((p) => p.name && p.name.toLocaleLowerCase('fr').includes(filtre.trim().toLocaleLowerCase('fr'))),
+    (gens ?? []).filter((p) => p.name && p.name.toLocaleLowerCase(locale()).includes(filtre.trim().toLocaleLowerCase(locale()))),
   );
 
   /** The selection being described, once complete. */
@@ -164,7 +166,7 @@
   const nomDossier = $derived(dossier?.split(/[\\/]/).filter(Boolean).pop() ?? '');
 
   async function choisir() {
-    const titre = sens === 'montante' ? 'Dossier à envoyer vers Immich' : 'Dossier où recevoir les photos';
+    const titre = sens === 'montante' ? t('Dossier à envoyer vers Immich') : t('Dossier où recevoir les photos');
     const choix = await open({ directory: true, title: titre });
     if (typeof choix === 'string') dossier = choix;
   }
@@ -213,50 +215,56 @@
 
   onMount(() => {
     chargerAlbums()
-      .then((a) => (albums = a.sort((x, y) => x.albumName.localeCompare(y.albumName, 'fr'))))
+      .then((a) => (albums = a.sort((x, y) => x.albumName.localeCompare(y.albumName, locale()))))
       .catch(() => (albums = []));
     chargerPersonnes()
-      .then((p) => (gens = p.filter((x) => x.name).sort((x, y) => x.name.localeCompare(y.name, 'fr'))))
+      .then((p) => (gens = p.filter((x) => x.name).sort((x, y) => x.name.localeCompare(y.name, locale()))))
       .catch(() => (gens = []));
   });
 
-  const sensPossibles: { sens: Demande['sens']; titre: string; detail: string }[] = [
-    { sens: 'montante', titre: 'Envoyer un dossier vers Immich', detail: 'Ses photos et vidéos partent sur le serveur.' },
+  // Short names, in the words of the Immich mobile app ("Sauvegarde") and of
+  // the usual sync clients ("Fichiers virtuels"); the arrow gives the direction.
+  // $derived: the labels follow a change of language.
+  const sensPossibles: { sens: Demande['sens']; titre: string; fleche: string; detail: string }[] = $derived([
+    { sens: 'montante', titre: t('Sauvegarde'), fleche: t('Ce dossier → Immich'), detail: t('Envoie les photos et vidéos du dossier sur le serveur.') },
     {
       sens: 'descendante',
-      titre: 'Recevoir des photos d’Immich dans un dossier',
-      detail: 'Un album, une personne, les favoris, une période ou toute la photothèque, copiés sur cet ordinateur.',
+      titre: t('Copie locale'),
+      fleche: t('Immich → ce dossier'),
+      detail: t('Télécharge un album, une personne, les favoris, une période ou toute la photothèque.'),
     },
     {
       sens: 'virtuel',
-      titre: 'Voir une sélection sans la télécharger',
-      detail: 'Fichiers virtuels : les photos apparaissent dans un dossier vide et ne sont téléchargées qu’à l’ouverture.',
+      titre: t('Fichiers virtuels'),
+      fleche: t('À la demande'),
+      detail: t('Les photos s’affichent dans le dossier, téléchargées seulement à l’ouverture.'),
     },
     {
       sens: 'double',
-      titre: 'Synchroniser dans les deux sens',
-      detail: 'Avec toute la photothèque ou avec un album : ce qui manque d’un côté arrive de l’autre, sans doublon.',
+      titre: t('Synchro complète'),
+      fleche: t('Immich ↔ ce dossier'),
+      detail: t('Avec la photothèque ou un album : ce qui manque d’un côté arrive de l’autre, sans doublon.'),
     },
-  ];
-  const ciblesEnvoi: { genre: Cible['genre']; titre: string; detail: string }[] = [
-    { genre: 'albumParDossier', titre: 'Un album par dossier', detail: 'Chaque dossier donne un album à son nom, créé au premier envoi.' },
-    { genre: 'album', titre: 'Un album existant', detail: 'Toutes les photos du dossier rejoignent cet album.' },
-    { genre: 'bibliotheque', titre: 'La photothèque seulement', detail: 'Sans album.' },
-  ];
-  const selections: { genre: Selection['genre']; titre: string }[] = [
-    { genre: 'album', titre: 'Un album' },
-    { genre: 'personne', titre: 'Une personne' },
-    { genre: 'favoris', titre: 'Les favoris' },
-    { genre: 'periode', titre: 'Une période' },
-    { genre: 'bibliotheque', titre: 'Toute la photothèque' },
-  ];
+  ]);
+  const ciblesEnvoi: { genre: Cible['genre']; titre: string; detail: string }[] = $derived([
+    { genre: 'albumParDossier', titre: t('Un album par dossier'), detail: t('Chaque dossier donne un album à son nom, créé au premier envoi.') },
+    { genre: 'album', titre: t('Un album existant'), detail: t('Toutes les photos du dossier rejoignent cet album.') },
+    { genre: 'bibliotheque', titre: t('La photothèque seulement'), detail: t('Sans album.') },
+  ]);
+  const selections: { genre: Selection['genre']; titre: string }[] = $derived([
+    { genre: 'album', titre: t('Un album') },
+    { genre: 'personne', titre: t('Une personne') },
+    { genre: 'favoris', titre: t('Les favoris') },
+    { genre: 'periode', titre: t('Une période') },
+    { genre: 'bibliotheque', titre: t('Toute la photothèque') },
+  ]);
 </script>
 
 {#snippet listeAlbums(nom: string, choisi: string, choisir: (id: string) => void, seulementMiens: boolean)}
   {#if !albums}
     <LoadingSpinner />
   {:else}
-    <input class="champ w-full" placeholder="Chercher un album" bind:value={filtre} />
+    <input class="champ w-full" placeholder={t('Rechercher des albums')} bind:value={filtre} />
     <div class="liste">
       {#each albumsProposes.filter((a) => !seulementMiens || a.possede) as a (a.id)}
         <label class="ligne" class:choisie={choisi === a.id}>
@@ -265,21 +273,24 @@
           <span class="ml-auto text-xs opacity-60">{a.assetCount}</span>
         </label>
       {:else}
-        <Text size="small" color="muted">Aucun album de ce nom.</Text>
+        <Text size="small" color="muted">{t('Aucun album de ce nom.')}</Text>
       {/each}
     </div>
   {/if}
 {/snippet}
 
-<Dialogue titre="Ajouter un dossier synchronisé" {onfermer} largeur={560}>
+<Dialogue titre={t('Ajouter un dossier synchronisé')} {onfermer} largeur={560}>
   <form class="space-y-4" onsubmit={valider}>
     <fieldset class="space-y-2">
-      <legend class="mb-1 text-sm opacity-60">Dans quel sens</legend>
+      <legend class="mb-1 text-sm opacity-60">{t('Type de synchronisation')}</legend>
       {#each sensPossibles as s (s.sens)}
         <label class="option" class:choisie={sens === s.sens}>
           <input type="radio" name="sens" value={s.sens} bind:group={sens} />
-          <span>
-            <span class="block font-medium">{s.titre}</span>
+          <span class="min-w-0 flex-1">
+            <span class="flex flex-wrap items-baseline justify-between gap-x-3">
+              <span class="font-medium">{s.titre}</span>
+              <span class="fleche">{s.fleche}</span>
+            </span>
             <span class="block text-sm opacity-70">{s.detail}</span>
           </span>
         </label>
@@ -289,36 +300,36 @@
     <div class="space-y-1">
       <Text size="small" color="muted">
         {sens === 'montante'
-          ? 'Dossier à envoyer'
+          ? t('Dossier à envoyer')
           : sens === 'double'
             ? avec === 'bibliotheque'
-              ? 'Dossier de photos de cet ordinateur'
-              : 'Dossier à garder identique à l’album'
+              ? t('Dossier de photos de cet ordinateur')
+              : t('Dossier à garder identique à l’album')
             : sens === 'virtuel'
-              ? 'Dossier vide où voir les photos'
-              : 'Dossier où recevoir'}
+              ? t('Dossier vide où voir les photos')
+              : t('Dossier où recevoir')}
       </Text>
       <div class="flex items-center gap-3">
-        <span class="chemin min-w-0 flex-1 truncate" title={dossier ?? ''}>{dossier ?? 'Aucun dossier choisi'}</span>
-        <Button type="button" variant="outline" size="small" onclick={choisir}>Choisir…</Button>
+        <span class="chemin min-w-0 flex-1 truncate" title={dossier ?? ''}>{dossier ?? t('Aucun dossier choisi')}</span>
+        <Button type="button" variant="outline" size="small" onclick={choisir}>{t('Choisir…')}</Button>
       </div>
     </div>
 
     {#if sens === 'double'}
       <fieldset class="flex flex-wrap gap-2">
-        <legend class="mb-1 text-sm opacity-60">Avec quoi</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Avec quoi')}</legend>
         <label class="pastille" class:choisie={avec === 'bibliotheque'}>
-          <input type="radio" name="avec" value="bibliotheque" bind:group={avec} class="sr-only" /> Toute la photothèque
+          <input type="radio" name="avec" value="bibliotheque" bind:group={avec} class="sr-only" /> {t('Toute la photothèque')}
         </label>
         <label class="pastille" class:choisie={avec === 'album'}>
-          <input type="radio" name="avec" value="album" bind:group={avec} class="sr-only" /> Un album
+          <input type="radio" name="avec" value="album" bind:group={avec} class="sr-only" /> {t('Un album')}
         </label>
       </fieldset>
     {/if}
 
     {#if avecBibliotheque}
       <fieldset class="space-y-2">
-        <legend class="mb-1 text-sm opacity-60">Où vont les photos du dossier</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Où vont les photos du dossier')}</legend>
         {#each ciblesEnvoi.filter((o) => o.genre !== 'album') as o (o.genre)}
           <label class="option" class:choisie={genreDouble === o.genre}>
             <input type="radio" name="cible-double" value={o.genre} bind:group={genreDouble} />
@@ -330,55 +341,53 @@
         {/each}
       </fieldset>
       <fieldset class="flex flex-wrap items-center gap-2 text-sm">
-        <legend class="mb-1 text-sm opacity-60">Quoi recevoir du serveur</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Quoi recevoir du serveur')}</legend>
         <label class="pastille" class:choisie={!depuis}>
-          <input type="radio" name="depuis" checked={!depuis} onchange={() => (depuis = '')} class="sr-only" /> Toute la photothèque
+          <input type="radio" name="depuis" checked={!depuis} onchange={() => (depuis = '')} class="sr-only" /> {t('Toute la photothèque')}
         </label>
-        <label class="flex items-center gap-2">
-          Seulement depuis le <input type="date" class="champ" bind:value={depuis} aria-label="Depuis le" />
-        </label>
+        <span class="flex items-center gap-2">
+          {t('Seulement depuis le')} <ChampDate libelle={t('Depuis le')} bind:valeur={() => depuis || undefined, (v) => (depuis = v ?? '')} />
+        </span>
       </fieldset>
       <fieldset class="space-y-2">
-        <legend class="mb-1 text-sm opacity-60">Où ranger les photos reçues</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Où ranger les photos reçues')}</legend>
         <label class="ligne" class:choisie={dansSousDossier}>
           <input type="radio" name="sous-dossier" checked={dansSousDossier} onchange={() => (dansSousDossier = true)} />
-          <span>Dans un sous-dossier « {SOUS_DOSSIER} », par année et mois</span>
+          <span>{t('Dans un sous-dossier « {dossier} », par année et mois', { dossier: SOUS_DOSSIER })}</span>
         </label>
         <label class="ligne" class:choisie={!dansSousDossier}>
           <input type="radio" name="sous-dossier" checked={!dansSousDossier} onchange={() => (dansSousDossier = false)} />
-          <span>Directement dans le dossier, par année et mois</span>
+          <span>{t('Directement dans le dossier, par année et mois')}</span>
         </label>
       </fieldset>
     {:else if sens === 'double'}
       <fieldset class="space-y-2">
-        <legend class="mb-1 text-sm opacity-60">Album</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Album')}</legend>
         <label class="ligne" class:choisie={albumDouble === 'nouveau'}>
           <input type="radio" name="album-double" value="nouveau" bind:group={albumDouble} />
-          <span>Un nouvel album{nomDossier ? ` « ${nomDossier} »` : ' au nom du dossier'}</span>
+          <span>{nomDossier ? t('Un nouvel album « {nom} »', { nom: nomDossier }) : t('Un nouvel album au nom du dossier')}</span>
         </label>
         {@render listeAlbums('album-double-liste', albumDouble, (id) => (albumDouble = id), true)}
       </fieldset>
       <label class="flex items-start justify-between gap-4 rounded-xl p-3 option">
         <span>
-          <span class="block font-medium">Répercuter les suppressions</span>
+          <span class="block font-medium">{t('Répercuter les suppressions')}</span>
           <span class="block text-sm opacity-70">
-            Une photo effacée ici quitte l’album (elle reste dans la photothèque) ; une photo retirée de l’album va dans la
-            corbeille de l’ordinateur. Après 10 minutes, avec votre accord au-delà de 20 fichiers, et jamais si le
-            dossier change de disque.
+            {t('Une photo effacée ici quitte l’album (elle reste dans la photothèque) ; une photo retirée de l’album va dans la corbeille de l’ordinateur. Après 10 minutes, avec votre accord au-delà de 20 fichiers, et jamais si le dossier change de disque.')}
           </span>
         </span>
         <Switch bind:checked={miroir} />
       </label>
     {:else if sens === 'montante'}
       <fieldset class="space-y-2">
-        <legend class="mb-1 text-sm opacity-60">Où vont les photos</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Où vont les photos')}</legend>
         {#each ciblesEnvoi as o (o.genre)}
           <label class="option" class:choisie={genre === o.genre}>
             <input type="radio" name="cible" value={o.genre} bind:group={genre} />
             <span>
               <span class="block font-medium">{o.titre}</span>
               <span class="block text-sm opacity-70">
-                {o.genre === 'albumParDossier' && nomDossier ? `${o.detail} Les photos à la racine vont dans « ${nomDossier} ».` : o.detail}
+                {o.genre === 'albumParDossier' && nomDossier ? `${o.detail} ${t('Les photos à la racine vont dans « {dossier} ».', { dossier: nomDossier })}` : o.detail}
               </span>
             </span>
           </label>
@@ -389,7 +398,7 @@
       {/if}
     {:else}
       <fieldset class="flex flex-wrap gap-2">
-        <legend class="mb-1 text-sm opacity-60">{sens === 'virtuel' ? 'Quoi montrer' : 'Quoi recevoir'}</legend>
+        <legend class="mb-1 text-sm opacity-60">{sens === 'virtuel' ? t('Quoi montrer') : t('Quoi recevoir')}</legend>
         {#each selections as o (o.genre)}
           <label class="pastille" class:choisie={quoi === o.genre}>
             <input type="radio" name="quoi" value={o.genre} bind:group={quoi} class="sr-only" />
@@ -403,7 +412,7 @@
         {#if !gens}
           <LoadingSpinner />
         {:else}
-          <input class="champ w-full" placeholder="Chercher une personne" bind:value={filtre} />
+          <input class="champ w-full" placeholder={t('Rechercher une personne')} bind:value={filtre} />
           <div class="liste">
             {#each gensProposes as p (p.id)}
               <label class="ligne" class:choisie={personneChoisie === p.id}>
@@ -411,23 +420,23 @@
                 <span class="truncate">{p.name}</span>
               </label>
             {:else}
-              <Text size="small" color="muted">Aucune personne nommée ainsi.</Text>
+              <Text size="small" color="muted">{t('Aucune personne nommée « {nom} »', { nom: filtre.trim() })}</Text>
             {/each}
           </div>
         {/if}
       {:else if quoi === 'periode'}
         <div class="flex flex-wrap items-center gap-3 text-sm">
-          <label class="flex items-center gap-2">Du <input type="date" class="champ" bind:value={du} aria-label="Du" /></label>
-          <label class="flex items-center gap-2">au <input type="date" class="champ" bind:value={au} aria-label="Au" /></label>
+          <span class="flex items-center gap-2">{t('Du')} <ChampDate libelle={t('Du')} bind:valeur={() => du || undefined, (v) => (du = v ?? '')} /></span>
+          <span class="flex items-center gap-2">{t('au')} <ChampDate libelle={t('Au')} bind:valeur={() => au || undefined, (v) => (au = v ?? '')} /></span>
         </div>
       {/if}
       <fieldset class="flex flex-wrap gap-2">
-        <legend class="mb-1 text-sm opacity-60">Rangement dans le dossier</legend>
+        <legend class="mb-1 text-sm opacity-60">{t('Rangement dans le dossier')}</legend>
         <label class="pastille" class:choisie={rangement === 'plat'}>
-          <input type="radio" name="rangement" value="plat" bind:group={rangement} class="sr-only" /> Tout dans le dossier
+          <input type="radio" name="rangement" value="plat" bind:group={rangement} class="sr-only" /> {t('Tout dans le dossier')}
         </label>
         <label class="pastille" class:choisie={rangement === 'anneeMois'}>
-          <input type="radio" name="rangement" value="anneeMois" bind:group={rangement} class="sr-only" /> Par année et mois
+          <input type="radio" name="rangement" value="anneeMois" bind:group={rangement} class="sr-only" /> {t('Par année et mois')}
         </label>
       </fieldset>
     {/if}
@@ -435,67 +444,63 @@
     {#if estimationEnCours}
       <div class="flex items-center gap-2 text-sm opacity-70">
         <LoadingSpinner size="small" />
-        {sens === 'montante' ? 'Analyse du dossier…' : 'Compte des photos sur le serveur…'}
+        {sens === 'montante' ? t('Analyse du dossier…') : t('Compte des photos sur le serveur…')}
       </div>
     {:else if erreurEstimation}
       <Text size="small" color="danger">{erreurEstimation}</Text>
     {:else if avecBibliotheque && estimationEnvoi && estimationReception}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={placeManqueDouble || auMoinsARecevoir > GROS_OCTETS}>
         <span class="block">
-          Dans le dossier : <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>, envoyées
-          sur le serveur sauf celles qui y sont déjà.
+          {t('Dans le dossier :')} <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>{t(', envoyées sur le serveur sauf celles qui y sont déjà.')}
         </span>
         <span class="mt-1 block">
-          Sur le serveur : <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong>.
-          Celles qui ne sont pas déjà dans le dossier arriveront {dansSousDossier ? `dans « ${SOUS_DOSSIER} »` : 'dans le dossier'} :
-          entre {volume(auMoinsARecevoir)} et {volume(estimationReception.octets)}{estimationReception.libre != null
-            ? ` (${volume(estimationReception.libre)} libres sur ce disque)`
-            : ''}.
+          {t('Sur le serveur :')} <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong>.
+          {t('Celles qui ne sont pas déjà dans le dossier arriveront {ou} : entre {min} et {max}{libres}.', {
+            ou: dansSousDossier ? t('dans « {dossier} »', { dossier: SOUS_DOSSIER }) : t('dans le dossier'),
+            min: volume(auMoinsARecevoir),
+            max: volume(estimationReception.octets),
+            libres: estimationReception.libre != null ? t(' ({volume} libres sur ce disque)', { volume: volume(estimationReception.libre) }) : '',
+          })}
         </span>
         {#if placeManqueDouble}
-          <span class="mt-1 block">Pas assez de place sur ce disque : choisissez une date de début, ou libérez de la place.</span>
+          <span class="mt-1 block">{t('Pas assez de place sur ce disque : choisissez une date de début, ou libérez de la place.')}</span>
         {:else if auMoinsARecevoir > GROS_OCTETS}
-          <span class="mt-1 block">C’est une grosse réception : elle prendra ce volume ici et du temps. La pause l’arrête aussitôt.</span>
+          <span class="mt-1 block">{t('C’est une grosse réception : elle prendra ce volume ici et du temps. La pause l’arrête aussitôt.')}</span>
         {/if}
       </div>
     {:else if sens === 'double' && avec === 'album' && estimationEnvoi}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={grosEnvoi}>
-        Dans le dossier : <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>, envoyées
-        dans l’album (sauf celles déjà sur le serveur). Les photos de l’album absentes du dossier y seront copiées.
+        {t('Dans le dossier :')} <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>{t(', envoyées dans l’album (sauf celles déjà sur le serveur). Les photos de l’album absentes du dossier y seront copiées.')}
       </div>
     {:else if sens === 'montante' && estimationEnvoi}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={grosEnvoi}>
         {#if estimationEnvoi.fichiers === 0}
-          Aucune photo ni vidéo dans ce dossier.
+          {t('Aucune photo ni vidéo dans ce dossier.')}
         {:else}
           <strong>{elements(estimationEnvoi.fichiers)}, {volume(estimationEnvoi.octets)}</strong>
-          à envoyer, sous-dossiers compris (moins celles déjà sur le serveur, reconnues avant l’envoi).
+          {t('à envoyer, sous-dossiers compris (moins celles déjà sur le serveur, reconnues avant l’envoi).')}
           {#if grosEnvoi}
             <span class="mt-1 block">
-              C’est un gros envoi : il occupera ce volume sur le serveur et prendra du temps. La pause et le retrait du
-              dossier l’arrêtent aussitôt.
+              {t('C’est un gros envoi : il occupera ce volume sur le serveur et prendra du temps. La pause et le retrait du dossier l’arrêtent aussitôt.')}
             </span>
           {/if}
         {/if}
-        {#if estimationEnvoi.illisibles}<span class="mt-1 block opacity-70">{estimationEnvoi.illisibles} élément(s) illisible(s) ignoré(s).</span>{/if}
+        {#if estimationEnvoi.illisibles}<span class="mt-1 block opacity-70">{t('{n} élément(s) illisible(s) ignoré(s).', { n: estimationEnvoi.illisibles })}</span>{/if}
       </div>
     {:else if sens === 'virtuel' && estimationReception}
       <div class="estimation rounded-xl p-3 text-sm">
-        <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong> visibles dans le dossier,
-        sans rien télécharger : un fichier n’arrive qu’au moment où un programme l’ouvre.
+        <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong> {t('visibles dans le dossier, sans rien télécharger : un fichier n’arrive qu’au moment où un programme l’ouvre.')}
       </div>
     {:else if sens === 'descendante' && estimationReception}
       <div class="estimation rounded-xl p-3 text-sm" class:gros={grosseReception || placeManque}>
         {#if estimationReception.fichiers === 0}
-          Rien à recevoir dans cette sélection.
+          {t('Rien à recevoir dans cette sélection.')}
         {:else}
-          <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong> à recevoir{estimationReception.libre != null
-            ? ` (${volume(estimationReception.libre)} libres sur ce disque)`
-            : ''}.
+          <strong>{elements(estimationReception.fichiers)}, {volume(estimationReception.octets)}</strong> {t('à recevoir{libres}.', { libres: estimationReception.libre != null ? t(' ({volume} libres sur ce disque)', { volume: volume(estimationReception.libre) }) : '' })}
           {#if placeManque}
-            <span class="mt-1 block">Pas assez de place sur ce disque : choisissez un autre dossier ou une sélection plus petite.</span>
+            <span class="mt-1 block">{t('Pas assez de place sur ce disque : choisissez un autre dossier ou une sélection plus petite.')}</span>
           {:else if grosseReception}
-            <span class="mt-1 block">C’est une grosse réception : elle prendra ce volume ici et du temps. La pause l’arrête aussitôt.</span>
+            <span class="mt-1 block">{t('C’est une grosse réception : elle prendra ce volume ici et du temps. La pause l’arrête aussitôt.')}</span>
           {/if}
         {/if}
       </div>
@@ -503,41 +508,33 @@
 
     <label class="flex items-center gap-2 text-sm">
       <input type="checkbox" bind:checked={avecRaw} />
-      Inclure les fichiers RAW (DNG, ARW, CR2, NEF…), souvent bien plus lourds que le JPEG du même déclenchement
+      {t('Inclure les fichiers RAW (DNG, ARW, CR2, NEF…), souvent bien plus lourds que le JPEG du même déclenchement')}
     </label>
 
     <Text size="small" color="muted">
       {#if sens === 'montante'}
-        Rien n’est jamais supprimé : ni les fichiers de ce dossier, ni les photos sur le serveur. Les photos déjà présentes
-        sur le serveur ne sont pas renvoyées.
+        {t('Rien n’est jamais supprimé : ni les fichiers de ce dossier, ni les photos sur le serveur. Les photos déjà présentes sur le serveur ne sont pas renvoyées.')}
       {:else if sens === 'virtuel'}
-        Le dossier reste accessible même Nicéphore fermé (un petit service sans fenêtre le sert, lancé avec la session).
-        Lecture seule : rien ne peut être modifié ni effacé dans ce dossier. Les photos ouvertes restent dans un cache
-        (20 Go au plus), à vider dans les Réglages.
+        {t('Le dossier reste accessible même Nicéphore fermé (un petit service sans fenêtre le sert, lancé avec la session). Lecture seule : rien ne peut être modifié ni effacé dans ce dossier. Les photos ouvertes restent dans un cache (20 Go au plus), à vider dans les Réglages.')}
       {:else if avecBibliotheque}
-        Rien n’est jamais supprimé ni écrasé, d’un côté comme de l’autre. Une photo est reconnue à son contenu, où qu’elle soit
-        dans le dossier et quel que soit son nom : elle n’est ni renvoyée ni retéléchargée. Une photo reçue que vous effacez
-        ou déplacez ici n’est pas retéléchargée ; une photo supprimée sur le serveur reste ici. Un fichier modifié ici part
-        comme une nouvelle photo (l’ancienne reste sur le serveur).
+        {t('Rien n’est jamais supprimé ni écrasé, d’un côté comme de l’autre. Une photo est reconnue à son contenu, où qu’elle soit dans le dossier et quel que soit son nom : elle n’est ni renvoyée ni retéléchargée. Une photo reçue que vous effacez ou déplacez ici n’est pas retéléchargée ; une photo supprimée sur le serveur reste ici. Un fichier modifié ici part comme une nouvelle photo (l’ancienne reste sur le serveur).')}
       {:else if sens === 'double'}
-        Rien n’est jamais effacé définitivement : au pire une photo quitte l’album ou va dans la corbeille. Un fichier
-        modifié d’un côté est gardé en double plutôt qu’écrasé.
+        {t('Rien n’est jamais effacé définitivement : au pire une photo quitte l’album ou va dans la corbeille. Un fichier modifié d’un côté est gardé en double plutôt qu’écrasé.')}
       {:else}
-        Rien n’est jamais supprimé ni écrasé ici. Une photo que vous effacez de ce dossier n’est pas retéléchargée ; une photo
-        retirée sur le serveur reste ici. Les fichiers déjà présents à l’identique sont reconnus.
+        {t('Rien n’est jamais supprimé ni écrasé ici. Une photo que vous effacez de ce dossier n’est pas retéléchargée ; une photo retirée sur le serveur reste ici. Les fichiers déjà présents à l’identique sont reconnus.')}
       {/if}
     </Text>
     <div class="flex justify-end gap-2">
-      <Button type="button" variant="ghost" color="secondary" onclick={onfermer}>Annuler</Button>
+      <Button type="button" variant="ghost" color="secondary" onclick={onfermer}>{t('Annuler')}</Button>
       <Button type="submit" disabled={!pret} loading={enCours}>
         {#if sens === 'montante'}
-          {estimationEnvoi && estimationEnvoi.fichiers > 0 ? `Envoyer ${volume(estimationEnvoi.octets)}` : 'Envoyer'}
+          {estimationEnvoi && estimationEnvoi.fichiers > 0 ? t('Envoyer {volume}', { volume: volume(estimationEnvoi.octets) }) : t('Envoyer')}
         {:else if sens === 'double'}
-          Synchroniser
+          {t('Synchroniser')}
         {:else if sens === 'virtuel'}
-          Afficher dans le dossier
+          {t('Afficher dans le dossier')}
         {:else}
-          {estimationReception && estimationReception.fichiers > 0 ? `Recevoir ${volume(estimationReception.octets)}` : 'Recevoir'}
+          {estimationReception && estimationReception.fichiers > 0 ? t('Recevoir {volume}', { volume: volume(estimationReception.octets) }) : t('Recevoir')}
         {/if}
       </Button>
     </div>
@@ -570,6 +567,11 @@
   }
   .option input {
     margin-top: 4px;
+  }
+  .fleche {
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0.6;
   }
   .pastille {
     padding: 5px 12px;

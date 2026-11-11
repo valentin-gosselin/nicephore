@@ -7,6 +7,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { lancerBanc } from './banc';
   import { lancerScenarioEcriture } from './scenario-ecriture';
+  import { locale, t, tp } from './i18n.svelte';
   import { notifier } from './notifications.svelte';
 
   // Benchmarks start once per app run, not on every visit of Photos.
@@ -50,6 +51,8 @@
   let largeurVue = $state(0);
   let hauteurCible = $state(220);
   let erreur = $state<string | null>(null);
+  // Titles of the fixed views are translated; others come from data.
+  const titreVue = $derived(['photos', 'favoris', 'archive', 'corbeille'].includes(vue.id) ? t(vue.titre) : vue.titre);
   let pret = $state(false);
   let ouverte = $state<Position | null>(null);
 
@@ -150,7 +153,7 @@
     } else if (e.ctrlKey && e.key.toLowerCase() === 'a') selection.ajouter(chrono.chargees());
     else if (e.key === 'Escape' && selection.active) selection.vider();
     else if (e.key === 'Delete' && selection.active && vue.id !== 'corbeille') {
-      document.querySelector<HTMLButtonElement>('[aria-label^="Mettre à la corbeille"]')?.click();
+      document.querySelector<HTMLButtonElement>(`[aria-label^="${t('Mettre à la corbeille')}"]`)?.click();
     } else if (e.key === 'Home') allerA(0, false);
     else if (e.key === 'End') allerA(chrono.hauteurTotale, false);
     else return;
@@ -170,7 +173,7 @@
   let datesModifiees = false;
 
   function rafraichirCharges() {
-    chrono.actualiserMois().catch((e) => notifier(`Actualisation impossible : ${e}`, 'erreur'));
+    chrono.actualiserMois().catch((e) => notifier(t('Actualisation impossible : {e}', { e: String(e) }), 'erreur'));
   }
 
   function apresModification(date: boolean) {
@@ -268,12 +271,12 @@
               hauteurTotale: () => chrono.hauteurTotale,
               allerA: (y) => allerA(y, false),
               ouvrirPremiere: () => {
-                const premiere = fenetre.tuiles.find((t) => t.y >= defilement);
+                const premiere = fenetre.tuiles.find((tu) => tu.y >= defilement);
                 if (premiere) ouvrir(premiere);
                 return !!premiere;
               },
               ouvrirPremiereVideo: () => {
-                const video = fenetre.tuiles.find((t) => t.y >= defilement && !t.asset.image);
+                const video = fenetre.tuiles.find((tu) => tu.y >= defilement && !tu.asset.image);
                 if (video) ouvrir(video);
                 return !!video;
               },
@@ -308,11 +311,13 @@
       <BarreSelection {vue} {selection} {chrono} />
     {:else}
       <div class="flex h-14 items-center gap-3 px-5">
-        {#if titre}{@render titre()}{:else}<Heading size="small">{vue.titre}</Heading>{/if}
+        {#if titre}{@render titre()}{:else}<Heading size="small">{titreVue}</Heading>{/if}
         {#if pret}
           <Text size="small" color="muted">
-            {chrono.nombreTotal.toLocaleString('fr-FR')}{liste?.plusDeResultats ? '+' : ''}
-            {liste && vue.id === 'recherche' ? 'résultat' : 'élément'}{chrono.nombreTotal > 1 ? 's' : ''}
+            {chrono.nombreTotal.toLocaleString(locale())}{liste?.plusDeResultats ? '+' : ''}
+            {liste && vue.id === 'recherche'
+              ? tp(chrono.nombreTotal, 'résultat', 'résultats')
+              : tp(chrono.nombreTotal, 'élément', 'éléments')}
           </Text>
         {/if}
         {#if entete}{@render entete()}{/if}
@@ -330,11 +335,11 @@
       tabindex="-1"
     >
       {#if erreur}
-        <div class="p-8"><Text color="danger">Impossible de charger la chronologie : {erreur}</Text></div>
+        <div class="p-8"><Text color="danger">{t('Impossible de charger la chronologie : {erreur}', { erreur })}</Text></div>
       {:else if !pret}
         <div class="flex h-full items-center justify-center"><LoadingSpinner size="giant" /></div>
       {:else if chrono.nombreTotal === 0}
-        <div class="flex h-full items-center justify-center p-8"><Text color="muted">{vue.vide}</Text></div>
+        <div class="flex h-full items-center justify-center p-8"><Text color="muted">{t(vue.vide)}</Text></div>
       {/if}
 
       <div class="relative" style:height="{chrono.hauteurTotale}px" style:margin="0 {MARGE}px">
@@ -360,7 +365,7 @@
                 type="button"
                 class="coche-jour"
                 class:cochee={jourSelectionne(titre)}
-                aria-label="Sélectionner la journée"
+                aria-label={t('Sélectionner la journée')}
                 onclick={() => basculerJour(titre)}
               >
                 <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">

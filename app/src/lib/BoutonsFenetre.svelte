@@ -5,6 +5,7 @@
   import { mdiClose, mdiWindowMaximize, mdiWindowMinimize, mdiWindowRestore } from '@mdi/js';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
+  import { t } from './i18n.svelte';
 
   const fenetre = getCurrentWindow();
   let agrandie = $state(false);
@@ -24,9 +25,9 @@
 {/snippet}
 
 <div class="flex shrink-0 items-center gap-0.5">
-  {@render bouton('Réduire la fenêtre', mdiWindowMinimize, () => void fenetre.minimize())}
-  {@render bouton(agrandie ? 'Restaurer la fenêtre' : 'Agrandir la fenêtre', agrandie ? mdiWindowRestore : mdiWindowMaximize, () => void fenetre.toggleMaximize())}
-  {@render bouton('Fermer la fenêtre', mdiClose, () => void fenetre.close(), true)}
+  {@render bouton(t('Réduire'), mdiWindowMinimize, () => void fenetre.minimize())}
+  {@render bouton(agrandie ? t('Restaurer la fenêtre') : t('Agrandir la fenêtre'), agrandie ? mdiWindowRestore : mdiWindowMaximize, () => void fenetre.toggleMaximize())}
+  {@render bouton(t('Fermer la fenêtre'), mdiClose, () => void fenetre.close(), true)}
 </div>
 
 <style>

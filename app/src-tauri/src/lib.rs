@@ -22,8 +22,9 @@ mod zone_notification;
 
 use api_immich::{
     Album, AssetResume, Authentification, BilanAlbum, ClientImmich, CriteresRecherche, DetailMois,
-    FiltreChronologie, Lieu, Marqueur, ModesConnexion, ModificationAlbum, ModificationAssets, ModificationPersonne,
-    Mois, PageResultats, Personne, Souvenir, StylesCarte, Tag, TailleImage, Utilisateur,
+    FiltreChronologie, GenreSuggestion, InfosServeur, Lieu, Marqueur, ModesConnexion, ModificationAlbum,
+    ModificationAssets, ModificationPersonne, Mois, OptionsRecherche, PageResultats, Personne, Souvenir, StylesCarte,
+    Tag, TailleImage, Utilisateur,
 };
 use cache_vignettes::{CacheVignettes, ErreurCache};
 use serde::Serialize;
@@ -379,6 +380,31 @@ async fn detail_mois(etat: State<'_, Etat>, mois: String, filtre: FiltreChronolo
 #[tauri::command]
 async fn rechercher(etat: State<'_, Etat>, criteres: CriteresRecherche, page: u32) -> Result<PageResultats, String> {
     etat.client()?.rechercher(&criteres, page).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn suggestions_recherche(
+    etat: State<'_, Etat>,
+    genre: GenreSuggestion,
+    pays: Option<String>,
+    region: Option<String>,
+    marque: Option<String>,
+    modele: Option<String>,
+) -> Result<Vec<String>, String> {
+    etat.client()?
+        .suggestions(genre, pays.as_deref(), region.as_deref(), marque.as_deref(), modele.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn options_recherche(etat: State<'_, Etat>) -> Result<OptionsRecherche, String> {
+    etat.client()?.options_recherche().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn infos_serveur(etat: State<'_, Etat>) -> Result<InfosServeur, String> {
+    etat.client()?.infos_serveur().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -858,6 +884,9 @@ pub fn lancer() {
             detail_mois,
             rechercher,
             lieux,
+            suggestions_recherche,
+            infos_serveur,
+            options_recherche,
             personnes,
             personne,
             personnes_proches,

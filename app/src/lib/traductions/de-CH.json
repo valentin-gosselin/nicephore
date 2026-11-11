@@ -1,0 +1,15 @@
+{
+  "Ajouter": "Hinzuefüge",
+  "Ajouter un lieu": "Standort afüege",
+  "Ajouter un tag": "Tag hinzufügen",
+  "Ajouter une description": "Beschribig afüege",
+  "Ajouter {n} élément à un album|Ajouter {n} éléments à un album": "Füge dem Album {n, plural, one {# item} other {# items}} hinzu",
+  "Ajouter à un album": "Zu Album hinzufügen",
+  "Ajouté aux favoris": "Zu Favoriten hinzugefügt",
+  "Compte": "Konto",
+  "Mise en favori": "Zu Favoriten hinzugefügt",
+  "Voir": "Aasicht",
+  "{n} élément ajouté aux favoris|{n} éléments ajoutés aux favoris": "{n, number} zu Favoriten hinzugefügt",
+  "À propos": "Über",
+  "_immichUi": {}
+}

@@ -2,7 +2,7 @@
 // back/forward navigation and the sidebar can reach.
 import type { CriteresRecherche, ModeRecherche } from './api';
 
-const MODES: ModeRecherche[] = ['contenu', 'fichierNom', 'description', 'texte'];
+const MODES: ModeRecherche[] = ['contenu', 'fichierNom', 'description', 'texte', 'chemin'];
 
 export function lireCriteres(params: Pick<URLSearchParams, "get" | "getAll">): CriteresRecherche {
   const mode = params.get('mode') as ModeRecherche | null;
@@ -18,6 +18,13 @@ export function lireCriteres(params: Pick<URLSearchParams, "get" | "getAll">): C
     au: params.get('au') ?? undefined,
     favoris: params.get('favoris') === '1',
     archive: params.get('archive') === '1',
+    region: params.get('region') ?? undefined,
+    marque: params.get('marque') ?? undefined,
+    modele: params.get('modele') ?? undefined,
+    objectif: params.get('objectif') ?? undefined,
+    pasDansAlbum: params.get('horsAlbum') === '1',
+    note: Number(params.get('note')) || undefined,
+    etiquettes: params.getAll('etiquette'),
   };
 }
 
@@ -36,6 +43,13 @@ export function urlRecherche(c: CriteresRecherche, noms: Record<string, string> 
   if (c.au) p.set('au', c.au);
   if (c.favoris) p.set('favoris', '1');
   if (c.archive) p.set('archive', '1');
+  if (c.region) p.set('region', c.region);
+  if (c.marque) p.set('marque', c.marque);
+  if (c.modele) p.set('modele', c.modele);
+  if (c.objectif) p.set('objectif', c.objectif);
+  if (c.pasDansAlbum) p.set('horsAlbum', '1');
+  if (c.note) p.set('note', String(c.note));
+  for (const id of c.etiquettes ?? []) p.append('etiquette', id);
   return `/recherche?${p}`;
 }
 
@@ -50,5 +64,22 @@ export function nomsPersonnes(params: Pick<URLSearchParams, "getAll">): Record<s
 }
 
 export function estVide(c: CriteresRecherche) {
-  return !c.texte?.trim() && !c.typeMedia && !c.personnes?.length && !c.ville && !c.pays && !c.du && !c.au && !c.favoris;
+  return (
+    !c.texte?.trim() &&
+    !c.typeMedia &&
+    !c.personnes?.length &&
+    !c.ville &&
+    !c.pays &&
+    !c.region &&
+    !c.du &&
+    !c.au &&
+    !c.favoris &&
+    !c.archive &&
+    !c.marque &&
+    !c.modele &&
+    !c.objectif &&
+    !c.pasDansAlbum &&
+    !c.note &&
+    !c.etiquettes?.length
+  );
 }
