@@ -7,6 +7,10 @@
 #   secret   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
 #   variable NICEPHORE_CLE_PUBLIQUE              the matching public key
 # The release is created as a draft, to be checked before publishing.
+#
+# Release notes: docs/versions/<tag>.md, required (the run stops without it).
+# The text before the line "<!-- release page -->" is plain text, shown by the
+# in-app updater; the whole file (Markdown) becomes the release page.
 name: Publication
 
 on:
@@ -28,6 +32,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Notes de version
+        id: notes
+        shell: bash
+        run: |
+          fichier="docs/versions/$GITHUB_REF_NAME.md"
+          if [ ! -f "$fichier" ]; then
+            echo "::error::Missing release notes: $fichier"
+            exit 1
+          fi
+          # The in-app part, without the Markdown page below the marker.
+          resume=$(sed '/<!-- release page -->/,$d' "$fichier" | tr -d '\r')
+          { echo 'texte<<FIN_DES_NOTES'; printf '%s\n' "$resume"; echo FIN_DES_NOTES; } >> "$GITHUB_OUTPUT"
 
       - name: Paquets système (Linux)
         if: runner.os == 'Linux'
@@ -65,7 +82,7 @@ jobs:
           projectPath: app
           tagName: ${{ github.ref_name }}
           releaseName: Nicéphore ${{ github.ref_name }}
-          releaseBody: Notes de version à écrire avant de publier.
+          releaseBody: ${{ steps.notes.outputs.texte }}
           releaseDraft: true
           includeUpdaterJson: true
           args: >-
@@ -85,3 +102,15 @@ jobs:
           $zip = "Nicephore_${{ github.ref_name }}_portable_x64.zip"
           Compress-Archive -Path $dossier -DestinationPath $zip -Force
           gh release upload "${{ github.ref_name }}" $zip --clobber
+
+  # The full Markdown notes on the release page, once both builds are done
+  # (latest.json keeps the plain text part).
+  notes:
+    needs: publier
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Notes complètes sur la page de la version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --notes-file "docs/versions/$GITHUB_REF_NAME.md"

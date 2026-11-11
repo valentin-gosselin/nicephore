@@ -236,3 +236,7 @@ de garder un faux sens.
   locale et les fichiers virtuels. Clippy et les tests compilent aussi en
   croisé pour Windows dans la toolbox
   (`cargo clippy --target x86_64-pc-windows-gnu ...`).
+
+## Notes de version par fichier
+
+La première publication a posé le texte provisoire du workflow (« Notes de version à écrire avant de publier ») sur la page de la version et dans `latest.json`, que la mise à jour intégrée affiche. Les notes vivent maintenant dans `docs/versions/<tag>.md`, obligatoire : sans lui la publication s'arrête avant de construire. Le texte avant la ligne `<!-- release page -->` est du texte brut, repris dans `latest.json` pour la fenêtre de mise à jour ; le fichier entier, en Markdown, devient la page de la version (un dernier job, une fois Linux et Windows construits). Notes de la 0.1.0 rangées dans `docs/versions/v0.1.0.md`.

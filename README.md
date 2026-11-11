@@ -108,7 +108,9 @@ Testing:
   to end with a throwaway signing key.
 - `scripts/vitrine.sh demarrer|captures`: the showcase server and the screenshots of this page.
 
-Releases are built by GitHub Actions on `v*` tags (`.github/workflows/publication.yml`).
+Releases are built by GitHub Actions on `v*` tags (`.github/workflows/publication.yml`), as a
+draft. Each tag needs its notes in `docs/versions/<tag>.md`: the first paragraph, in plain text, is
+shown by the in-app updater, and the whole file becomes the release page.
 
 ## Credits
 
