@@ -1204,7 +1204,14 @@ fn nom_sur(nom: &str, secours: &str) -> String {
         .map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c })
         .collect();
     let propre = propre.trim().trim_end_matches(['.', ' ']).trim_start_matches('.').to_string();
-    if propre.is_empty() { secours.to_string() } else { propre }
+    if propre.is_empty() {
+        return secours.to_string();
+    }
+    // Names Windows reserves for devices (CON, NUL, COM1...), whatever the extension.
+    let base = propre.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let reserve = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (base.len() == 4 && (base.starts_with("COM") || base.starts_with("LPT")) && base.as_bytes()[3].is_ascii_digit());
+    if reserve { format!("_{propre}") } else { propre }
 }
 
 /// A relative path free both on disk and among the reserved ones (names
@@ -1257,6 +1264,8 @@ mod tests {
         assert_eq!(nom_libre(dossier.path(), "", "img (2).JPG", "id", &mut pris), "img (2) (2).JPG");
         assert_eq!(nom_libre(dossier.path(), "2026/05", "a:b?.jpg", "id", &mut pris), "2026/05/a_b_.jpg");
         assert_eq!(nom_sur("...", "secours"), "secours");
+        assert_eq!(nom_sur("NUL.jpg", "secours"), "_NUL.jpg");
+        assert_eq!(nom_sur("Lpt9", "secours"), "_Lpt9");
         assert_eq!(sous_dossier(crate::Rangement::AnneeMois, "2026-05-30T14:00:00"), "2026/05");
         assert_eq!(sous_dossier(crate::Rangement::AnneeMois, ""), "sans date");
         assert_eq!(sous_dossier(crate::Rangement::Plat, "2026-05-30T14:00:00"), "");

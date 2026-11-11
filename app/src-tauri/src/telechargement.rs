@@ -69,13 +69,22 @@ async fn telecharger_un(client: &ClientImmich, id: &str, dossier: &Path) -> Resu
 
 /// Keeps only a file name valid on Windows and Linux.
 fn assainir(nom: &str, id: &str) -> String {
-    let nom = Path::new(nom).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // The last component, cut by hand: `Path` on Windows reads "a:b.jpg" as
+    // a drive and would drop "a:".
+    let nom = nom.rsplit(['/', '\\']).next().unwrap_or_default();
     let propre: String = nom
         .chars()
         .map(|c| if "<>:\"/\\|?*".contains(c) || c.is_control() { '_' } else { c })
         .collect();
     let propre = propre.trim_matches(|c| c == '.' || c == ' ').to_string();
-    if propre.is_empty() { id.to_string() } else { propre }
+    if propre.is_empty() {
+        return id.to_string();
+    }
+    // Names Windows reserves for devices, whatever the extension.
+    let base = propre.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let reserve = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (base.len() == 4 && (base.starts_with("COM") || base.starts_with("LPT")) && base.as_bytes()[3].is_ascii_digit());
+    if reserve { format!("_{propre}") } else { propre }
 }
 
 /// `photo.jpg`, then `photo (1).jpg`, `photo (2).jpg`... never overwrites.
@@ -103,6 +112,10 @@ mod tests {
         assert_eq!(assainir("../../etc/passwd", "x"), "passwd");
         assert_eq!(assainir("a:b?.jpg", "x"), "a_b_.jpg");
         assert_eq!(assainir("", "abc"), "abc");
+        assert_eq!(assainir("C:\\Users\\x\\y.jpg", "x"), "y.jpg");
+        assert_eq!(assainir("nul.jpg", "x"), "_nul.jpg");
+        assert_eq!(assainir("COM1", "x"), "_COM1");
+        assert_eq!(assainir("console.jpg", "x"), "console.jpg");
     }
 
     #[test]

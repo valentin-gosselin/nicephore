@@ -64,7 +64,14 @@ pub struct Arbre {
 fn nom_sur(nom: &str, secours: &str) -> String {
     let propre: String = nom.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c }).collect();
     let propre = propre.trim().trim_end_matches(['.', ' ']).trim_start_matches('.').to_string();
-    if propre.is_empty() { secours.to_string() } else { propre }
+    if propre.is_empty() {
+        return secours.to_string();
+    }
+    // Names Windows reserves for devices (CON, NUL, COM1...), whatever the extension.
+    let base = propre.split('.').next().unwrap_or_default().to_ascii_uppercase();
+    let reserve = matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (base.len() == 4 && (base.starts_with("COM") || base.starts_with("LPT")) && base.as_bytes()[3].is_ascii_digit());
+    if reserve { format!("_{propre}") } else { propre }
 }
 
 fn sous_dossier(rangement: Rangement, date_locale: &str) -> Option<(String, String)> {
