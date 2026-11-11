@@ -143,10 +143,30 @@ fi
 FIN
 chmod +x "$interne"
 
+# Services activated on the private bus (portals, ksecretd, knighttimed) are
+# started by systemd --user and outlive it: one leaked set per run, 3.7 GB
+# after 157 runs. Stop every process still bound to that bus.
+nettoyer_bus() {
+    bus="$sortie/bus-$$.txt"
+    if [ -s "$bus" ]; then
+        adresse=$(cat "$bus")
+        for p in $(pgrep -u "$(id -u)"); do
+            tr '\0' '\n' 2>/dev/null <"/proc/$p/environ" | grep -qxF "DBUS_SESSION_BUS_ADDRESS=$adresse" && kill -TERM "$p" 2>/dev/null
+        done
+    fi
+    rm -f "$bus"
+}
+
 lancer() {
-    /usr/bin/dbus-run-session -- /usr/bin/kwin_wayland --virtual --no-lockscreen \
+    # The private bus address is kept to clean up after the session.
+    bus="$sortie/bus-$$.txt"
+    /usr/bin/dbus-run-session -- /bin/sh -c 'echo "$DBUS_SESSION_BUS_ADDRESS" >"$0"; exec "$@"' "$bus" \
+        /usr/bin/kwin_wayland --virtual --no-lockscreen \
         --width "$largeur" --height "$hauteur" --socket "banc-$$" --exit-with-session \
         "$interne" >>"$sortie/sortie.txt" 2>&1 || true
+    # The virtual folders scenario checks that its service outlives the app:
+    # the cleanup waits for that check (see the end of this script).
+    [ -n "${garder_bus:-}" ] || nettoyer_bus
     # What the panel read from the tray icon.
     if [ -f "$sortie/zone.txt" ]; then
         sed 's/^/banc: zone : /' "$sortie/zone.txt" >>"$sortie/sortie.txt"
@@ -192,7 +212,9 @@ elif [ -n "$portable" ]; then
         fi
     } >>"$sortie/sortie.txt"
 else
+    garder_bus=1
     lancer
+    garder_bus=
     if [ -n "$jetable" ] && [ -z "$portable" ] && [ -z "$fichier" ] && [ -z "$mise_a_jour" ]; then
         # The virtual folders service outlives the app: its folder is still
         # served, then stopping the service unmounts it.
@@ -201,10 +223,13 @@ else
         else
             echo "banc: ÉCHEC : dossier virtuel plus servi après la fermeture" >>"$sortie/sortie.txt"
         fi
-        pkill -TERM -f "^$binaire --dossiers-virtuels" || true
+        # Stopping the private bus processes stops that service too (and only
+        # the one of this run, not a service of the user's own session).
+        nettoyer_bus
         sleep 2
         mount | grep -q "$sortie/persistant" || echo "banc: ok : démonté à l'arrêt du service" >>"$sortie/sortie.txt"
     fi
+    nettoyer_bus
     # A virtual folder must never stay mounted after the app.
     if mount | grep -q "$sortie"; then
         echo "banc: ÉCHEC : un montage reste dans $sortie" >>"$sortie/sortie.txt"
