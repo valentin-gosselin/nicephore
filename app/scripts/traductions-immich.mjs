@@ -59,10 +59,40 @@ const codes = arbre.tree
 
 const immichFr = await json(brut('i18n/fr.json'));
 const immichEn = await json(brut('i18n/en.json'));
-const parFrancais = new Map();
-const parAnglais = new Map();
-for (const [cle, texte] of Object.entries(immichFr)) if (typeof texte === 'string' && !icu(texte)) parFrancais.set(normaliser(texte), cle);
-for (const [cle, texte] of Object.entries(immichEn)) if (typeof texte === 'string' && !icu(texte)) parAnglais.set(normaliser(texte), cle);
+// Normalized text -> Immich keys. A text often has several keys with other
+// meanings ("Annuler" is cancel and undo, "Modèle" model and template): the
+// key chosen is the one whose Immich English is our English, same case first
+// ("People" rather than the heading "PEOPLE").
+const index = (textes) => {
+  const parTexte = new Map();
+  for (const [cle, texte] of Object.entries(textes)) {
+    if (typeof texte !== 'string' || icu(texte)) continue;
+    const n = normaliser(texte);
+    parTexte.set(n, [...(parTexte.get(n) ?? []), cle]);
+  }
+  return (texte) => parTexte.get(normaliser(texte)) ?? [];
+};
+const clesFr = index(immichFr);
+const clesEn = index(immichEn);
+// Among equal texts, the key named after the word ("trash" before
+// "to_trash"), then the shortest ("location" before "edit_location_...").
+const ordre = (cles, anglais) => {
+  const nom = normaliser(anglais).replace(/\W+/g, '_');
+  return [...cles].sort((a, b) => Number(b === nom) - Number(a === nom) || a.length - b.length);
+};
+const memeAnglais = (toutes, anglais, cles = ordre(toutes, anglais)) =>
+  cles.find((c) => immichEn[c]?.trim() === anglais.trim()) ??
+  cles.find((c) => typeof immichEn[c] === 'string' && normaliser(immichEn[c]) === normaliser(anglais));
+/** The Immich key of a Nicéphore text, or undefined. */
+function cleImmich(francais, anglais) {
+  const parFr = clesFr(francais);
+  const parEn = clesEn(anglais);
+  // French and English both agree; else the English decides between the
+  // French homonyms; else the English alone; else the French keys if they
+  // all mean the same in Immich (one English text).
+  const unSens = new Set(parFr.map((c) => immichEn[c])).size === 1;
+  return memeAnglais(parFr, anglais) ?? memeAnglais(parEn, anglais) ?? (unSens ? ordre(parFr, anglais)[0] : undefined);
+}
 
 /** Gives an Immich text the value names of Nicéphore. */
 function renommer(texte, noms) {
@@ -90,7 +120,7 @@ for (const [francais, anglais] of Object.entries(nosTextes)) {
     const f = forcees[francais];
     lien = f === null ? undefined : typeof f === 'string' ? { cle: f, noms: {} } : { cle: f.cle, noms: f.valeurs ?? {} };
   } else if (!francais.includes('|')) {
-    const cle = parFrancais.get(normaliser(francais)) ?? parAnglais.get(normaliser(anglais));
+    const cle = cleImmich(francais, anglais);
     if (cle) lien = { cle, noms: {} };
   }
   if (lien && adapter(francais, immichEn[lien.cle], lien.noms)) correspondances[francais] = lien;
@@ -118,7 +148,10 @@ for (const code of codes) {
   if (Object.keys(sortie).length === 0) continue;
   const fichier = code.replace(/_/g, '-');
   await writeFile(new URL(`${fichier}.json`, racine), JSON.stringify({ ...sortie, _immichUi: immichUi }, null, 2) + '\n');
-  langues.push({ code: fichier, textes: Object.keys(sortie).length });
+  // Machine translations of the other texts (traductions/auto) count too.
+  const auto = JSON.parse(await readFile(new URL(`auto/${fichier}.json`, racine), 'utf8').catch(() => '{}'));
+  const couverts = new Set([...Object.keys(sortie), ...Object.keys(auto)].filter((cle) => cle in nosTextes));
+  langues.push({ code: fichier, textes: couverts.size, communaute: Object.keys(sortie).length });
 }
 
 langues.sort((a, b) => b.textes - a.textes || a.code.localeCompare(b.code));

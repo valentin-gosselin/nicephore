@@ -26,6 +26,10 @@ export type ChoixLangue = Langue | 'systeme';
 // Generated languages, loaded on demand.
 const fichiers = import.meta.glob<{ default: Record<string, unknown> }>('./traductions/*.json');
 const fichierDe = (code: string) => fichiers[`./traductions/${code}.json`];
+// Machine translations of the texts Immich does not have (`traductions/auto`,
+// never touched by the Immich script). The community translation wins.
+const fichiersAuto = import.meta.glob<{ default: Record<string, unknown> }>('./traductions/auto/*.json');
+const fichierAutoDe = (code: string) => fichiersAuto[`./traductions/auto/${code}.json`];
 
 const nomDe = (code: string) => {
   try {
@@ -206,9 +210,11 @@ function appliquer() {
 /** Loads the texts of a generated language once, then applies it. */
 async function charger(code: Langue) {
   const fichier = fichierDe(code);
-  if (fichier && !dictionnaires[code]) {
+  const auto = fichierAutoDe(code);
+  if ((fichier || auto) && !dictionnaires[code]) {
     try {
-      dictionnaires[code] = (await fichier()).default as Record<string, string>;
+      const [immich, machine] = await Promise.all([fichier?.(), auto?.()]);
+      dictionnaires[code] = { ...(machine?.default ?? {}), ...(immich?.default ?? {}) } as Record<string, string>;
     } catch {
       // English stands in.
     }

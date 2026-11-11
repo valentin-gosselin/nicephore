@@ -12,11 +12,12 @@
   "Favori": "Юратнӑ",
   "Favoris": "Юратнисем",
   "Les favoris": "Юратнисем",
-  "Lieu": "Тӗл",
   "Lieux": "Тӗлсем",
   "Mise en favori": "Суйласа илнине хушнӑ",
+  "Personnes": "Ҫынсем",
   "Photos": "Сӑнӳкерчӗксем",
   "Rechercher vos photos": "Сӑнӳкерчӗксене шырӑр",
+  "Tout": "Пурте",
   "{n} élément ajouté aux favoris|{n} éléments ajoutés aux favoris": "Суйласа илнине {n, number} хушнӑ",
   "À propos": "Ҫинчен",
   "_immichUi": {}

@@ -4,308 +4,384 @@
   "communs": 191,
   "langues": [
     {
-      "code": "bg",
-      "textes": 191
-    },
-    {
       "code": "ca",
-      "textes": 191
-    },
-    {
-      "code": "da",
-      "textes": 191
-    },
-    {
-      "code": "de",
-      "textes": 191
-    },
-    {
-      "code": "es",
-      "textes": 191
-    },
-    {
-      "code": "et",
-      "textes": 191
-    },
-    {
-      "code": "ga",
-      "textes": 191
-    },
-    {
-      "code": "gl",
-      "textes": 191
-    },
-    {
-      "code": "he",
-      "textes": 191
-    },
-    {
-      "code": "hu",
-      "textes": 191
-    },
-    {
-      "code": "id",
-      "textes": 191
-    },
-    {
-      "code": "it",
-      "textes": 191
-    },
-    {
-      "code": "ja",
-      "textes": 191
-    },
-    {
-      "code": "nb-NO",
-      "textes": 191
-    },
-    {
-      "code": "nl",
-      "textes": 191
-    },
-    {
-      "code": "pl",
-      "textes": 191
-    },
-    {
-      "code": "pt",
-      "textes": 191
-    },
-    {
-      "code": "ru",
-      "textes": 191
-    },
-    {
-      "code": "sk",
-      "textes": 191
-    },
-    {
-      "code": "sl",
-      "textes": 191
-    },
-    {
-      "code": "sv",
-      "textes": 191
-    },
-    {
-      "code": "th",
-      "textes": 191
-    },
-    {
-      "code": "tr",
-      "textes": 191
-    },
-    {
-      "code": "vi",
-      "textes": 191
-    },
-    {
-      "code": "zh-Hans",
-      "textes": 191
+      "textes": 620,
+      "communaute": 191
     },
     {
       "code": "cs",
-      "textes": 190
+      "textes": 620,
+      "communaute": 190
     },
     {
-      "code": "pt-BR",
-      "textes": 190
+      "code": "da",
+      "textes": 620,
+      "communaute": 191
     },
     {
-      "code": "ro",
-      "textes": 190
-    },
-    {
-      "code": "bn",
-      "textes": 189
-    },
-    {
-      "code": "en-GB",
-      "textes": 189
-    },
-    {
-      "code": "fa",
-      "textes": 189
-    },
-    {
-      "code": "uk",
-      "textes": 189
-    },
-    {
-      "code": "zh-Hant",
-      "textes": 188
-    },
-    {
-      "code": "ko",
-      "textes": 187
-    },
-    {
-      "code": "be",
-      "textes": 186
-    },
-    {
-      "code": "yue-Hant",
-      "textes": 186
-    },
-    {
-      "code": "lt",
-      "textes": 178
-    },
-    {
-      "code": "ar",
-      "textes": 172
+      "code": "de",
+      "textes": 620,
+      "communaute": 191
     },
     {
       "code": "el",
-      "textes": 172
+      "textes": 620,
+      "communaute": 172
     },
     {
-      "code": "hr",
-      "textes": 172
-    },
-    {
-      "code": "ml",
-      "textes": 170
+      "code": "es",
+      "textes": 620,
+      "communaute": 191
     },
     {
       "code": "fi",
-      "textes": 168
+      "textes": 620,
+      "communaute": 170
+    },
+    {
+      "code": "he",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "hu",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "id",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "it",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "ja",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "ko",
+      "textes": 620,
+      "communaute": 187
+    },
+    {
+      "code": "nb-NO",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "nl",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "pl",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "pt",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "pt-BR",
+      "textes": 620,
+      "communaute": 190
+    },
+    {
+      "code": "ro",
+      "textes": 620,
+      "communaute": 190
+    },
+    {
+      "code": "ru",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "sv",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "tr",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "uk",
+      "textes": 620,
+      "communaute": 189
+    },
+    {
+      "code": "vi",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "zh-Hans",
+      "textes": 620,
+      "communaute": 191
+    },
+    {
+      "code": "zh-Hant",
+      "textes": 620,
+      "communaute": 188
+    },
+    {
+      "code": "bg",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "et",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "ga",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "gl",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "sk",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "sl",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "th",
+      "textes": 191,
+      "communaute": 191
+    },
+    {
+      "code": "bn",
+      "textes": 189,
+      "communaute": 189
+    },
+    {
+      "code": "en-GB",
+      "textes": 189,
+      "communaute": 189
+    },
+    {
+      "code": "fa",
+      "textes": 189,
+      "communaute": 189
+    },
+    {
+      "code": "be",
+      "textes": 186,
+      "communaute": 186
+    },
+    {
+      "code": "yue-Hant",
+      "textes": 186,
+      "communaute": 186
+    },
+    {
+      "code": "lt",
+      "textes": 178,
+      "communaute": 178
+    },
+    {
+      "code": "ar",
+      "textes": 172,
+      "communaute": 172
+    },
+    {
+      "code": "hr",
+      "textes": 172,
+      "communaute": 172
+    },
+    {
+      "code": "ml",
+      "textes": 170,
+      "communaute": 170
     },
     {
       "code": "eu",
-      "textes": 167
+      "textes": 168,
+      "communaute": 168
     },
     {
       "code": "lv",
-      "textes": 165
+      "textes": 168,
+      "communaute": 168
     },
     {
       "code": "hi",
-      "textes": 163
+      "textes": 166,
+      "communaute": 166
     },
     {
       "code": "mr",
-      "textes": 163
+      "textes": 165,
+      "communaute": 165
     },
     {
       "code": "ta",
-      "textes": 162
+      "textes": 165,
+      "communaute": 165
     },
     {
       "code": "eo",
-      "textes": 160
+      "textes": 162,
+      "communaute": 162
     },
     {
       "code": "sr-Latn",
-      "textes": 155
+      "textes": 159,
+      "communaute": 159
     },
     {
       "code": "sr-Cyrl",
-      "textes": 153
+      "textes": 153,
+      "communaute": 153
     },
     {
       "code": "te",
-      "textes": 117
-    },
-    {
-      "code": "nn",
-      "textes": 107
+      "textes": 119,
+      "communaute": 119
     },
     {
       "code": "kn",
-      "textes": 103
+      "textes": 108,
+      "communaute": 108
+    },
+    {
+      "code": "nn",
+      "textes": 108,
+      "communaute": 108
     },
     {
       "code": "sq",
-      "textes": 95
+      "textes": 99,
+      "communaute": 99
     },
     {
       "code": "ka",
-      "textes": 91
+      "textes": 93,
+      "communaute": 93
     },
     {
       "code": "gsw",
-      "textes": 84
+      "textes": 90,
+      "communaute": 90
     },
     {
       "code": "mk",
-      "textes": 79
+      "textes": 82,
+      "communaute": 82
     },
     {
       "code": "is",
-      "textes": 62
+      "textes": 66,
+      "communaute": 66
     },
     {
       "code": "ms",
-      "textes": 47
+      "textes": 53,
+      "communaute": 53
     },
     {
       "code": "kmr",
-      "textes": 46
+      "textes": 48,
+      "communaute": 48
     },
     {
       "code": "mn",
-      "textes": 40
+      "textes": 44,
+      "communaute": 44
     },
     {
       "code": "af",
-      "textes": 35
+      "textes": 37,
+      "communaute": 37
     },
     {
       "code": "hy",
-      "textes": 24
+      "textes": 23,
+      "communaute": 23
     },
     {
       "code": "cv",
-      "textes": 20
+      "textes": 21,
+      "communaute": 21
     },
     {
       "code": "fil",
-      "textes": 17
+      "textes": 16,
+      "communaute": 16
     },
     {
       "code": "ur",
-      "textes": 13
+      "textes": 13,
+      "communaute": 13
     },
     {
       "code": "de-CH",
-      "textes": 12
+      "textes": 12,
+      "communaute": 12
     },
     {
       "code": "az",
-      "textes": 10
+      "textes": 10,
+      "communaute": 10
     },
     {
       "code": "gu",
-      "textes": 10
+      "textes": 10,
+      "communaute": 10
     },
     {
       "code": "km",
-      "textes": 10
+      "textes": 10,
+      "communaute": 10
     },
     {
       "code": "tl",
-      "textes": 10
+      "textes": 10,
+      "communaute": 10
     },
     {
       "code": "bi",
-      "textes": 9
+      "textes": 9,
+      "communaute": 9
     },
     {
       "code": "kk",
-      "textes": 9
+      "textes": 9,
+      "communaute": 9
     },
     {
       "code": "pa",
-      "textes": 7
+      "textes": 7,
+      "communaute": 7
     },
     {
       "code": "ne",
-      "textes": 5
+      "textes": 5,
+      "communaute": 5
     },
     {
       "code": "uz",
-      "textes": 4
+      "textes": 4,
+      "communaute": 4
     }
   ]
 }

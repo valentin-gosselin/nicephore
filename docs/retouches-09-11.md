@@ -189,3 +189,18 @@ Banc : le nettoyage des services du bus privé (ajouté le 11/11 contre la fuite
 - Conversion des 59 fichiers faite par trois agents Sonnet sur des lots disjoints, d'après un fichier modèle (`BarreLaterale.svelte`). Bancs en français inchangés (80/80, 19/19) ; banc en anglais pour les captures (ses contrôles cherchent du français, d'où les échecs attendus).
 - Reste en français : les messages d'erreur venant de Rust, le nom du dossier réel « Depuis Immich ».
 - Alignés sur le français d'Immich pour hériter de ses traductions (11/11, accord de Valentin) : « Cacher les personnes non nommées », « Rechercher des albums », « Rechercher une personne », « Aucune personne nommée « {nom} » » (avec le nom cherché), « Réduire » (bouton de fenêtre). Format `{count, number}` d'Immich pris en charge (« ajouté(s) aux favoris »). Non alignés car Immich perdrait une information : nom de l'album, « toujours dans la photothèque », explication du GPS, nom du tag, titre de la fiche fusionnée. 191 textes communs.
+- Traductions automatiques (11/11, budget validé par Valentin) : les 456 textes sans équivalent Immich traduits dans 26 langues (de, es, pt-BR, it, nl, zh-Hans, ru, pl, ja, uk, cs, sv, tr, ko, zh-Hant, da, nb-NO, fi, hu, ro, ca, el, vi, id, pt, he) par 13 agents Haiku, deux langues chacun, depuis un fichier source numéroté (les agents ne recopient pas les clés françaises). Rangées dans `traductions/auto/<langue>.json`, que le script Immich ne touche jamais ; à l'exécution, la traduction de la communauté Immich passe devant, puis la traduction automatique, puis l'anglais. Contrôle automatique : toutes les clés, mêmes valeurs entre accolades, pluriels en deux formes ou en bloc ICU (formes multiples du russe, polonais, ukrainien, tchèque, roumain, hébreu). Les 26 langues sont à 100 %, les 50 autres à environ 31 % (communauté Immich) avec le reste en anglais. Pour un texte ajouté plus tard, il faudra traduire seulement les nouveautés.
+
+### Homonymes des traductions Immich (11/11, soir)
+
+Un même texte français a souvent plusieurs clés chez Immich, avec des sens
+différents : « Annuler » est `cancel` et `undo`, « Modèle » `model` et
+`template`, « Personnes » `people` et le titre en capitales `PEOPLE`. Le
+script prenait la dernière clé trouvée, d'où « Rückgängig » pour Annuler ou
+« PERSONEN » dans la barre latérale en allemand. Il départage maintenant par
+notre anglais (`en.json`) : la clé dont l'anglais Immich est le nôtre, casse
+égale d'abord, puis la clé qui porte le nom du mot (`trash` avant `to_trash`),
+puis la plus courte (`location` avant `edit_location_dialog_title`). Dix
+textes changent de clé ; dans quelques petites langues encore peu traduites,
+la bonne clé n'a pas de traduction et le texte retombe en anglais plutôt que
+de garder un faux sens.

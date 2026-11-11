@@ -233,7 +233,7 @@
         onChange={(valeur) => choisirLangue(valeur)}
       />
       <Text size="small" color="muted">
-        {t('Au-delà du français et de l’anglais, les langues viennent des traductions de la communauté Immich, pour les textes que Nicéphore partage avec Immich. Le reste s’affiche en anglais.')}
+        {t('Au-delà du français et de l’anglais, les textes que Nicéphore partage avec Immich viennent des traductions de sa communauté. Les autres sont traduits automatiquement dans 26 langues, et s’affichent en anglais dans les autres.')}
       </Text>
     </section>
 
