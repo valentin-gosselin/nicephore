@@ -48,8 +48,8 @@
     ],
     "createUpdaterArtifacts": true,
     "linux": {
-      "deb": { "depends": ["fuse3"] },
-      "rpm": { "depends": ["fuse3"] }
+      "deb": { "depends": ["fuse3"], "desktopTemplate": "linux/nicephore.desktop" },
+      "rpm": { "depends": ["fuse3"], "desktopTemplate": "linux/nicephore.desktop" }
     },
     "fileAssociations": [
       {
