@@ -226,3 +226,13 @@ de garder un faux sens.
   l'historique de recherche réel n'apparaisse pas.
 - Écart repéré avec Immich web : la frise met chaque jour sur sa propre
   ligne, Immich range plusieurs jours côte à côte quand ils tiennent.
+- Premier passage de la CI Windows depuis longtemps, trois défauts propres à
+  Windows corrigés : le composant `Notifications.svelte` masquait le module
+  `notifications.svelte.ts` (Windows ignore la casse : renommé
+  `PileNotifications.svelte`) ; l'outil de banc `hote-zone` (zbus) est
+  réservé à Linux ; les noms de fichiers téléchargés sont découpés à la main
+  (`Path` lisait « a:b.jpg » comme le lecteur a:) et les noms réservés de
+  Windows (CON, NUL, COM1...) reçoivent un « _ » devant, aussi pour la copie
+  locale et les fichiers virtuels. Clippy et les tests compilent aussi en
+  croisé pour Windows dans la toolbox
+  (`cargo clippy --target x86_64-pc-windows-gnu ...`).
