@@ -390,6 +390,21 @@ impl Moteur {
 
         // 2. New or changed files, once stable, get a fingerprint.
         let connus = self.base().fichiers_connus(regle.id)?;
+        // Gone from the folder (moved, renamed, deleted): forgotten. A moved
+        // file is found again under its new path, by its content. A folder
+        // seen empty (disk unplugged…) or unreadable in places forgets
+        // nothing it could not see.
+        if !inventaire.fichiers.is_empty() && !inventaire.illisibles.iter().any(String::is_empty) {
+            let vus: std::collections::HashSet<&str> = inventaire.fichiers.iter().map(|f| f.chemin.as_str()).collect();
+            let cache = |chemin: &str| {
+                inventaire.illisibles.iter().any(|i| chemin == i || chemin.strip_prefix(i.as_str()).is_some_and(|r| r.starts_with('/')))
+            };
+            let partis: Vec<String> = connus.keys().filter(|c| !vus.contains(c.as_str()) && !cache(c)).cloned().collect();
+            if !partis.is_empty() {
+                tracing::debug!("{} : {} fichiers partis du dossier", regle.dossier, partis.len());
+                self.base().oublier_fichiers(regle.id, &partis)?;
+            }
+        }
         let maintenant = maintenant_ms();
         let delai = Duration::from_millis(self.stabilite_ms.load(Ordering::SeqCst).max(0) as u64);
         let mut revoir = None;
@@ -849,14 +864,34 @@ impl Moteur {
         let avec_bibliotheque = regle.sens == crate::Sens::Double && !matches!(regle.cible, Cible::Album { .. });
         // Which files are here, looked up before taking the base: tens of
         // thousands of disk accesses must not hold it.
-        let presents: std::collections::HashSet<String> = tokio::task::spawn_blocking({
+        // A file moved inside the folder is found again through the upload
+        // side, which knows it by content under its new path: it is not gone.
+        let ailleurs = self.base().chemins_par_asset(regle.id)?;
+        let (presents, demenages): (std::collections::HashSet<String>, Vec<(String, String)>) = tokio::task::spawn_blocking({
             let racine = racine.clone();
             let chemins: Vec<(String, String)> = connus.iter().map(|(a, r)| (a.clone(), r.chemin.clone())).collect();
-            move || chemins.into_iter().filter(|(_, c)| analyse::absolu(&racine, c).exists()).map(|(a, _)| a).collect()
+            move || {
+                let mut presents = std::collections::HashSet::new();
+                let mut demenages = Vec::new();
+                for (asset_id, chemin) in chemins {
+                    if analyse::absolu(&racine, &chemin).exists() {
+                        presents.insert(asset_id);
+                    } else if let Some(nouveau) =
+                        ailleurs.get(&asset_id).and_then(|n| n.iter().find(|n| analyse::absolu(&racine, n).exists()))
+                    {
+                        demenages.push((asset_id.clone(), nouveau.clone()));
+                        presents.insert(asset_id);
+                    }
+                }
+                (presents, demenages)
+            }
         })
         .await
         .map_err(|e| Erreur::Regle(e.to_string()))?;
         self.base().en_transaction(|base| {
+            for (asset_id, chemin) in &demenages {
+                base.deplacer_recu(regle.id, asset_id, chemin)?;
+            }
             for (asset_id, recu) in &connus {
                 if avec_bibliotheque && recu.sha1.is_empty() && !ids.contains(asset_id.as_str()) {
                     base.oublier_recu(regle.id, asset_id)?;
@@ -886,7 +921,7 @@ impl Moteur {
                     EtatRecu::Attente | EtatRecu::Echec if !ids.contains(asset_id.as_str()) => {
                         base.oublier_recu(regle.id, asset_id)?;
                     }
-                    EtatRecu::RetireServeur if ids.contains(asset_id.as_str()) && present_ici => {
+                    EtatRecu::RetireServeur | EtatRecu::RetireIci if sur_serveur && present_ici => {
                         base.changer_etat_recu(regle.id, asset_id, EtatRecu::Recu)?;
                     }
                     _ => {}

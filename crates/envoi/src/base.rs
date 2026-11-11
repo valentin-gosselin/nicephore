@@ -884,6 +884,31 @@ impl Base {
         Ok(lignes.collect::<Result<_, _>>()?)
     }
 
+    /// Where each asset known on the upload side lies now, by its id.
+    pub fn chemins_par_asset(&self, regle: i64) -> Resultat<HashMap<String, Vec<String>>> {
+        let mut requete = self.cnx.prepare(
+            "SELECT asset_id, chemin FROM fichiers
+             WHERE regle = ?1 AND asset_id IS NOT NULL AND etat IN ('present', 'envoye')",
+        )?;
+        let mut chemins: HashMap<String, Vec<String>> = HashMap::new();
+        for ligne in requete.query_map(params![regle], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (asset_id, chemin) = ligne?;
+            chemins.entry(asset_id).or_default().push(chemin);
+        }
+        Ok(chemins)
+    }
+
+    /// Forgets files no longer in the folder.
+    pub fn oublier_fichiers(&self, regle: i64, chemins: &[String]) -> Resultat<()> {
+        self.en_transaction(|base| {
+            let mut requete = base.cnx.prepare("DELETE FROM fichiers WHERE regle = ?1 AND chemin = ?2")?;
+            for chemin in chemins {
+                requete.execute(params![regle, chemin])?;
+            }
+            Ok(())
+        })
+    }
+
     /// Reserves a local path for an asset to download.
     pub fn reserver_recu(&self, regle: i64, asset: &api_immich::AssetDistant, chemin: &str) -> Resultat<()> {
         self.cnx.execute(
@@ -932,7 +957,7 @@ impl Base {
 
     /// A path reserved for download is taken by another file: use another.
     pub fn deplacer_recu(&self, regle: i64, asset_id: &str, chemin: &str) -> Resultat<()> {
-        self.cnx.execute("UPDATE recus SET chemin = ?3 WHERE regle = ?1 AND asset_id = ?2", params![regle, asset_id, chemin])?;
+        self.cnx.execute("UPDATE OR IGNORE recus SET chemin = ?3 WHERE regle = ?1 AND asset_id = ?2", params![regle, asset_id, chemin])?;
         Ok(())
     }
 

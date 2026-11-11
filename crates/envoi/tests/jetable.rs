@@ -585,10 +585,23 @@ async fn double_sens_avec_la_phototheque() {
     let un = &recus[0];
     std::fs::create_dir_all(racine.join("2025/Rangées")).unwrap();
     std::fs::rename(fevrier.join(un), racine.join("2025/Rangées").join(un)).unwrap();
+    // The photo of the user linked to its server copy, moved as well.
+    std::fs::rename(racine.join("2025/Anniversaire/ma-copie.jpg"), racine.join("2025/Rangées/ma-copie.jpg")).unwrap();
     patienter().await;
     moteur.passage().await.unwrap();
+    moteur.passage().await.unwrap();
     assert!(!fevrier.join(un).exists(), "pas retéléchargée");
+    assert!(!fevrier.join("essai-07.jpg").exists(), "la copie liée, déplacée, pas retéléchargée");
     assert_eq!(journal(&moteur, "envoye"), 1, "pas renvoyée");
+    let bilan = compter(&moteur, regle);
+    assert_eq!(
+        (bilan.retires_ici, journal(&moteur, "retire_ici")),
+        (0, 0),
+        "déplacées dans le dossier, pas « effacées ici »"
+    );
+    let connus = moteur.base().fichiers_connus(regle).unwrap();
+    assert!(connus.contains_key("2025/Rangées/ma-copie.jpg"), "connue sous son nouveau chemin");
+    assert!(!connus.contains_key("2025/Anniversaire/ma-copie.jpg"), "l'ancien chemin est oublié, pas compté deux fois");
 
     // Cleanup: only what this test sent, and its albums.
     let envoyes: Vec<String> =
@@ -627,6 +640,16 @@ async fn double_sens_avec_miroir_et_garde_fous() {
     assert_eq!(nombre_dans_l_album(&c, &album.id).await, 42);
     patienter().await;
     moteur.passage().await.unwrap();
+
+    // Moved inside the folder: the same photo, nothing to mirror.
+    std::fs::create_dir_all(racine.join("rangées")).unwrap();
+    std::fs::rename(racine.join("m05.jpg"), racine.join("rangées/m05.jpg")).unwrap();
+    patienter().await;
+    moteur.passage().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    moteur.passage().await.unwrap();
+    assert_eq!(nombre_dans_l_album(&c, &album.id).await, 42, "déplacée, pas retirée de l'album");
+    assert_eq!(journal(&moteur, "retire_de_l_album"), 0);
 
     // Deleted here: out of the album after the grace delay, still in the library.
     std::fs::remove_file(racine.join("essai-16.jpg")).unwrap();
