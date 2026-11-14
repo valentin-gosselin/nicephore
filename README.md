@@ -34,8 +34,12 @@ Files already on the server are recognized by their checksum and never sent twic
 ever deleted, neither on your computer nor on the server. Sync keeps going from the tray, can
 start with the session, and waits on battery or on a metered connection.
 
-**A photo viewer for your computer.** Open any local photo or video with Nicéphore: it shows
-whether the file is already on Immich, and sends it in one click.
+**A photo viewer for your computer.** Open any local photo or video with Nicéphore: zoom,
+lossless rotation saved in the file, full screen, slideshow, a strip of the folder's photos, EXIF
+details, copy to the clipboard, drag to another app, "open with", system trash with undo. It shows
+whether the file is already on Immich, sends it in one click (or into an album), and opens it in
+the library. A photo turned while already on Immich is turned there too, and stays the same photo
+for the sync.
 
 **And also:** several accounts and servers; the interface in French, English and 26 more
 languages in full, and partly in 50 others (the texts shared with Immich); a portable mode for a

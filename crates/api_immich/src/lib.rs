@@ -530,6 +530,11 @@ impl ClientImmich {
         self.get_json("map/markers", &[("withPartners", "true")]).await
     }
 
+    /// `GET /map/reverse-geocode`: the place of a point (city, region, country).
+    pub async fn lieu_inverse(&self, lat: f64, lon: f64) -> Resultat<Vec<LieuInverse>> {
+        self.get_json("map/reverse-geocode", &[("lat", lat.to_string().as_str()), ("lon", lon.to_string().as_str())]).await
+    }
+
     /// Map style URLs from `GET /server/config` (Immich's tile server by default).
     pub async fn styles_carte(&self) -> Resultat<StylesCarte> {
         self.get_json("server/config", &[]).await
@@ -799,6 +804,52 @@ impl ClientImmich {
         self.get_json(&format!("assets/{id}"), &[]).await
     }
 
+    /// `GET /assets/{id}/edits`: the edits of an asset (crop, rotate,
+    /// mirror), in order, as the server gives them.
+    pub async fn modifications(&self, id: &str) -> Resultat<Vec<serde_json::Value>> {
+        valider_id(id)?;
+        let reponse: serde_json::Value = self.get_json(&format!("assets/{id}/edits"), &[]).await?;
+        Ok(reponse.get("edits").and_then(|e| e.as_array()).cloned().unwrap_or_default())
+    }
+
+    /// `PUT /assets/{id}/edits` with the whole list, or `DELETE` when it is
+    /// empty (the photo as it was sent).
+    pub async fn definir_modifications(&self, id: &str, modifications: &[serde_json::Value]) -> Resultat<()> {
+        valider_id(id)?;
+        if modifications.is_empty() {
+            let reponse = self.http.delete(self.url(&format!("assets/{id}/edits"))).timeout(Duration::from_secs(60)).send().await?;
+            verifier(reponse).await?;
+            return Ok(());
+        }
+        let corps = serde_json::json!({ "edits": modifications });
+        self.envoyer(reqwest::Method::PUT, &format!("assets/{id}/edits"), &corps).await
+    }
+
+    /// Turns an asset by `quarts` quarter turns clockwise, with the editor
+    /// of the server (the original stays as sent). Its last edit, when a
+    /// rotation, takes the new angle; otherwise a rotation is added.
+    pub async fn pivoter(&self, id: &str, quarts: u8) -> Resultat<()> {
+        let mut modifications = self.modifications(id).await?;
+        // Only `action` and `parameters` go back (not the ids of the server).
+        for m in &mut modifications {
+            if let Some(objet) = m.as_object_mut() {
+                objet.retain(|cle, _| cle == "action" || cle == "parameters");
+            }
+        }
+        let derniere_rotation = modifications.last().and_then(|m| {
+            (m.get("action").and_then(|a| a.as_str()) == Some("rotate"))
+                .then(|| m.pointer("/parameters/angle").and_then(|a| a.as_i64()).unwrap_or(0))
+        });
+        let angle = (derniere_rotation.unwrap_or(0) + i64::from(quarts % 4) * 90).rem_euclid(360);
+        if derniere_rotation.is_some() {
+            modifications.pop();
+        }
+        if angle != 0 {
+            modifications.push(serde_json::json!({ "action": "rotate", "parameters": { "angle": angle } }));
+        }
+        self.definir_modifications(id, &modifications).await
+    }
+
     /// `GET /assets/{id}/thumbnail?size=...`: rendered image (JPEG or WebP),
     /// or `GET /people/{id}/thumbnail` for a face.
     pub async fn image(&self, id: &str, taille: TailleImage) -> Resultat<ImageBrute> {
@@ -806,7 +857,8 @@ impl ClientImmich {
         let requete = match taille {
             TailleImage::Personne => self.http.get(self.url(&format!("people/{id}/thumbnail"))),
             TailleImage::Profil => self.http.get(self.url(&format!("users/{id}/profile-image"))),
-            _ => self.http.get(self.url(&format!("assets/{id}/thumbnail"))).query(&[("size", taille.parametre())]),
+            // The edited version (turned, cropped in Immich) when there is one.
+            _ => self.http.get(self.url(&format!("assets/{id}/thumbnail"))).query(&[("size", taille.parametre()), ("edited", "true")]),
         };
         let reponse = requete.timeout(Duration::from_secs(60)).send().await?;
         let reponse = verifier(reponse).await?;

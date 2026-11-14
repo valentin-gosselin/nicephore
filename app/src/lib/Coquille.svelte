@@ -20,6 +20,7 @@
   import Connexion from './Connexion.svelte';
   import MenuCompte from './MenuCompte.svelte';
   import Deverrouillage from './Deverrouillage.svelte';
+  import { armerFilet } from './filet-fenetre';
   import PileNotifications from './PileNotifications.svelte';
   import { compteAjoute, session, verifierSession } from './session.svelte';
 
@@ -61,10 +62,8 @@
     if (!fichiers.length) return;
     // The viewer sizes the window to the photo and shows it; just in case,
     // the window shows anyway after a few seconds.
+    armerFilet(() => void getCurrentWindow().show());
     void goto(`/fichier?chemin=${encodeURIComponent(fichiers[0])}&ajuster=1`);
-    setTimeout(async () => {
-      if (!(await getCurrentWindow().isVisible())) await getCurrentWindow().show();
-    }, 5000);
   }
 
   onMount(() => {

@@ -4,7 +4,7 @@
 //! it right away. Only the folder of an opened file is made readable by the
 //! interface.
 
-use api_immich::{ElementVerification, MetaEnvoi};
+use api_immich::{ClientImmich, ElementVerification, MetaEnvoi};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -203,18 +203,28 @@ pub async fn etat_fichier_local(etat: State<'_, Etat>, chemin: String) -> Result
     };
     let c = PathBuf::from(&chemin);
     let sha1 = tokio::task::spawn_blocking(move || envoi::analyse::empreinte(&c)).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
-    let resultats = client
-        .verifier_envois(&[ElementVerification { id: "0".into(), checksum: sha1 }])
-        .await
-        .map_err(|e| e.to_string())?;
-    let r = resultats.into_iter().next();
-    let present = r.as_ref().is_some_and(|r| r.action != "accept" && r.reason.as_deref() == Some("duplicate"));
+    let origine = etat.envoi.base().origine(&sha1).ok().flatten();
+    let trouve = asset_par_empreintes(&client, &sha1, origine.as_deref()).await?;
     Ok(EtatLocal {
         connecte: true,
-        sur_serveur: present,
-        asset_id: r.as_ref().and_then(|r| r.asset_id.clone()),
-        dans_la_corbeille: r.is_some_and(|r| r.is_trashed),
+        sur_serveur: trouve.is_some(),
+        dans_la_corbeille: trouve.as_ref().is_some_and(|(_, corbeille)| *corbeille),
+        asset_id: trouve.map(|(id, _)| id),
     })
+}
+
+/// The asset of the server holding this content (or its first version,
+/// for a photo turned by Nicéphore), and whether it is in the trash.
+pub async fn asset_par_empreintes(client: &ClientImmich, sha1: &str, origine: Option<&str>) -> Result<Option<(String, bool)>, String> {
+    let mut elements = vec![ElementVerification { id: "0".into(), checksum: sha1.to_string() }];
+    if let Some(o) = origine {
+        elements.push(ElementVerification { id: "1".into(), checksum: o.to_string() });
+    }
+    let resultats = client.verifier_envois(&elements).await.map_err(|e| e.to_string())?;
+    Ok(resultats
+        .into_iter()
+        .filter(|r| r.action != "accept" && r.reason.as_deref() == Some("duplicate"))
+        .find_map(|r| r.asset_id.map(|id| (id, r.is_trashed))))
 }
 
 /// Sends this file to the server now (library, no album).

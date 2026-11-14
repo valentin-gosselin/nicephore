@@ -12,6 +12,7 @@
     "traductions": "node scripts/traductions-immich.mjs"
   },
   "dependencies": {
+    "@crabnebula/tauri-plugin-drag": "^2.1.0",
     "@internationalized/date": "^3.12.4",
     "@mdi/js": "^7.4.47",
     "@tauri-apps/api": "^2.12.4",

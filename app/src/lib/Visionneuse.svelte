@@ -1,19 +1,36 @@
 <script lang="ts">
-  import { IconButton, LoadingSpinner } from '@immich/ui';
+  import { IconButton, LoadingSpinner, MenuItemType, type MenuItems } from '@immich/ui';
   import {
     mdiChevronLeft,
     mdiChevronRight,
     mdiClose,
+    mdiContentCopy,
+    mdiDownload,
     mdiFullscreen,
     mdiHeart,
     mdiHeartOutline,
+    mdiImageAlbum,
     mdiInformationOutline,
     mdiPause,
     mdiPlay,
     mdiTrashCanOutline,
   } from '@mdi/js';
+  import { pictureDir } from '@tauri-apps/api/path';
+  import { open } from '@tauri-apps/plugin-dialog';
   import { onMount } from 'svelte';
-  import { definirFavori, mettreCorbeille, restaurerCorbeille, urlImage, urlVideo } from './api';
+  import {
+    ajouterALAlbum,
+    copierImageImmich,
+    creerAlbum,
+    definirFavori,
+    mettreCorbeille,
+    restaurerCorbeille,
+    telecharger,
+    urlImage,
+    urlVideo,
+  } from './api';
+  import ChoixAlbum from './ChoixAlbum.svelte';
+  import { menuActif, ouvrirMenu } from './menu-contextuel';
   import { t } from './i18n.svelte';
   import { notifier } from './notifications.svelte';
   import type { Chronologie, Position } from './modele-chronologie.svelte';
@@ -136,9 +153,80 @@
     return () => clearTimeout(minuteur);
   });
 
+  async function copierImage() {
+    const courant = asset;
+    if (!courant?.image) return;
+    try {
+      await copierImageImmich(courant.id, courant.thumbhash);
+      notifier(t('Image copiée'), 'succes');
+    } catch (e) {
+      notifier(t('Copie impossible : {e}', { e: String(e) }), 'erreur');
+    }
+  }
+
+  /** The original, saved into a folder of this computer. */
+  async function enregistrer() {
+    const courant = asset;
+    if (!courant) return;
+    const dossier = await open({
+      directory: true,
+      title: t('Dossier où enregistrer l’original'),
+      defaultPath: await pictureDir().catch(() => undefined),
+    });
+    if (typeof dossier !== 'string') return;
+    try {
+      const bilan = await telecharger([courant.id], dossier);
+      if (bilan.echecs.length) notifier(t('Téléchargement impossible : {e}', { e: bilan.echecs[0] }), 'erreur');
+      else notifier(t('Original enregistré dans {dossier}', { dossier: bilan.dossier }), 'succes');
+    } catch (e) {
+      notifier(t('Téléchargement impossible : {e}', { e: String(e) }), 'erreur');
+    }
+  }
+
+  let choixAlbum = $state(false);
+
+  async function versAlbum(album: { id: string; nom: string } | { nouveau: string }) {
+    const courant = asset;
+    choixAlbum = false;
+    if (!courant) return;
+    try {
+      if ('nouveau' in album) await creerAlbum(album.nouveau, '', [courant.id]);
+      else await ajouterALAlbum(album.id, [courant.id]);
+      notifier(t('Ajoutée à l’album « {album} »', { album: 'nouveau' in album ? album.nouveau : album.nom }), 'succes');
+      onmodifie?.(false);
+    } catch (e) {
+      notifier(t('Ajout impossible : {e}', { e: String(e) }), 'erreur');
+    }
+  }
+
+  function menu(e: MouseEvent) {
+    if (!asset) return;
+    const image = asset.image;
+    const items: MenuItems = [
+      { title: t('Copier l’image (Ctrl+C)'), icon: mdiContentCopy, onAction: () => void copierImage(), $if: () => image },
+      { title: t('Enregistrer l’original…'), icon: mdiDownload, onAction: () => void enregistrer() },
+      MenuItemType.Divider,
+      { title: favori ? t('Retirer des favoris') : t('Ajouter aux favoris'), icon: favori ? mdiHeart : mdiHeartOutline, onAction: () => void basculerFavori() },
+      { title: t('Ajouter à un album…'), icon: mdiImageAlbum, onAction: () => (choixAlbum = true) },
+      MenuItemType.Divider,
+      { title: lecture ? t('Arrêter le diaporama (D)') : t('Diaporama (D)'), icon: lecture ? mdiPause : mdiPlay, onAction: () => (lecture = !lecture) },
+      { title: t('Plein écran (F)'), icon: mdiFullscreen, onAction: basculerPleinEcran },
+      { title: t('Infos (I)'), icon: mdiInformationOutline, onAction: () => (infos = !infos) },
+      MenuItemType.Divider,
+      { title: t('Mettre à la corbeille (Suppr)'), icon: mdiTrashCanOutline, color: 'danger', onAction: () => void corbeille() },
+    ];
+    ouvrirMenu(e, items);
+  }
+
   function surTouche(e: KeyboardEvent) {
     // Alt+arrows belong to the app navigation (back closes the viewer).
-    if (e.altKey) return;
+    // An open menu or dialog keeps its keys (Escape closes it, not the viewer).
+    if (e.altKey || choixAlbum || e.defaultPrevented || menuActif()) return;
+    if (e.ctrlKey && e.key.toLowerCase() === 'c') {
+      void copierImage();
+      e.preventDefault();
+      return;
+    }
     if (e.key === 'Escape') {
       if (document.fullscreenElement) return;
       onfermer(position);
@@ -191,7 +279,8 @@
   aria-modal="true"
   tabindex="-1"
 >
-  <div class="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="relative flex min-w-0 flex-1 items-center justify-center overflow-hidden" oncontextmenu={menu}>
     {#if asset}
       {#key asset.id}
         {#if asset.image}
@@ -287,6 +376,15 @@
     <PanneauInfos id={asset.id} {onmodifie} onquitter={() => onfermer(position)} />
   {/if}
 </div>
+
+{#if choixAlbum}
+  <ChoixAlbum
+    nombre={1}
+    onchoisir={(a) => void versAlbum({ id: a.id, nom: a.albumName })}
+    oncreer={(nom) => void versAlbum({ nouveau: nom })}
+    onfermer={() => (choixAlbum = false)}
+  />
+{/if}
 
 <style>
   .scene {

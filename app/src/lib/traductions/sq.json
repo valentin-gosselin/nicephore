@@ -98,6 +98,7 @@
   "{n} élément restauré|{n} éléments restaurés": "U rikthyen {n, plural, one {# aset} other {# asete}}",
   "{n} élément|{n} éléments": "{n, plural, one {# artikull} other {# artikuj}}",
   "À propos": "Rreth",
+  "Dossier": "Dosje",
   "_immichUi": {
     "cancel": "Anulo",
     "close": "Mbyll",

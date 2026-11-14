@@ -128,8 +128,9 @@ config_privee=""
 if [ -n "$jetable" ] && [ -z "$portable" ]; then
     config_privee="export XDG_CONFIG_HOME=\"$sortie/config\""
     # The showcase also keeps the web view's storage (recent searches...)
-    # apart: none of the user's own history in the screenshots.
-    if [ -n "$vitrine" ]; then
+    # apart: none of the user's own history in the screenshots. The viewer
+    # scenario too, and the trash it fills and empties is its own.
+    if [ -n "$vitrine" ] || [ -n "$fichier" ]; then
         config_privee="$config_privee XDG_DATA_HOME=\"$sortie/donnees\" XDG_CACHE_HOME=\"$sortie/cache\""
     fi
 fi
@@ -262,6 +263,24 @@ if [ -n "$fichier" ]; then
         echo "banc: ok : gel de l'interface signalé puis sa fin" >>"$sortie/sortie.txt"
     else
         echo "banc: ÉCHEC : gel de l'interface non signalé" >>"$sortie/sortie.txt"
+    fi
+    # The photo turned in the viewer while on the server: turned there too,
+    # by the editor of Immich (a rotation of 90 degrees).
+    asset_pivote=$(grep -ao "asset pivoté : [0-9a-f-]*" "$sortie/sortie.txt" | head -1 | sed 's/.*: //')
+    edition=$(python3 -I - "$IMMICH_URL" "$IMMICH_API_KEY" "$asset_pivote" <<'PY' 2>&1
+import json, sys, urllib.request
+url, cle, asset = sys.argv[1].rstrip("/"), sys.argv[2], sys.argv[3]
+if not url.endswith("/api"):
+    url += "/api"
+requete = urllib.request.Request(f"{url}/assets/{asset}/edits", headers={"x-api-key": cle})
+edits = json.load(urllib.request.urlopen(requete, timeout=10)).get("edits", [])
+print(";".join(f"{e['action']}:{e['parameters'].get('angle', '')}" for e in edits))
+PY
+)
+    if [ "$edition" = "rotate:90" ]; then
+        echo "banc: ok : photo pivotée aussi sur Immich (éditeur du serveur)" >>"$sortie/sortie.txt"
+    else
+        echo "banc: ÉCHEC : rotation sur Immich attendue, vu « $edition » pour « $asset_pivote »" >>"$sortie/sortie.txt"
     fi
     # Only the freeze made on purpose: waiting on the upload base must not
     # freeze the interface.

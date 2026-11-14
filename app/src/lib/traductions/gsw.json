@@ -89,6 +89,7 @@
   "{n} élément restauré|{n} éléments restaurés": "{n, plural, one {# Datei} other {# Dateie}} wiederhergstellt",
   "{n} élément|{n} éléments": "{n, plural, one {# Iitrag} other {# Iiträg}}",
   "À propos": "Über Immich",
+  "Dossier": "Ordner",
   "_immichUi": {
     "cancel": "Abbräche",
     "close": "Schlüssä",

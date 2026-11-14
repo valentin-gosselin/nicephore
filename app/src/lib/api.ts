@@ -418,3 +418,35 @@ export const definirVisionneuseParDefaut = () => invoke<string>('definir_visionn
 export type ApercuLocal = { chemin: string; largeur: number; hauteur: number; orientation: number };
 export const apercuLocal = (chemin: string) => invoke<ApercuLocal | null>('apercu_local', { chemin });
 export const urlVideoLocale = (chemin: string) => invoke<string>('url_video_locale', { chemin });
+export type InfosLocales = {
+  datePrise: string | null;
+  appareil: string | null;
+  objectif: string | null;
+  focale: number | null;
+  ouverture: number | null;
+  exposition: number | null;
+  iso: number | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+export const infosFichierLocal = (chemin: string) => invoke<InfosLocales>('infos_fichier_local', { chemin });
+export const lieuDuPoint = (latitude: number, longitude: number) => invoke<string | null>('lieu_du_point', { latitude, longitude });
+export const vignetteLocale = (chemin: string) => invoke<string | null>('vignette_locale', { chemin });
+export const copierImageLocale = (chemin: string, quarts: number) => invoke<void>('copier_image_locale', { chemin, quarts });
+/** What turning a photo of this computer did. */
+export interface RotationLocale {
+  /** The file itself was turned (otherwise only shown turned: RAW, GIF). */
+  fichier: boolean;
+  /** On Immich, and turned there too. */
+  immich: boolean;
+  erreurImmich: string | null;
+}
+/** Turns a photo of this computer by quarter turns clockwise: the file, and the photo on Immich. */
+export const pivoterFichierLocal = (chemin: string, quarts: number) =>
+  invoke<RotationLocale>('pivoter_fichier_local', { chemin, quarts });
+export const copierImageImmich = (id: string, version: string | null) => invoke<void>('copier_image_immich', { id, version: version ?? '' });
+export const copierTexte = (texte: string) => invoke<void>('copier_texte', { texte });
+export const afficherDansDossier = (chemin: string) => invoke<void>('afficher_dans_dossier', { chemin });
+export const ouvrirAvec = (chemin: string) => invoke<void>('ouvrir_avec', { chemin });
+export const corbeilleLocale = (chemin: string) => invoke<void>('corbeille_locale', { chemin });
+export const restaurerCorbeilleLocale = (chemin: string) => invoke<void>('restaurer_corbeille_locale', { chemin });

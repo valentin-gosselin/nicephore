@@ -92,6 +92,7 @@
   "{n} élément ajouté aux favoris|{n} éléments ajoutés aux favoris": "{n, number} დაემატა რჩეულებში",
   "À propos": "შესახებ",
   "Étiquettes": "ჭდეები",
+  "Dossier": "საქაღალდე",
   "_immichUi": {
     "cancel": "გაუქმება",
     "close": "დახურვა",

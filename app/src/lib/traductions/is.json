@@ -65,6 +65,7 @@
   "{n} élément mis à la corbeille|{n} éléments mis à la corbeille": "Færði {n, plural, one {# eign} other {# eignir}} í ruslið",
   "{n} élément restauré|{n} éléments restaurés": "Endurheimti {n, plural, one {# eign} other {# eignir}}",
   "À propos": "Um",
+  "Dossier": "Mappa",
   "_immichUi": {
     "cancel": "Hætta við",
     "close": "Loka",

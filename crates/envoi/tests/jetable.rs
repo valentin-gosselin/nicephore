@@ -202,6 +202,54 @@ async fn une_photo_qui_arrive_part_toute_seule() {
     c.mettre_a_la_corbeille(&ids).await.unwrap();
 }
 
+/// A photo turned by Nicéphore (its file changed, its fingerprint linked to
+/// the one before) stays the photo of the server: never sent again. Another
+/// file changed without a link is sent, which shows the pass did run.
+#[tokio::test]
+#[ignore = "serveur Immich jetable"]
+async fn une_photo_pivotee_n_est_pas_renvoyee() {
+    let c = client().await;
+    let jeton = format!("{}", SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis());
+    let temporaire = tempfile::tempdir().unwrap();
+    let racine = temporaire.path().join("pivotees");
+    let jpeg = photo_du_serveur();
+    let pivotee = racine.join("pivotee.jpg");
+    let modifiee = racine.join("modifiee.jpg");
+    ecrire(&pivotee, &variante(&jpeg, &format!("pivotee {jeton}")), 3_600);
+    ecrire(&modifiee, &variante(&jpeg, &format!("modifiee {jeton}")), 3_600);
+
+    let moteur = moteur();
+    let regle = moteur.base().ajouter_regle(&racine, &Cible::Bibliotheque).unwrap().id;
+    moteur.definir_client(Some(std::sync::Arc::new(c.clone())));
+    let boucle = tokio::spawn(moteur.lancer());
+    let attendre = |condition: fn(&envoi::Bilan) -> bool| {
+        let moteur = std::sync::Arc::clone(&moteur);
+        async move {
+            for _ in 0..60 {
+                if condition(&compter(&moteur, regle)) {
+                    return true;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            false
+        }
+    };
+    assert!(attendre(|b| b.envoyes == 2).await, "premier passage");
+
+    // Both files change; only the turned one is linked to its first version.
+    let avant = envoi::analyse::empreinte(&pivotee).unwrap();
+    ecrire(&pivotee, &variante(&jpeg, &format!("pivotee tournee {jeton}")), 3_000);
+    let apres = envoi::analyse::empreinte(&pivotee).unwrap();
+    moteur.base().lier_empreinte(&apres, &avant).unwrap();
+    ecrire(&modifiee, &variante(&jpeg, &format!("modifiee autrement {jeton}")), 3_000);
+    assert!(attendre(|b| b.presents == 1 && b.envoyes == 1).await, "la pivotée reconnue, l'autre envoyée : {:?}", compter(&moteur, regle));
+    boucle.abort();
+    assert_eq!(journal(&moteur, "envoye"), 3, "la photo pivotée n'est pas renvoyée");
+
+    let ids: Vec<String> = moteur.base().journal(100).unwrap().into_iter().filter_map(|e| e.asset_id).collect();
+    c.mettre_a_la_corbeille(&ids).await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "serveur Immich jetable"]
 async fn attente_sur_batterie() {

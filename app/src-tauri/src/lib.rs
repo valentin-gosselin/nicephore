@@ -18,6 +18,8 @@ mod service_virtuel;
 mod telechargement;
 mod veille_interface;
 mod virtuels;
+mod orientation;
+mod visionneuse_locale;
 mod zone_notification;
 
 use api_immich::{
@@ -750,6 +752,8 @@ pub fn lancer() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _dossier| fichiers_locaux::seconde_instance(app, argv)))
         .manage(fichiers_locaux::FichiersInitiaux(std::sync::Mutex::new(Some(fichiers_initiaux))))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_drag::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(mise_a_jour::MisesAJour::default())
@@ -931,6 +935,17 @@ pub fn lancer() {
             fichiers_locaux::apercu_local,
             fichiers_locaux::url_video_locale,
             fichiers_locaux::definir_visionneuse_par_defaut,
+            visionneuse_locale::copier_image_locale,
+            visionneuse_locale::pivoter_fichier_local,
+            visionneuse_locale::copier_image_immich,
+            visionneuse_locale::copier_texte,
+            visionneuse_locale::afficher_dans_dossier,
+            visionneuse_locale::ouvrir_avec,
+            visionneuse_locale::corbeille_locale,
+            visionneuse_locale::restaurer_corbeille_locale,
+            visionneuse_locale::vignette_locale,
+            visionneuse_locale::infos_fichier_local,
+            visionneuse_locale::lieu_du_point,
             banc::lancer_seconde_instance,
             virtuels::virtuels,
             virtuels::ajouter_virtuel,

@@ -455,12 +455,33 @@ impl Moteur {
             if self.interrompu(generation) {
                 return Ok(None);
             }
-            let elements: Vec<ElementVerification> = lot
+            // A photo turned by Nicéphore is also looked up by its first
+            // version: the server keeps that one (the rotation is an edit
+            // there). Either one found on the server is enough.
+            let elements: Vec<ElementVerification> = {
+                let base = self.base();
+                lot.iter()
+                    .enumerate()
+                    .flat_map(|(i, (_, sha1))| {
+                        let origine = base.origine(sha1).ok().flatten();
+                        std::iter::once(ElementVerification { id: i.to_string(), checksum: sha1.clone() })
+                            .chain(origine.map(|o| ElementVerification { id: format!("{i}-origine"), checksum: o }))
+                    })
+                    .collect()
+            };
+            let mut resultats = client.verifier_envois(&elements).await?;
+            let origines_trouvees: Vec<_> = resultats
                 .iter()
-                .enumerate()
-                .map(|(i, (_, sha1))| ElementVerification { id: i.to_string(), checksum: sha1.clone() })
+                .filter(|r| r.id.ends_with("-origine") && r.reason.as_deref() == Some("duplicate"))
+                .map(|r| r.id.trim_end_matches("-origine").to_string())
                 .collect();
-            let resultats = client.verifier_envois(&elements).await?;
+            resultats.retain(|r| !r.id.ends_with("-origine") || r.reason.as_deref() == Some("duplicate"));
+            resultats.retain(|r| r.id.ends_with("-origine") || !origines_trouvees.contains(&r.id));
+            for r in &mut resultats {
+                if let Some(i) = r.id.strip_suffix("-origine") {
+                    r.id = i.to_string();
+                }
+            }
             self.base().en_transaction(|base| {
                 for resultat in resultats {
                     let Some((chemin, _)) = resultat.id.parse::<usize>().ok().and_then(|i| lot.get(i)) else { continue };

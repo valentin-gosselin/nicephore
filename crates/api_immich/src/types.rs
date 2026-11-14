@@ -490,6 +490,17 @@ pub struct Marqueur {
     pub city: Option<String>,
 }
 
+/// A place found for a point (`/map/reverse-geocode`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LieuInverse {
+    #[serde(default)]
+    pub city: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub country: Option<String>,
+}
+
 /// Map styles configured on the server (MapLibre style URLs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

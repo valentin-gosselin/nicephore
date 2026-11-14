@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use crate::{Erreur, Resultat, maintenant_ms};
 
 /// Current schema version (`PRAGMA user_version`).
-const VERSION: i32 = 5;
+const VERSION: i32 = 6;
 
 const SCHEMA_V1: &str = "
 CREATE TABLE regles (
@@ -101,6 +101,17 @@ const SCHEMA_V4: &str = "ALTER TABLE regles ADD COLUMN sans_raw INTEGER NOT NULL
 /// Version 5: two-way rules with the whole library put what they receive
 /// in a sub-folder of their own (empty: the folder itself).
 const SCHEMA_V5: &str = "ALTER TABLE regles ADD COLUMN dossier_recus TEXT NOT NULL DEFAULT '';";
+
+/// Version 6: a file changed by Nicéphore itself (a photo turned in the
+/// viewer) keeps the fingerprint of its first version, the one the server
+/// may know: still the same photo there, never sent again as a new one.
+const SCHEMA_V6: &str = "
+CREATE TABLE liens (
+    sha1 TEXT PRIMARY KEY,
+    sha1_origine TEXT NOT NULL,
+    cree_le INTEGER NOT NULL
+);
+";
 
 /// A deletion seen on one side, to repeat on the other (two-way rules
 /// with mirrored deletions).
@@ -386,6 +397,9 @@ impl Base {
         if depuis < 5 {
             self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V5} PRAGMA user_version = 5; COMMIT;"))?;
         }
+        if depuis < 6 {
+            self.cnx.execute_batch(&format!("BEGIN; {SCHEMA_V6} PRAGMA user_version = 6; COMMIT;"))?;
+        }
         Ok(())
     }
 
@@ -403,6 +417,37 @@ impl Base {
                 Err(e)
             }
         }
+    }
+
+    // ---- Files changed by Nicéphore ----
+
+    /// Notes that the file now fingerprinted `sha1` was the one fingerprinted
+    /// `avant`: it keeps the origin of `avant` (a photo turned several times
+    /// still points to its first version).
+    pub fn lier_empreinte(&self, sha1: &str, avant: &str) -> Resultat<()> {
+        if sha1 == avant {
+            return Ok(());
+        }
+        let origine = self.origine(avant)?.unwrap_or_else(|| avant.to_string());
+        if origine == sha1 {
+            // Back to its first version: the server knows it as it is.
+            self.cnx.execute("DELETE FROM liens WHERE sha1 = ?1", [sha1])?;
+            return Ok(());
+        }
+        self.cnx.execute(
+            "INSERT INTO liens (sha1, sha1_origine, cree_le) VALUES (?1, ?2, ?3)
+             ON CONFLICT(sha1) DO UPDATE SET sha1_origine = excluded.sha1_origine",
+            rusqlite::params![sha1, origine, maintenant_ms()],
+        )?;
+        Ok(())
+    }
+
+    /// Fingerprint of the first version of a file changed by Nicéphore.
+    pub fn origine(&self, sha1: &str) -> Resultat<Option<String>> {
+        Ok(self
+            .cnx
+            .query_row("SELECT sha1_origine FROM liens WHERE sha1 = ?1", [sha1], |r| r.get(0))
+            .optional()?)
     }
 
     // ---- Rules ----
@@ -1182,5 +1227,20 @@ mod tests {
         drop(Base::ouvrir(&chemin).unwrap());
         Connection::open(&chemin).unwrap().pragma_update(None, "user_version", 99).unwrap();
         assert!(Base::ouvrir(&chemin).is_err());
+    }
+
+    #[test]
+    fn empreinte_liee_a_sa_premiere_version() {
+        let base = Base::en_memoire().unwrap();
+        assert_eq!(base.origine("b").unwrap(), None);
+        base.lier_empreinte("b", "a").unwrap();
+        base.lier_empreinte("c", "b").unwrap();
+        assert_eq!(base.origine("b").unwrap().as_deref(), Some("a"));
+        assert_eq!(base.origine("c").unwrap().as_deref(), Some("a"));
+        // Turned back to its first version: no link needed.
+        base.lier_empreinte("a", "c").unwrap();
+        assert_eq!(base.origine("a").unwrap(), None);
+        base.lier_empreinte("d", "d").unwrap();
+        assert_eq!(base.origine("d").unwrap(), None);
     }
 }
