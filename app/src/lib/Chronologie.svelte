@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { Heading, LoadingSpinner, Text } from '@immich/ui';
-  import { mdiCheckCircle, mdiCheckboxBlankCircleOutline } from '@mdi/js';
-  import { onMount, tick, type Snippet } from 'svelte';
+  import { Button, Heading, IconButton, LoadingSpinner, Text } from '@immich/ui';
+  import { mdiCheckCircle, mdiCheckboxBlankCircleOutline, mdiClose } from '@mdi/js';
+  import { onMount, tick, untrack, type Snippet } from 'svelte';
+  import { envois } from './envois.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { etatPrechargement, signalerDefilement, type EtatPrechargement } from './api';
   import { listen } from '@tauri-apps/api/event';
@@ -34,7 +35,16 @@
     modele,
     entete,
     titre,
-  }: { vue: Vue; modele?: Chronologie; entete?: Snippet; titre?: Snippet } = $props();
+    choix,
+  }: {
+    vue: Vue;
+    modele?: Chronologie;
+    entete?: Snippet;
+    titre?: Snippet;
+    /** Picking photos for something (« Ajouter des photos » of an album): a
+     * click selects, the bar offers to confirm. */
+    choix?: { titre: string; action: string; onvalider: (ids: string[]) => void | Promise<void>; onannuler: () => void };
+  } = $props();
 
   const MARGE = 16;
   // A ready-made model (search results...) or the timeline of the view.
@@ -152,6 +162,7 @@
       void garderAncre(() => chrono.redisposer(largeurVue - MARGE * 2, hauteurCible));
     } else if (e.ctrlKey && e.key.toLowerCase() === 'a') selection.ajouter(chrono.chargees());
     else if (e.key === 'Escape' && selection.active) selection.vider();
+    else if (e.key === 'Escape' && choix) choix.onannuler();
     else if (e.key === 'Delete' && selection.active && vue.id !== 'corbeille') {
       document.querySelector<HTMLButtonElement>(`[aria-label^="${t('Mettre à la corbeille')}"]`)?.click();
     } else if (e.key === 'Home') allerA(0, false);
@@ -161,6 +172,17 @@
   }
 
   let diaporama = $state(false);
+
+  let validation = $state(false);
+  async function valider() {
+    if (!choix) return;
+    validation = true;
+    try {
+      await choix.onvalider(selection.ids());
+    } finally {
+      validation = false;
+    }
+  }
 
   function ouvrir(tuile: TuileVisible) {
     diaporama = false;
@@ -175,6 +197,16 @@
   function rafraichirCharges() {
     chrono.actualiserMois().catch((e) => notifier(t('Actualisation impossible : {e}', { e: String(e) }), 'erreur'));
   }
+
+  // Photos sent by a drop or the « Envoyer » button: the months reload once
+  // each lot is done.
+  let lotsVus: number | null = null;
+  $effect(() => {
+    const finis = envois.etat?.lotsFinis;
+    if (finis == null) return;
+    if (lotsVus != null && finis > lotsVus) untrack(rafraichirCharges);
+    lotsVus = finis;
+  });
 
   function apresModification(date: boolean) {
     if (!date) return;
@@ -307,7 +339,15 @@
 
 <div class="flex h-full min-h-0 flex-col">
   <div class="entete shrink-0 border-b border-gray-200 dark:border-gray-800">
-    {#if selection.active}
+    {#if choix}
+      <div class="choix flex h-14 items-center gap-3 px-3">
+        <IconButton icon={mdiClose} aria-label={t('Annuler (Échap)')} variant="ghost" color="secondary" shape="round" onclick={choix.onannuler} />
+        <span class="font-semibold">{choix.titre}</span>
+        <Text size="small" color="muted">{tp(selection.taille, '{n} sélectionnée', '{n} sélectionnées')}</Text>
+        <span class="flex-1"></span>
+        <Button disabled={!selection.taille || validation} loading={validation} onclick={valider}>{choix.action}</Button>
+      </div>
+    {:else if selection.active}
       <BarreSelection {vue} {selection} {chrono} />
     {:else}
       <div class="flex h-14 items-center gap-3 px-5">
@@ -356,7 +396,7 @@
             class="titre absolute left-0 right-0 flex items-end gap-1.5"
             class:titre-mois={titre.mois}
             class:titre-jour={!titre.mois}
-            class:mode-selection={selection.active}
+            class:mode-selection={selection.active || !!choix}
             style:transform="translateY({titre.y}px)"
             style:height="{titre.mois ? HAUTEUR_TITRE_MOIS : HAUTEUR_TITRE_JOUR}px"
           >
@@ -381,7 +421,7 @@
           <Tuile
             {tuile}
             selectionnee={selection.contient(tuile.asset.id)}
-            modeSelection={selection.active}
+            modeSelection={selection.active || !!choix}
             onouvrir={ouvrir}
             onbasculer={basculer}
           />

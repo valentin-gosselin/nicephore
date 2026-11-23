@@ -16,6 +16,8 @@
     mdiMapMarkerOutline,
     mdiTagPlusOutline,
     mdiSelectAll,
+    mdiShareVariantOutline,
+    mdiImageAlbum,
     mdiTrashCanOutline,
   } from '@mdi/js';
   import { listen } from '@tauri-apps/api/event';
@@ -29,6 +31,7 @@
     definirFavori,
     etiqueter,
     mettreCorbeille,
+    modifierAlbum,
     modifierInfos,
     restaurerCorbeille,
     retirerDeLAlbum,
@@ -36,6 +39,7 @@
     type Album,
   } from './api';
   import ChoixAlbum from './ChoixAlbum.svelte';
+  import DialoguePartage from './DialoguePartage.svelte';
   import { fuseauLocal, versLocal } from './dates';
   import DialogueDate from './DialogueDate.svelte';
   import DialogueLieu from './DialogueLieu.svelte';
@@ -50,6 +54,20 @@
 
   let enCours = $state(false);
   let choixAlbum = $state(false);
+  let partage = $state(false);
+
+  async function definirCouverture() {
+    const album = vue.filtre.album;
+    const [id] = selection.ids();
+    if (!album || !id) return;
+    try {
+      await modifierAlbum(album, { couverture: id });
+      selection.vider();
+      notifier(t('Couverture de l’album changée'), 'succes');
+    } catch (e) {
+      notifier(t('Modification impossible : {raison}', { raison: String(e) }), 'erreur');
+    }
+  }
   let dialogue = $state<'date' | 'lieu' | 'tag' | null>(null);
   const nombre = $derived(selection.taille);
 
@@ -257,6 +275,7 @@
   {#if vue.id === 'corbeille'}
     <IconButton icon={mdiDeleteRestore} aria-label={t('Restaurer')} variant="ghost" shape="round" disabled={enCours} onclick={restaurer} />
   {:else}
+    <IconButton icon={mdiShareVariantOutline} aria-label={t('Partager')} variant="ghost" shape="round" disabled={enCours} onclick={() => (partage = true)} />
     <IconButton
       icon={selection.tousFavoris() ? mdiHeart : mdiHeartOutline}
       aria-label={selection.tousFavoris() ? t('Retirer des favoris') : t('Ajouter aux favoris')}
@@ -268,6 +287,9 @@
     <IconButton icon={mdiImagePlusOutline} aria-label={t('Ajouter à un album')} variant="ghost" shape="round" disabled={enCours} onclick={() => (choixAlbum = true)} />
     {#if vue.id === 'album' && vue.filtre.album}
       <IconButton icon={mdiImageMinusOutline} aria-label={t('Retirer de l’album')} variant="ghost" shape="round" disabled={enCours} onclick={retirerDeLAlbumCourant} />
+      {#if nombre === 1}
+        <IconButton icon={mdiImageAlbum} aria-label={t('Définir comme couverture d’album')} variant="ghost" shape="round" disabled={enCours} onclick={definirCouverture} />
+      {/if}
     {/if}
     <IconButton icon={mdiCalendarEditOutline} aria-label={t('Modifier la date')} variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'date')} />
     <IconButton icon={mdiMapMarkerOutline} aria-label={t('Modifier le lieu')} variant="ghost" shape="round" disabled={enCours} onclick={() => (dialogue = 'lieu')} />
@@ -294,6 +316,10 @@
   <DialogueLieu nombre={nombre} latitude={null} longitude={null} onvalider={changerLieu} onfermer={() => (dialogue = null)} />
 {:else if dialogue === 'tag'}
   <DialogueTag nombre={nombre} onvalider={ajouterTag} onfermer={() => (dialogue = null)} />
+{/if}
+
+{#if partage}
+  <DialoguePartage assets={selection.ids()} onfermer={() => (partage = false)} />
 {/if}
 
 {#if choixAlbum}

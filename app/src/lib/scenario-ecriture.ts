@@ -4,6 +4,7 @@
 // local (the disposable Immich of scripts/immich-jetable.sh).
 import { goto } from '$app/navigation';
 import { invoke } from '@tauri-apps/api/core';
+import { emitTo } from '@tauri-apps/api/event';
 import { etatConnexion } from './api';
 
 const journal = (message: string) => invoke('journal', { message });
@@ -65,6 +66,7 @@ function saisir(champ: HTMLInputElement | null, texte: string) {
 }
 
 const entete = () => document.querySelector('.entete')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+const texteMenu = () => [...document.querySelectorAll('[role="menuitem"]')].map((m) => m.textContent?.trim() ?? '').join(' | ');
 const notifications = () => [...document.querySelectorAll('[role="status"], [role="alert"]')].map((n) => n.textContent ?? '');
 
 /** Selects the first `n` tiles visible in the timeline. */
@@ -146,8 +148,9 @@ export async function lancerScenarioEcriture() {
     await verifier('photo retirée de l’album', entete().includes('2 éléments'), entete());
     await capture('e2-album-modifie');
 
-    // 5. Delete the album (its photos stay).
-    await cliquer('Supprimer l’album');
+    // 5. Delete the album (its photos stay), from the menu of the album.
+    (await element<HTMLButtonElement>('.actions-album [aria-label="Plus d’actions"]'))?.click();
+    (await element<HTMLElement>('[role="menuitem"]', (m) => (m.textContent ?? '').includes('Supprimer l’album')))?.click();
     const confirmer = await element<HTMLButtonElement>('[role="dialog"] button', (b) => b.textContent?.trim() === 'Supprimer l’album');
     confirmer?.click();
     await attendre(2500);
@@ -462,6 +465,223 @@ export async function lancerScenarioEcriture() {
       await attendre(1000);
     }
     await capture('e7-fin');
+
+    // 12b. Upload by drag and drop, like Immich web (the drop is the event
+    // the system sends; banc.sh prepared the files).
+    {
+      await aller('/');
+      await attendre(1000);
+      const depot = await invoke<string | null>('dossier_banc_vide', { nom: 'depot' });
+      const panneau = () => document.querySelector('.panneau-envoi');
+      const chiffre = (classe: string) => Number(panneau()?.querySelector(`dd.${classe}`)?.textContent ?? -1);
+      const fini = async () => {
+        for (let i = 0; i < 120; i++) {
+          if (panneau()?.textContent?.includes('Envoi fini')) return true;
+          await attendre(250);
+        }
+        return false;
+      };
+      const deposer = async (chemins: string[]) => {
+        const cible = { kind: 'Webview' as const, label: 'main' };
+        await emitTo(cible, 'tauri://drag-enter', { paths: chemins, position: { x: 400, y: 300 } });
+        const survol = !!(await element('.depot'));
+        await emitTo(cible, 'tauri://drag-drop', { paths: chemins, position: { x: 400, y: 300 } });
+        return survol;
+      };
+      const avant = new Set((await invoke<{ id: string }[]>('albums')).map((a) => a.id));
+      const survol = await deposer([`${depot}/Vacances dépôt`, `${depot}/seule.jpg`, `${depot}/lisez-moi.txt`]);
+      await verifier('fenêtre assombrie pendant le glisser', survol);
+      const question = await element('[role="dialog"]', (d) => (d.textContent ?? '').includes('Où ranger les photos de ce dossier'));
+      const nom = document.querySelector<HTMLInputElement>('[role="dialog"] input');
+      await verifier('dossier déposé : question de l’album, nom du dossier proposé', !!question && nom?.value === 'Vacances dépôt', nom?.value ?? '');
+      await capture('e7b-depot-question');
+      (await element<HTMLButtonElement>('[role="dialog"] button[type="submit"]'))?.click();
+      await verifier('panneau d’envoi, puis envoi fini', await fini(), panneau()?.textContent?.slice(0, 200) ?? '');
+      await verifier(
+        'deux photos du dossier et la photo seule envoyées, la copie reconnue',
+        chiffre('envoyes') === 3 && chiffre('doublons') === 1 && chiffre('erreurs') === 0,
+        `${chiffre('envoyes')} envoyées, ${chiffre('doublons')} doublons, ${chiffre('erreurs')} erreurs`,
+      );
+      await verifier('fichier texte déposé laissé de côté, signalé', notifications().some((n) => n.includes('1 fichier laissé de côté')));
+      await capture('e7c-depot-fini');
+      const nouvel = (await invoke<{ id: string; albumName: string; assetCount: number }[]>('albums')).find((a) => !avant.has(a.id));
+      await verifier('album créé au nom du dossier, avec les quatre photos', nouvel?.albumName === 'Vacances dépôt' && nouvel.assetCount === 4, `${nouvel?.albumName} : ${nouvel?.assetCount}`);
+      (await element<HTMLButtonElement>('.panneau-envoi [aria-label="Fermer"]'))?.click();
+      await attendre(500);
+      await verifier('panneau fermé', !panneau());
+
+      // Dropped on the album page: straight into that album.
+      if (nouvel) {
+        await aller(`/album?id=${nouvel.id}`);
+        await attendre(1500);
+        await deposer([`${depot}/encore.jpg`]);
+        await attendre(300);
+        await verifier('sur la page d’un album : pas de question', !document.querySelector('[role="dialog"]'));
+        await verifier('photo envoyée dans l’album affiché', (await fini()) && chiffre('envoyes') === 1 && (panneau()?.textContent ?? '').includes('Vacances dépôt'));
+        const compte = await invoke<{ assetCount: number }>('album', { id: nouvel.id }).catch(() => null);
+        await verifier('l’album compte cinq photos', compte?.assetCount === 5, `${compte?.assetCount}`);
+        let tuiles = 0;
+        for (let i = 0; i < 40 && tuiles !== 5; i++) {
+          await attendre(250);
+          tuiles = document.querySelectorAll('.tuile').length;
+        }
+        await verifier('la page de l’album montre la nouvelle photo sans recharger', tuiles === 5, `${tuiles} tuiles`);
+        (await element<HTMLButtonElement>('.panneau-envoi [aria-label="Fermer"]'))?.click();
+        await attendre(500);
+      }
+
+      // Same folder again, library only: everything already there.
+      await aller('/');
+      await attendre(1000);
+      await deposer([`${depot}/Vacances dépôt`]);
+      const seulement = await element<HTMLButtonElement>('[role="dialog"] button', (b) => (b.textContent ?? '').includes('Dans la bibliothèque seulement'));
+      seulement?.click();
+      await verifier('« bibliothèque seulement » : les trois déjà là, rien de renvoyé', (await fini()) && chiffre('doublons') === 3 && chiffre('envoyes') === 0);
+      (await element<HTMLButtonElement>('.panneau-envoi [aria-label="Fermer"]'))?.click();
+      await attendre(500);
+
+      // The « Envoyer » button of the bar offers files or a folder.
+      (await element<HTMLButtonElement>('header button.envoyer'))?.click();
+      await verifier('bouton « Envoyer » : fichiers ou dossier', !!(await element('[role="menu"], [role="menuitem"]')) && texteMenu().includes('Un dossier…'), texteMenu().slice(0, 120));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await attendre(600);
+
+      // 12c. The album page has the buttons of Immich web.
+      if (nouvel) {
+        type AlbumVu = { assetCount: number; albumThumbnailAssetId: string | null; order?: string | null };
+        await aller(`/album?id=${nouvel.id}`);
+        await attendre(1500);
+        const boutons = ['Ajouter des photos', 'Partager', 'Télécharger', 'Diaporama', 'Plus d’actions'];
+        const presents = boutons.filter((b) => document.querySelector(`.actions-album [aria-label="${b}"]`));
+        await verifier('boutons de l’album comme Immich web', presents.length === boutons.length, presents.join(', '));
+        await capture('e7d-album-boutons');
+
+        // Share with the second account, then stop sharing.
+        await cliquer('Partager');
+        const dialogue = () => document.querySelector('[role="dialog"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+        await verifier('partage : le propriétaire de l’album', !!(await element('[role="dialog"]', (d) => (d.textContent ?? '').includes('Propriétaire'))));
+        (await element<HTMLButtonElement>('[role="dialog"] button', (b) => (b.textContent ?? '').includes('Inviter une personne')))?.click();
+        // The role dropdown opens above the dialog (not under its veil).
+        (await element<HTMLElement>('[role="dialog"] button[data-select-trigger], [role="dialog"] [data-select-trigger]'))?.click();
+        const deroulant = await element<HTMLElement>('[data-select-content]');
+        const cadre = deroulant?.getBoundingClientRect();
+        const dessus = cadre ? document.elementFromPoint(cadre.x + cadre.width / 2, cadre.y + cadre.height / 2) : null;
+        await verifier('menu du rôle au premier plan dans la fenêtre', !!deroulant && !!dessus && deroulant.contains(dessus), dessus?.className?.toString().slice(0, 80) ?? 'pas de menu');
+        await capture('e7e0-role-premier-plan');
+        (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        let ferme = false;
+        for (let i = 0; i < 20 && !ferme; i++) {
+          await attendre(150);
+          ferme = !document.querySelector('[data-select-content]');
+        }
+        await verifier(
+          'Échap ferme le menu, pas la fenêtre',
+          ferme && !!document.querySelector('[role="dialog"]'),
+          `menu ${ferme ? 'fermé' : 'ouvert'} par Échap, fenêtre ${document.querySelector('[role="dialog"]') ? 'ouverte' : 'fermée'}`,
+        );
+        const case_ = await element<HTMLElement>('[role="dialog"] label.personne');
+        case_?.click();
+        await attendre(200);
+        (await element<HTMLButtonElement>('[role="dialog"] button', (b) => (b.textContent ?? '').trim() === 'Ajouter' && !b.disabled))?.click();
+        await verifier('album partagé avec le second compte, en visionneur', !!(await element('[role="dialog"] li.membre', (m) => (m.textContent ?? '').length > 0)) && dialogue().includes('Visionneur'), dialogue().slice(0, 200));
+        await capture('e7e-partage-membres');
+        (await element<HTMLButtonElement>('[role="dialog"] li.membre [aria-label^="Retirer"]'))?.click();
+        let retire = false;
+        for (let i = 0; i < 30 && !retire; i++) {
+          await attendre(200);
+          retire = !document.querySelector('[role="dialog"] li.membre');
+        }
+        await verifier('membre retiré', retire);
+
+        // A public link to the album: created (copied), listed, deleted.
+        (await element<HTMLButtonElement>('[role="dialog"] button', (b) => (b.textContent ?? '').includes('Créer un lien')))?.click();
+        const description = await element<HTMLInputElement>('.formulaire-lien input');
+        if (description) {
+          description.value = 'Pour la famille';
+          description.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        await capture('e7f-lien-options');
+        (await element<HTMLButtonElement>('.formulaire-lien button[type="submit"]'))?.click();
+        const ligne = await element('[role="dialog"] .ligne-lien', (l) => (l.textContent ?? '').includes('Pour la famille'));
+        await verifier('lien de l’album créé, avec son adresse', !!ligne && /\/share\/[\w-]+/.test(ligne.textContent ?? ''), ligne?.textContent?.slice(0, 160) ?? dialogue().slice(0, 200));
+        await verifier('lien copié', notifications().some((n) => n.includes('Lien créé et copié')));
+        await capture('e7g-lien-cree');
+        (await element<HTMLButtonElement>('[role="dialog"] .ligne-lien [aria-label="Supprimer le lien"]'))?.click();
+        (await element<HTMLButtonElement>('[role="dialog"] [role="alertdialog"] button', (b) => (b.textContent ?? '').trim() === 'Supprimer'))?.click();
+        let supprime = false;
+        for (let i = 0; i < 30 && !supprime; i++) {
+          await attendre(200);
+          supprime = !document.querySelector('[role="dialog"] .ligne-lien');
+        }
+        await verifier('lien supprimé après confirmation', supprime);
+        (await element<HTMLButtonElement>('[role="dialog"] [aria-label="Fermer"]'))?.click();
+        await attendre(400);
+
+        // Add photos: the library in picking mode.
+        await cliquer('Ajouter des photos');
+        await verifier('« Ajouter des photos » : la photothèque à choisir', !!(await element('.choix', (c) => (c.textContent ?? '').includes('Ajouter à « Vacances dépôt »'))));
+        await attendre(1200);
+        const tuiles = [...document.querySelectorAll<HTMLElement>('.tuile .image-tuile')].slice(-2);
+        for (const tuile of tuiles) tuile.click();
+        await attendre(300);
+        (await element<HTMLButtonElement>('.choix button', (b) => (b.textContent ?? '').trim() === 'Ajouter' && !b.disabled))?.click();
+        await verifier('photos choisies ajoutées à l’album', !!(await element('[role="status"]', (n) => /ajoutés? à « Vacances dépôt »/.test(n.textContent ?? ''))), notifications().join(' | ').slice(0, 200));
+        await attendre(1500);
+
+        // Order, cover, download.
+        await invoke('modifier_album', { id: nouvel.id, modification: { ordre: 'asc' } });
+        await aller('/');
+        await attendre(500);
+        await aller(`/album?id=${nouvel.id}`);
+        await attendre(1500);
+        const menuAlbum = await element<HTMLButtonElement>('.actions-album [aria-label="Plus d’actions"]');
+        menuAlbum?.click();
+        await attendre(400);
+        await verifier('menu de l’album : envoyer, ordre, supprimer', texteMenu().includes('Envoyer un dossier…') && texteMenu().includes('Anciens en premier') && texteMenu().includes('Supprimer l’album'), texteMenu());
+        (await element<HTMLElement>('[role="menuitem"]', (m) => (m.textContent ?? '').includes('Récents en premier')))?.click();
+        await attendre(1200);
+        await verifier('ordre de l’album changé depuis le menu', (await invoke<AlbumVu>('album', { id: nouvel.id })).order === 'desc');
+        const premiere = await element<HTMLButtonElement>('.tuile .coche');
+        premiere?.click();
+        await cliquer('Définir comme couverture d’album');
+        await attendre(1000);
+        const couverture = (await invoke<AlbumVu>('album', { id: nouvel.id })).albumThumbnailAssetId;
+        await verifier('couverture choisie depuis la sélection', !!couverture && notifications().some((n) => n.includes('Couverture de l’album changée')), couverture ?? '');
+        const destination = await invoke<string | null>('dossier_banc_vide', { nom: 'albumtelecharge' });
+        const compte = (await invoke<AlbumVu>('album', { id: nouvel.id })).assetCount;
+        const bilan = await invoke<{ reussis: number; echecs: string[]; dossier: string }>('telecharger_album', { id: nouvel.id, nom: 'Vacances : dépôt', dossier: destination });
+        await verifier('album téléchargé dans un dossier à son nom', bilan.reussis === compte && !bilan.echecs.length && bilan.dossier.endsWith('Vacances _ dépôt'), `${bilan.reussis}/${compte} dans ${bilan.dossier}`);
+      }
+
+      // A link to selected photos, then the « Liens partagés » page.
+      await aller('/');
+      await attendre(1500);
+      for (const coche of [...document.querySelectorAll<HTMLButtonElement>('.tuile .coche')].slice(0, 2)) coche.click();
+      await attendre(300);
+      await cliquer('Partager');
+      await verifier('sélection : le formulaire du lien directement', !!(await element('[role="dialog"] .formulaire-lien')));
+      (await element<HTMLButtonElement>('.formulaire-lien button[type="submit"]'))?.click();
+      await verifier('lien des deux photos créé', !!(await element('[role="dialog"] .ligne-lien', (l) => (l.textContent ?? '').includes('2 photos ou vidéos'))));
+      (await element<HTMLButtonElement>('[role="dialog"] [aria-label="Fermer"]'))?.click();
+      document.querySelector<HTMLButtonElement>('[aria-label="Annuler la sélection (Échap)"]')?.click();
+      await aller('/liens');
+      await verifier('page « Liens partagés » : le lien des photos', !!(await element('.liens .ligne-lien', (l) => (l.textContent ?? '').includes('2 photos ou vidéos'))));
+      await capture('e7h-liens-partages');
+      (await element<HTMLButtonElement>('.liens .ligne-lien [aria-label="Modifier le lien"]'))?.click();
+      await verifier('modifier un lien depuis la page', !!(await element('[role="dialog"] .formulaire-lien')));
+      (await element<HTMLButtonElement>('[role="dialog"] [aria-label="Fermer"]'))?.click();
+      await attendre(300);
+      const avantSuppression = document.querySelectorAll('.liens .ligne-lien').length;
+      (await element<HTMLButtonElement>('.liens .ligne-lien [aria-label="Supprimer le lien"]'))?.click();
+      (await element<HTMLButtonElement>('.liens [role="alertdialog"] button', (b) => (b.textContent ?? '').trim() === 'Supprimer'))?.click();
+      let moins = false;
+      for (let i = 0; i < 30 && !moins; i++) {
+        await attendre(200);
+        moins = document.querySelectorAll('.liens .ligne-lien').length === avantSuppression - 1;
+      }
+      await verifier('lien supprimé depuis la page', moins);
+    }
 
     // 13. Account menu at the top right.
     (await element<HTMLButtonElement>('[aria-label^="Compte de"]'))?.click();

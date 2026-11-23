@@ -55,3 +55,9 @@ textarea,
 img {
   -webkit-user-drag: none;
 }
+
+/* The dropdown of a select (@immich/ui gives it z-55) must open above the
+   dialogs of Nicéphore (z-70): its floating wrapper copies this value. */
+[data-select-content] {
+  z-index: 75 !important;
+}

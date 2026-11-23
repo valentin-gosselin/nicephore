@@ -31,6 +31,8 @@ export type Filtre = {
   corbeille?: boolean;
   personne?: string;
   album?: string;
+  /** `asc`: oldest first (an album's order). */
+  ordre?: 'asc' | 'desc';
 };
 
 /** Asset of a search result, reduced to what the grid needs. */
@@ -90,6 +92,8 @@ export type Album = {
   shared: boolean;
   updatedAt: string | null;
   lastModifiedAssetTimestamp: string | null;
+  /** Order of its photos. */
+  order?: 'asc' | 'desc' | null;
   /** Owned by the user (false: shared with them). */
   possede: boolean;
 };
@@ -212,10 +216,87 @@ export const albums = () => invoke<Album[]>('albums');
 export const album = (id: string) => invoke<Album>('album', { id });
 export const creerAlbum = (nom: string, description: string, ids: string[]) =>
   invoke<Album>('creer_album', { nom, description, ids });
-export const modifierAlbum = (id: string, modification: { nom?: string; description?: string }) =>
+export const modifierAlbum = (
+  id: string,
+  modification: { nom?: string; description?: string; couverture?: string; ordre?: 'asc' | 'desc' },
+) =>
   invoke<void>('modifier_album', { id, modification });
 export const supprimerAlbum = (id: string) => invoke<void>('supprimer_album', { id });
 export const ajouterALAlbum = (id: string, ids: string[]) => invoke<BilanAlbum>('ajouter_a_l_album', { id, ids });
+
+// ---- Sharing ----
+
+/** A public link to an album or to some photos, with its address. */
+export type LienPartage = {
+  id: string;
+  key: string;
+  slug: string | null;
+  type: 'ALBUM' | 'INDIVIDUAL';
+  description: string | null;
+  expiresAt: string | null;
+  allowDownload: boolean;
+  allowUpload: boolean;
+  showMetadata: boolean;
+  password: string | null;
+  createdAt: string;
+  album: { id: string; albumName: string; albumThumbnailAssetId: string | null } | null;
+  assets: { id: string }[];
+  url: string;
+};
+/** Fields of a link as Immich names them. */
+export type ChampsLien = {
+  description?: string | null;
+  expiresAt?: string | null;
+  password?: string | null;
+  slug?: string | null;
+  allowDownload?: boolean;
+  allowUpload?: boolean;
+  showMetadata?: boolean;
+};
+export type RoleAlbum = 'viewer' | 'editor';
+export type MembresAlbum = { proprietaire: Utilisateur; membres: { utilisateur: Utilisateur; role: RoleAlbum }[] };
+
+export const liensPartages = (album?: string) => invoke<LienPartage[]>('liens_partages', { album: album ?? null });
+export const creerLien = (lien: ChampsLien & { type: 'ALBUM' | 'INDIVIDUAL'; albumId?: string; assetIds?: string[] }) =>
+  invoke<LienPartage>('creer_lien', { lien });
+export const modifierLien = (id: string, modification: ChampsLien) => invoke<LienPartage>('modifier_lien', { id, modification });
+export const supprimerLien = (id: string) => invoke<void>('supprimer_lien', { id });
+export const utilisateursServeur = () => invoke<Utilisateur[]>('utilisateurs_serveur');
+export const membresAlbum = (id: string) => invoke<MembresAlbum>('membres_album', { id });
+export const ajouterMembres = (id: string, membres: { utilisateur: string; role: RoleAlbum }[]) =>
+  invoke<void>('ajouter_membres', { id, membres });
+export const changerRole = (id: string, utilisateur: string, role: RoleAlbum) => invoke<void>('changer_role', { id, utilisateur, role });
+export const retirerMembre = (id: string, utilisateur: string) => invoke<void>('retirer_membre', { id, utilisateur });
+export const telechargerAlbum = (id: string, nom: string, dossier: string) =>
+  invoke<Bilan>('telecharger_album', { id, nom, dossier });
+
+// ---- Manual upload (drop on the window, « Envoyer » button) ----
+
+/** Album receiving dropped photos. */
+export type AlbumEnvoi = { type: 'existant'; id: string; nom: string } | { type: 'nouveau'; nom: string };
+export interface EtatEnvoiManuel {
+  actif: boolean;
+  total: number;
+  traites: number;
+  envoyes: number;
+  doublons: number;
+  nombreErreurs: number;
+  erreurs: { nom: string; message: string }[];
+  octetsTotal: number;
+  octetsFaits: number;
+  fichier: string | null;
+  albums: string[];
+  annule: boolean;
+  lotsFinis: number;
+}
+/** Folders dropped, by name, and loose files. */
+export const decrireDepot = (chemins: string[]) => invoke<{ dossiers: string[]; fichiers: number }>('decrire_depot', { chemins });
+/** Starts sending; returns once counted (photos and videos, files of formats the server refuses). */
+export const envoyerLot = (chemins: string[], album: AlbumEnvoi | null) =>
+  invoke<{ medias: number; ecartes: number }>('envoyer_lot', { chemins, album });
+export const annulerEnvois = () => invoke<void>('annuler_envois');
+export const effacerEnvois = () => invoke<void>('effacer_envois');
+export const etatEnvois = () => invoke<EtatEnvoiManuel>('etat_envois');
 export const retirerDeLAlbum = (id: string, ids: string[]) => invoke<void>('retirer_de_l_album', { id, ids });
 export const nombresPersonnes = (ids: string[]) => invoke<Record<string, number>>('nombres_personnes', { ids });
 export const nombresVilles = (villes: string[]) => invoke<Record<string, number>>('nombres_villes', { villes });

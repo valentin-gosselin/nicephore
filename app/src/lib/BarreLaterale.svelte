@@ -12,6 +12,7 @@
     mdiHeart,
     mdiHeartOutline,
     mdiImageAlbum,
+    mdiLinkVariant,
     mdiImageMultiple,
     mdiImageMultipleOutline,
     mdiMagnify,
@@ -42,6 +43,7 @@
   const favoris: Entree = $derived({ libelle: t('Favoris'), icone: mdiHeartOutline, iconeActive: mdiHeart, chemin: '/favoris' });
   const albumsEntree: Entree = $derived({ libelle: t('Albums'), icone: mdiImageAlbum, chemin: '/albums', autres: ['/album'] });
   const fin: Entree[] = $derived([
+    { libelle: t('Liens partagés'), icone: mdiLinkVariant, chemin: '/liens' },
     { libelle: t('Archive'), icone: mdiArchiveArrowDownOutline, iconeActive: mdiArchiveArrowDown, chemin: '/archive' },
     { libelle: t('Corbeille'), icone: mdiTrashCanOutline, iconeActive: mdiTrashCan, chemin: '/corbeille' },
   ]);

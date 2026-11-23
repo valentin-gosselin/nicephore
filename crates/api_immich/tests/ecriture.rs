@@ -85,10 +85,51 @@ async fn albums_de_bout_en_bout() {
     c.retirer_de_l_album(&album.id, &ids[..1]).await.unwrap();
     assert_eq!(total(&c, &filtre).await, 3);
 
-    let modification = ModificationAlbum { nom: Some("Essai renommé".into()), description: Some("nouvelle".into()) };
+    let modification = ModificationAlbum { nom: Some("Essai renommé".into()), description: Some("nouvelle".into()), ..Default::default() };
     c.modifier_album(&album.id, &modification).await.unwrap();
     let relu = c.album(&album.id).await.unwrap();
     assert_eq!((relu.album_name.as_str(), relu.description.as_str()), ("Essai renommé", "nouvelle"));
+
+    // Cover and order of the photos.
+    let couverture = ModificationAlbum { couverture: Some(ids[2].clone()), ordre: Some("asc".into()), ..Default::default() };
+    c.modifier_album(&album.id, &couverture).await.unwrap();
+    let relu = c.album(&album.id).await.unwrap();
+    assert_eq!(relu.album_thumbnail_asset_id.as_deref(), Some(ids[2].as_str()));
+    assert_eq!(relu.order.as_deref(), Some("asc"));
+
+    // A public link to the album: created, found, changed, deleted.
+    let lien = c
+        .creer_lien(&serde_json::json!({ "type": "ALBUM", "albumId": album.id, "allowDownload": false, "showMetadata": true, "description": "essai" }))
+        .await
+        .unwrap();
+    assert_eq!(lien.genre, "ALBUM");
+    assert!(!lien.key.is_empty() && !lien.allow_download);
+    // The album comes with the listing (not with the creation).
+    let liste = c.liens_partages(Some(&album.id)).await.unwrap();
+    assert!(liste.iter().any(|l| l.id == lien.id && l.album.as_ref().map(|a| a.id.as_str()) == Some(album.id.as_str())));
+    let change = c.modifier_lien(&lien.id, &serde_json::json!({ "allowDownload": true, "description": "changé" })).await.unwrap();
+    assert!(change.allow_download && change.description.as_deref() == Some("changé"));
+    c.supprimer_lien(&lien.id).await.unwrap();
+    assert!(!c.liens_partages(None).await.unwrap().iter().any(|l| l.id == lien.id));
+    // A link to two photos.
+    let photos = c.creer_lien(&serde_json::json!({ "type": "INDIVIDUAL", "assetIds": &ids[1..3] })).await.unwrap();
+    assert_eq!(photos.assets.len(), 2);
+    let listes = c.liens_partages(None).await.unwrap();
+    assert_eq!(listes.iter().find(|l| l.id == photos.id).map(|l| l.assets.len()), Some(2), "toutes les photos du lien dans la liste");
+    c.supprimer_lien(&photos.id).await.unwrap();
+    let _ = c.domaine_externe().await.unwrap();
+
+    // Shared with the second account: viewer, then editor, then removed.
+    let moi = c.moi().await.unwrap();
+    let autre = c.utilisateurs().await.unwrap().into_iter().find(|u| u.id != moi.id).expect("second compte du serveur jetable");
+    c.ajouter_membres(&album.id, &[(autre.id.clone(), "viewer".into())]).await.unwrap();
+    let membres = c.membres_album(&album.id).await.unwrap();
+    assert_eq!(membres.proprietaire.id, moi.id);
+    assert!(membres.membres.iter().any(|m| m.utilisateur.id == autre.id && m.role == "viewer"));
+    c.changer_role(&album.id, &autre.id, "editor").await.unwrap();
+    assert!(c.membres_album(&album.id).await.unwrap().membres.iter().any(|m| m.utilisateur.id == autre.id && m.role == "editor"));
+    c.retirer_membre(&album.id, &autre.id).await.unwrap();
+    assert!(c.membres_album(&album.id).await.unwrap().membres.is_empty());
     assert!(c.albums().await.unwrap().iter().any(|a| a.id == album.id && a.possede));
 
     c.supprimer_album(&album.id).await.unwrap();

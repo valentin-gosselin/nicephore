@@ -34,6 +34,15 @@ Files already on the server are recognized by their checksum and never sent twic
 ever deleted, neither on your computer nor on the server. Sync keeps going from the tray, can
 start with the session, and waits on battery or on a metered connection.
 
+**Upload like the web app.** Drop photos, videos or whole folders anywhere on the window, or use
+the "Upload" button: duplicates are skipped by checksum, a panel follows the upload, and a dropped
+folder can go straight into a new album named after it (on an album page, into that album).
+
+**Share like the web app.** Albums get the buttons of Immich web: add photos, share with other
+accounts of the server or with a public link (password, expiry, download and upload options),
+download, slideshow, sort order and cover. A selection can be shared by link too, and a "Shared
+links" page lists them all.
+
 **A photo viewer for your computer.** Open any local photo or video with Nicéphore: zoom,
 lossless rotation saved in the file, full screen, slideshow, a strip of the folder's photos, EXIF
 details, copy to the clipboard, drag to another app, "open with", system trash with undo. It shows

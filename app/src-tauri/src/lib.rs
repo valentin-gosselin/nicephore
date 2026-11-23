@@ -18,6 +18,8 @@ mod service_virtuel;
 mod telechargement;
 mod veille_interface;
 mod virtuels;
+mod envoi_manuel;
+mod partage;
 mod orientation;
 mod visionneuse_locale;
 mod zone_notification;
@@ -757,6 +759,7 @@ pub fn lancer() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(mise_a_jour::MisesAJour::default())
+        .manage(std::sync::Arc::new(envoi_manuel::EnvoisManuels::default()))
         .on_window_event(|fenetre, evenement| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = evenement
                 && fenetre.label() == "main"
@@ -937,6 +940,21 @@ pub fn lancer() {
             fichiers_locaux::definir_visionneuse_par_defaut,
             visionneuse_locale::copier_image_locale,
             visionneuse_locale::pivoter_fichier_local,
+            partage::liens_partages,
+            partage::creer_lien,
+            partage::modifier_lien,
+            partage::supprimer_lien,
+            partage::utilisateurs_serveur,
+            partage::membres_album,
+            partage::ajouter_membres,
+            partage::changer_role,
+            partage::retirer_membre,
+            partage::telecharger_album,
+            envoi_manuel::decrire_depot,
+            envoi_manuel::envoyer_lot,
+            envoi_manuel::annuler_envois,
+            envoi_manuel::effacer_envois,
+            envoi_manuel::etat_envois,
             visionneuse_locale::copier_image_immich,
             visionneuse_locale::copier_texte,
             visionneuse_locale::afficher_dans_dossier,

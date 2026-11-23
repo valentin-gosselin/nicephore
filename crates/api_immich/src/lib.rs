@@ -804,6 +804,137 @@ impl ClientImmich {
         self.get_json(&format!("assets/{id}"), &[]).await
     }
 
+    // ---- Sharing ----
+
+    /// `GET /shared-links`: every link of the user, or those of an album.
+    /// The listing gives only the first photo of a link to photos: those
+    /// are completed from `GET /shared-links/{id}`.
+    pub async fn liens_partages(&self, album: Option<&str>) -> Resultat<Vec<LienPartage>> {
+        let mut liens: Vec<LienPartage> = match album {
+            Some(id) => {
+                valider_id(id)?;
+                self.get_json("shared-links", &[("albumId", id)]).await?
+            }
+            None => self.get_json("shared-links", &[]).await?,
+        };
+        let complets = futures_util::future::join_all(
+            liens.iter().filter(|l| l.genre == "INDIVIDUAL").map(|l| {
+                let chemin = format!("shared-links/{}", l.id);
+                async move { self.get_json::<LienPartage>(&chemin, &[]).await }
+            }),
+        )
+        .await;
+        for complet in complets.into_iter().flatten() {
+            if let Some(lien) = liens.iter_mut().find(|l| l.id == complet.id) {
+                lien.assets = complet.assets;
+            }
+        }
+        Ok(liens)
+    }
+
+    /// `POST /shared-links` (fields as Immich names them: `type`,
+    /// `albumId` or `assetIds`, `expiresAt`, `allowDownload`...).
+    pub async fn creer_lien(&self, lien: &serde_json::Value) -> Resultat<LienPartage> {
+        let reponse = self.http.post(self.url("shared-links")).json(lien).timeout(Duration::from_secs(60)).send().await?;
+        Ok(verifier(reponse).await?.json().await?)
+    }
+
+    /// `PATCH /shared-links/{id}`.
+    pub async fn modifier_lien(&self, id: &str, modification: &serde_json::Value) -> Resultat<LienPartage> {
+        valider_id(id)?;
+        let reponse = self
+            .http
+            .patch(self.url(&format!("shared-links/{id}")))
+            .json(modification)
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        Ok(verifier(reponse).await?.json().await?)
+    }
+
+    /// `DELETE /shared-links/{id}`.
+    pub async fn supprimer_lien(&self, id: &str) -> Resultat<()> {
+        valider_id(id)?;
+        let reponse = self.http.delete(self.url(&format!("shared-links/{id}"))).timeout(Duration::from_secs(60)).send().await?;
+        verifier(reponse).await.map(|_| ())
+    }
+
+    /// Public address of the server for shared links: the external domain
+    /// set in Immich (`GET /server/config`), empty when none is set.
+    pub async fn domaine_externe(&self) -> Resultat<String> {
+        let config: serde_json::Value = self.get_json("server/config", &[]).await?;
+        Ok(config.get("externalDomain").and_then(|d| d.as_str()).unwrap_or_default().trim_end_matches('/').to_string())
+    }
+
+    /// `GET /users`: the users of the server an album can be shared with.
+    pub async fn utilisateurs(&self) -> Resultat<Vec<Utilisateur>> {
+        self.get_json("users", &[]).await
+    }
+
+    /// Owner and members of an album (`GET /albums/{id}`, without assets).
+    /// Immich v3 lists the owner among `albumUsers`, with the role `owner`.
+    pub async fn membres_album(&self, id: &str) -> Resultat<MembresAlbum> {
+        valider_id(id)?;
+        let album: serde_json::Value = self.get_json(&format!("albums/{id}"), &[("withoutAssets", "true")]).await?;
+        let mut tous: Vec<MembreAlbum> = album
+            .get("albumUsers")
+            .and_then(|u| u.as_array())
+            .map(|liste| {
+                liste
+                    .iter()
+                    .filter_map(|m| {
+                        Some(MembreAlbum {
+                            utilisateur: serde_json::from_value(m.get("user")?.clone()).ok()?,
+                            role: m.get("role")?.as_str()?.to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        // Before v3: the owner in its own field.
+        let ancien = album.get("owner").cloned().and_then(|o| serde_json::from_value::<Utilisateur>(o).ok());
+        let position = tous.iter().position(|m| m.role == "owner");
+        let proprietaire = match (position, ancien) {
+            (Some(i), _) => tous.remove(i).utilisateur,
+            (None, Some(o)) => o,
+            (None, None) => return Err(Erreur::Configuration("propriétaire de l'album introuvable".into())),
+        };
+        Ok(MembresAlbum { proprietaire, membres: tous })
+    }
+
+    /// `PUT /albums/{id}/users`: shares the album with users, each with a
+    /// role (`viewer` or `editor`).
+    pub async fn ajouter_membres(&self, id: &str, membres: &[(String, String)]) -> Resultat<()> {
+        valider_id(id)?;
+        for (utilisateur, _) in membres {
+            valider_id(utilisateur)?;
+        }
+        let corps = serde_json::json!({
+            "albumUsers": membres.iter().map(|(u, r)| serde_json::json!({ "userId": u, "role": r })).collect::<Vec<_>>()
+        });
+        self.envoyer(reqwest::Method::PUT, &format!("albums/{id}/users"), &corps).await
+    }
+
+    /// `PUT /albums/{id}/user/{userId}`: viewer or editor.
+    pub async fn changer_role(&self, id: &str, utilisateur: &str, role: &str) -> Resultat<()> {
+        valider_id(id)?;
+        valider_id(utilisateur)?;
+        self.envoyer(reqwest::Method::PUT, &format!("albums/{id}/user/{utilisateur}"), &serde_json::json!({ "role": role })).await
+    }
+
+    /// `DELETE /albums/{id}/user/{userId}`: stops sharing with a user.
+    pub async fn retirer_membre(&self, id: &str, utilisateur: &str) -> Resultat<()> {
+        valider_id(id)?;
+        valider_id(utilisateur)?;
+        let reponse = self
+            .http
+            .delete(self.url(&format!("albums/{id}/user/{utilisateur}")))
+            .timeout(Duration::from_secs(60))
+            .send()
+            .await?;
+        verifier(reponse).await.map(|_| ())
+    }
+
     /// `GET /assets/{id}/edits`: the edits of an asset (crop, rotate,
     /// mirror), in order, as the server gives them.
     pub async fn modifications(&self, id: &str) -> Resultat<Vec<serde_json::Value>> {

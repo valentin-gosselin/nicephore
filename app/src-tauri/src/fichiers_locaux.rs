@@ -4,7 +4,7 @@
 //! it right away. Only the folder of an opened file is made readable by the
 //! interface.
 
-use api_immich::{ClientImmich, ElementVerification, MetaEnvoi};
+use api_immich::{ClientImmich, ElementVerification};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -232,19 +232,14 @@ pub async fn asset_par_empreintes(client: &ClientImmich, sha1: &str, origine: Op
 pub async fn envoyer_fichier_local(etat: State<'_, Etat>, chemin: String) -> Result<String, String> {
     let client = etat.client()?;
     let fichier = PathBuf::from(&chemin);
-    let meta = tokio::fs::metadata(&fichier).await.map_err(|e| e.to_string())?;
     let c = fichier.clone();
-    let sha1 = tokio::task::spawn_blocking(move || envoi::analyse::empreinte(&c)).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
-    let ms = |t: std::io::Result<std::time::SystemTime>| t.ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_millis() as i64);
-    let modifie = ms(meta.modified());
-    let cree = ms(meta.created()).min(modifie).max(0);
-    let meta_envoi = MetaEnvoi {
-        nom_fichier: fichier.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
-        taille: meta.len(),
-        sha1,
-        cree_le: envoi::analyse::date_rfc3339(if cree > 0 { cree } else { modifie }),
-        modifie_le: envoi::analyse::date_rfc3339(modifie),
-    };
+    let meta_envoi = tokio::task::spawn_blocking(move || {
+        let sha1 = envoi::analyse::empreinte(&c)?;
+        crate::envoi_manuel::meta_envoi(&c, sha1)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let f = tokio::fs::File::open(&fichier).await.map_err(|e| e.to_string())?;
     let reponse = client.envoyer_asset(&meta_envoi, reqwest::Body::from(f)).await.map_err(|e| e.to_string())?;
     Ok(reponse.id)

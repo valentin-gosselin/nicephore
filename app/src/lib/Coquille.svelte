@@ -1,10 +1,14 @@
 <script lang="ts">
   // Application shell: checks the connection, then shows the header,
   // the sidebar and the current page; otherwise the login screen.
-  import { LoadingSpinner, Text } from '@immich/ui';
+  import { Button, LoadingSpinner, Text, type MenuItems } from '@immich/ui';
   import type { Snippet } from 'svelte';
   import { onMount } from 'svelte';
-  import { mdiArrowLeft, mdiArrowRight } from '@mdi/js';
+  import { mdiArrowLeft, mdiArrowRight, mdiFileImageOutline, mdiFolderOutline, mdiTrayArrowUp } from '@mdi/js';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import DepotEnvoi from './DepotEnvoi.svelte';
+  import { proposerEnvoi } from './envois.svelte';
+  import { ouvrirMenu } from './menu-contextuel';
   import { IconButton } from '@immich/ui';
   import { afterNavigate, goto } from '$app/navigation';
   import { avance, historique, noterNavigation, retour } from './navigation.svelte';
@@ -37,6 +41,20 @@
     if (e.button !== 3 && e.button !== 4) return;
     e.preventDefault();
     if (e.type === 'mouseup') (e.button === 3 ? retour : avance)();
+  }
+
+  /** « Envoyer », like Immich web: files or a folder picked, then sent. */
+  function menuEnvoi(e: MouseEvent) {
+    const choisir = async (dossier: boolean) => {
+      const choix = await open({ multiple: true, directory: dossier, title: dossier ? t('Dossiers à envoyer vers Immich') : t('Photos et vidéos à envoyer vers Immich') });
+      const chemins = choix == null ? [] : Array.isArray(choix) ? choix : [choix];
+      if (chemins.length) await proposerEnvoi(chemins);
+    };
+    const items: MenuItems = [
+      { title: t('Des photos et vidéos…'), icon: mdiFileImageOutline, onAction: () => void choisir(false) },
+      { title: t('Un dossier…'), icon: mdiFolderOutline, onAction: () => void choisir(true) },
+    ];
+    ouvrirMenu(e, items);
   }
 
   function surTouche(e: KeyboardEvent) {
@@ -158,6 +176,11 @@
         </a>
       {/if}
       <span class="h-full min-w-6 flex-1" data-tauri-drag-region></span>
+      {#if largeur >= 900}
+        <Button class="envoyer me-2 shrink-0" leadingIcon={mdiTrayArrowUp} variant="ghost" color="secondary" onclick={menuEnvoi}>{t('Envoyer')}</Button>
+      {:else}
+        <IconButton class="envoyer me-1" icon={mdiTrayArrowUp} aria-label={t('Envoyer')} variant="ghost" color="secondary" shape="round" onclick={menuEnvoi} />
+      {/if}
       <MenuCompte connexion={session.connexion} />
       <span class="mx-1 h-6 w-px bg-gray-300 dark:bg-gray-700"></span>
       <BoutonsFenetre />
@@ -184,6 +207,7 @@
 </div>
 
 <PileNotifications />
+<DepotEnvoi actif={!!session.connexion && !session.ajout && page.url.pathname !== '/fichier'} />
 
 <style>
   /* Height of the Immich web navbar. */

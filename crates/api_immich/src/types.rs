@@ -164,6 +164,9 @@ pub struct FiltreChronologie {
     /// Only the assets of this album.
     #[serde(default)]
     pub album: Option<String>,
+    /// `asc`: oldest first (an album's own order); newest first otherwise.
+    #[serde(default)]
+    pub ordre: Option<String>,
 }
 
 impl FiltreChronologie {
@@ -188,6 +191,9 @@ impl FiltreChronologie {
         if let Some(album) = &self.album {
             crate::valider_id(album)?;
             parametres.push(("albumId", album.clone()));
+        }
+        if self.ordre.as_deref() == Some("asc") {
+            parametres.push(("order", "asc".into()));
         }
         // Partner assets are only allowed on the plain main timeline.
         if visibilite == "timeline" && !self.favori && self.personne.is_none() && self.album.is_none() {
@@ -454,6 +460,9 @@ pub struct Album {
     pub updated_at: Option<String>,
     #[serde(default)]
     pub last_modified_asset_timestamp: Option<String>,
+    /// `asc` or `desc`: order of the album's photos.
+    #[serde(default)]
+    pub order: Option<String>,
     /// Owned by the current user (false: shared with them). Filled by the client.
     #[serde(default)]
     pub possede: bool,
@@ -468,6 +477,76 @@ pub struct ModificationAlbum {
     pub nom: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Cover photo, sent as `albumThumbnailAssetId`.
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "albumThumbnailAssetId"))]
+    pub couverture: Option<String>,
+    /// `asc` (oldest first) or `desc`, sent as `order`.
+    #[serde(skip_serializing_if = "Option::is_none", rename(serialize = "order"))]
+    pub ordre: Option<String>,
+}
+
+/// The album of a shared link.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumLien {
+    pub id: String,
+    pub album_name: String,
+    #[serde(default)]
+    pub album_thumbnail_asset_id: Option<String>,
+}
+
+/// A photo of a shared link (only its id is kept).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssetLien {
+    pub id: String,
+}
+
+/// A public link to an album or to some photos (`/shared-links`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LienPartage {
+    pub id: String,
+    pub key: String,
+    #[serde(default)]
+    pub slug: Option<String>,
+    /// `ALBUM` or `INDIVIDUAL`.
+    #[serde(rename = "type")]
+    pub genre: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub allow_download: bool,
+    #[serde(default)]
+    pub allow_upload: bool,
+    #[serde(default)]
+    pub show_metadata: bool,
+    #[serde(default)]
+    pub password: Option<String>,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub album: Option<AlbumLien>,
+    #[serde(default)]
+    pub assets: Vec<AssetLien>,
+}
+
+/// A user an album is shared with, and what they may do there.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MembreAlbum {
+    pub utilisateur: Utilisateur,
+    /// `viewer` or `editor`.
+    pub role: String,
+}
+
+/// Owner and members of an album.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MembresAlbum {
+    pub proprietaire: Utilisateur,
+    pub membres: Vec<MembreAlbum>,
 }
 
 /// Outcome of adding assets to an album.

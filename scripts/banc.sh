@@ -120,6 +120,32 @@ elif [ -n "$jetable" ] && [ -z "$vitrine" ]; then
     # Photos for the upload scenario: variants of a seeded photo (new
     # checksums), one copy already on the server, one file to skip.
     python3 -I "$racine/tests/immich-jetable/dossier-envoi.py" "$donnees_jetable/images" "$sortie/photos" "$sortie/deuxbib"
+    # Dropped on the window: a folder (two new photos, one in a sub-folder,
+    # a copy of a photo of the server, a text file), a loose new photo, a
+    # loose text file, and one more photo dropped on the album page.
+    python3 -I - "$donnees_jetable/images" "$sortie/depot" <<'PY'
+import os, pathlib, sys, time
+images, sortie = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+source = (images / "essai-00.jpg").read_bytes()
+jeton = str(time.time_ns())
+def variante(texte):
+    c = f"depot {texte} {jeton}".encode()
+    return source[:2] + b"\xff\xfe" + (len(c) + 2).to_bytes(2, "big") + c + source[2:]
+fichiers = {
+    "Vacances dépôt/a.jpg": variante("a"),
+    "Vacances dépôt/sous/b.jpg": variante("b"),
+    "Vacances dépôt/copie.jpg": (images / "essai-02.jpg").read_bytes(),
+    "Vacances dépôt/notes.txt": b"pas une photo",
+    "seule.jpg": variante("seule"),
+    "lisez-moi.txt": b"pas une photo",
+    "encore.jpg": variante("encore"),
+}
+for nom, contenu in fichiers.items():
+    chemin = sortie / nom
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    chemin.write_bytes(contenu)
+    os.utime(chemin, (time.time() - 3600,) * 2)
+PY
 fi
 
 # The write scenario gets its own config directory: settings it toggles

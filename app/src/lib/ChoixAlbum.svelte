@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Picks the album that receives the selection, or creates a new one.
+  // Picks the album that receives the selection, or creates a new one. For
+  // photos being sent, it may also offer « the library only ».
   import { Button, Input, LoadingSpinner, Text } from '@immich/ui';
   import { onMount } from 'svelte';
   import { albums as chargerAlbums, urlImage, type Album } from './api';
@@ -11,16 +12,25 @@
     onchoisir,
     oncreer,
     onfermer,
+    titre,
+    nomPropose = '',
+    onbibliotheque,
   }: {
     nombre: number;
     onchoisir: (album: Album) => void;
     oncreer: (nom: string) => void;
     onfermer: () => void;
+    titre?: string;
+    /** Name filled in for a new album (a dropped folder's). */
+    nomPropose?: string;
+    /** Offers sending without album. */
+    onbibliotheque?: () => void;
   } = $props();
 
   let liste = $state<Album[] | null>(null);
   let erreur = $state<string | null>(null);
-  let filtre = $state('');
+  // svelte-ignore state_referenced_locally
+  let filtre = $state(nomPropose);
 
   const filtres = $derived(
     (liste ?? [])
@@ -36,7 +46,11 @@
   });
 </script>
 
-<Dialogue titre={tp(nombre, 'Ajouter {n} élément à un album', 'Ajouter {n} éléments à un album')} {onfermer}>
+<Dialogue titre={titre ?? tp(nombre, 'Ajouter {n} élément à un album', 'Ajouter {n} éléments à un album')} {onfermer}>
+  {#if onbibliotheque}
+    <Button class="mb-4 w-full" variant="outline" color="secondary" onclick={onbibliotheque}>{t('Dans la bibliothèque seulement, sans album')}</Button>
+    <Text size="small" color="muted" class="mb-2">{t('Ou dans un album :')}</Text>
+  {/if}
   <form
     class="mb-4 flex gap-2"
     onsubmit={(e) => {

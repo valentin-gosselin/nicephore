@@ -17,6 +17,8 @@
 
   function surTouche(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
+    // A dropdown open in the dialog closes first, on its own.
+    if (document.querySelector('[data-select-content]')) return;
     e.stopImmediatePropagation();
     e.preventDefault();
     onfermer();
